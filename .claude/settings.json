@@ -1,0 +1,22 @@
+{
+  "permissions": {
+    "allow": [
+      "mcp__context7__query-docs",
+      "mcp__context7__resolve-library-id",
+      "mcp__sequential-thinking__sequentialthinking"
+    ],
+    "deny": [
+      "Bash(git commit*)",
+      "Bash(git push*)",
+      "Bash(rm -rf*)"
+    ]
+  },
+  "statusLine": {
+    "type": "command",
+    "command": "python3 .claude/scripts/context-monitor.py"
+  },
+  "fileSuggestion": {
+    "type": "command",
+    "command": "python3 .claude/scripts/file-suggestion.py"
+  }
+}

@@ -1,0 +1,20 @@
+CREATE TABLE orders (
+    id            BIGINT         NOT NULL AUTO_INCREMENT,
+    order_no      CHAR(36)       NOT NULL COMMENT '주문 번호 (UUID, 토스 orderId 겸용)',
+    user_id       BIGINT         NOT NULL COMMENT '주문자 (논리 참조)',
+    hot_deal_id   BIGINT         NOT NULL COMMENT '대상 핫딜 (논리 참조)',
+    quantity      INT            NOT NULL COMMENT '주문 수량 (현재 1 고정)',
+    order_amount  DECIMAL(12, 0) NOT NULL COMMENT '주문 금액 (특가×수량, 주문 시점 저장)',
+    status        VARCHAR(20)    NOT NULL COMMENT '주문 상태 (PENDING/PAID/CANCELED)',
+    cancel_reason VARCHAR(30)    NULL COMMENT '취소 사유 (취소 시만)',
+    expires_at    DATETIME(6)    NOT NULL COMMENT '미결제 만료 시각',
+    is_active     TINYINT GENERATED ALWAYS AS (IF(status IN ('PENDING', 'PAID'), 1, NULL)) STORED COMMENT '활성 유니크용 (PENDING/PAID=1, 그 외 NULL)',
+    created_at    DATETIME(6)    NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+    updated_at    DATETIME(6)    NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+    PRIMARY KEY (id),
+    UNIQUE KEY uk_orders_order_no (order_no),
+    UNIQUE KEY uk_orders_active (user_id, hot_deal_id, is_active),
+    KEY idx_orders_status_expires_at (status, expires_at),
+    CONSTRAINT ck_orders_quantity CHECK (quantity >= 1),
+    CONSTRAINT ck_orders_order_amount CHECK (order_amount >= 0)
+) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4;
