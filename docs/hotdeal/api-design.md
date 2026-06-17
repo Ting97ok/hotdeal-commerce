@@ -1,0 +1,124 @@
+# 핫딜(hotdeal) API 설계 문서
+
+## 개요
+
+핫딜(hotdeal)은 한정 수량을 특가로 정해진 기간에만 파는 선착순 판매다. 상품 하나에 여러 회차가 붙을 수 있다(상품:핫딜 = 1:N). 관리자용 API(Admin)와 사용자용 API(User)를 분리해 설계한다.
+
+- **현재 범위**: 핫딜 등록(관리자) · 핫딜 단건 조회(공개) — 슬라이스 0(slice 0, 한 번에 끝까지 통과시키는 세로 작업 단위, 보통 API 하나)
+- **이 범위의 설계 제약**: 수정·수량 변경 API를 두지 않는다 — `totalQuantity`(총 한정 수량)는 등록 후 불변이며, 변경은 "취소 후 재등록"으로 처리한다([ADR-0007 결정3](../adr/0007-hotdeal-state-operations.md)).
+- **문서 구조**: Admin API → [api-design-admin.md](api-design-admin.md) / User API → [api-design-user.md](api-design-user.md)
+- **단계 추적**: 단계가 늘어도 파일을 추가하지 않고 이 문서를 고도화하며, 변경은 아래 변경 이력에 한 줄씩 남긴다.
+
+---
+
+## 변경 이력
+
+| 버전 | 일자 | 내용 |
+|------|------|------|
+| v0.1 | 2026-06-15 | 등록·조회 2개 API 설계 초안 (슬라이스 0) |
+
+---
+
+## 공통 정의
+
+### 엔티티 구조
+
+핫딜 등록 시 `HotDeal`과 `Stock`(재고)이 1:1로 함께 생성된다.
+
+#### HotDeal (핫딜)
+
+| 필드 | 타입 | 설명 |
+|------|------|------|
+| id | Long | 핫딜 고유 ID (BaseEntity) |
+| dealPrice | BigDecimal | 특가 (필수, `DECIMAL(12,0)` — 소수 자리 0) |
+| totalQuantity | int | 총 한정 수량 (필수, 1 이상, 등록 후 불변) |
+| startAt | LocalDateTime | 판매 시작 시각 (필수) |
+| endAt | LocalDateTime | 판매 종료 시각 (필수) |
+| status | HotDealStatus | 상태 (필수, 등록 시 `ACTIVE` 고정) |
+| canceledAt | LocalDateTime | 긴급 중단 시각 (취소 시에만 기록, 현재 범위 미사용) |
+| product | Product | 대상 상품 (ManyToOne, LAZY, 논리 참조 — DB FK 제약 없음) |
+| createdAt | LocalDateTime | 생성일시 (BaseEntity) |
+| updatedAt | LocalDateTime | 수정일시 (BaseEntity) |
+
+#### Stock (재고)
+
+| 필드 | 타입 | 설명 |
+|------|------|------|
+| id | Long | 재고 고유 ID (BaseEntity) |
+| hotDealId | Long | 핫딜 ID (논리 참조, 1:1, UNIQUE — JPA 연관 아닌 raw 값) |
+| remainingQuantity | int | 잔여 수량 (필수, 0 이상, 등록 시 `= totalQuantity`) |
+| version | Long | 낙관락 버전 (`@Version`, 등록 시 0 — 재고 차감 경합 제어용) |
+| createdAt | LocalDateTime | 생성일시 (BaseEntity) |
+| updatedAt | LocalDateTime | 수정일시 (BaseEntity) |
+
+> **잔여 수량(remainingQuantity)**: 핫딜에 남은 구매 가능 수량. 별도 `Stock` 행이 1:1로 보유하며, 등록 시점에는 총 한정 수량과 같다.
+
+#### Product (상품)
+
+핫딜이 `productId`로 참조하는 대상이다. 등록 시 존재 검증과 특가-정가 비교(특가 < 정가)의 대상이다.
+
+---
+
+### Enum 정의
+
+#### HotDealStatus (핫딜 상태)
+
+| 값 | 설명 |
+|----|------|
+| ACTIVE | 진행 (관리자 취소 전 기본 상태) |
+| CANCELED | 관리자 취소 (긴급 중단) |
+
+> 진행 중/매진 같은 파생 상태는 별도 상태값으로 두지 않는다. `status`는 관리자 취소 여부만 나타내는 표시값이며, 진행 단계는 클라이언트가 `startAt`/`endAt`/`remainingQuantity`로 판단한다([ADR-0007 결정1](../adr/0007-hotdeal-state-operations.md)).
+
+---
+
+### 공통 응답 형식
+
+#### 성공
+
+```json
+{
+  "result": true,
+  "data": {
+    "...": "..."
+  }
+}
+```
+
+#### 실패
+
+```json
+{
+  "result": false,
+  "error": {
+    "code": "ERROR_CODE",
+    "message": "에러 메시지"
+  }
+}
+```
+
+---
+
+### 핫딜 ExceptionCode
+
+핫딜 도메인이 던지는 예외 코드다. 실패 응답의 `error.code`는 enum 이름과 같다.
+
+| ExceptionCode | 소속 enum | HttpStatus | 발생 |
+|---------------|-----------|:----------:|------|
+| HOTDEAL_NOT_FOUND | HotDealExceptionCode | 404 | 조회 — id에 해당하는 핫딜 없음 (취소·종료된 핫딜 포함) |
+| HOTDEAL_PERIOD_OVERLAP | HotDealExceptionCode | 409 | 등록 — 같은 상품의 ACTIVE 핫딜과 판매 기간 겹침 |
+| INVALID_HOTDEAL_PERIOD | HotDealExceptionCode | 400 | 등록 — `startAt >= endAt` (엔티티 `create()` 도메인 검증) |
+| INVALID_DEAL_PRICE | HotDealExceptionCode | 400 | 등록 — 특가가 정가 이상 (`dealPrice >= product.price`, 엔티티 `create()`) |
+| PRODUCT_NOT_FOUND | ProductExceptionCode | 404 | 등록 — productId에 해당하는 상품 없음 |
+
+---
+
+### 알려진 제약 / 전제
+
+| 항목 | 내용 | 근거 |
+|------|------|------|
+| DB FK 제약 없음 | `hot_deals.product_id`·`stock.hot_deal_id`는 논리 참조다. DB가 부모 존재를 보장하지 않으므로 서비스의 존재 검증이 책임진다. | [ADR-0003](../adr/0003-no-db-fk-constraints.md) |
+| Stock은 객체 연관이 아님 | `Stock.hotDealId`는 raw `Long`(JPA 연관 아님). 객체 탐색이 필요 없고 잠금·교체 단위가 독립이라 `@OneToOne` 반대편 LAZY 불가 함정을 피하고 3주차 Redis 교체 유연성을 둔다. 등록은 HotDeal save→PK 확보 후 그 id로 Stock 생성, 조회 잔여 수량은 `StockRepository`로 별도 조회. | [erd 7장](../design/erd.md) · [entity.md](../../.claude/rules/entity.md) |
+| 기간 배타 제약 부재 | MySQL은 기간 겹침을 DB 제약으로 표현할 수 없어, 겹침 금지는 등록 API의 서비스 검증으로 막는다. | [ADR-0006](../adr/0006-correctness-invariants-defense-layers.md) · [ADR-0007 결정4](../adr/0007-hotdeal-state-operations.md) |
+| 공개 조회 인증 | 조회는 공개이므로 `SecurityConfig`의 `permitAll`에 `GET /api/hotdeals/**`를 추가한다. | — |
+| DB CHECK 최후 방어 | 서비스 검증이 뚫려도 데이터 오염을 막는 백스톱 — `ck_hot_deals_period`(start_at < end_at) · `ck_hot_deals_total_quantity`(> 0) · `ck_stock_remaining_quantity`(>= 0). | [ADR-0006](../adr/0006-correctness-invariants-defense-layers.md) |

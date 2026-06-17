@@ -105,6 +105,9 @@ classDef decision fill:#fff3cd,stroke:#ffc107,color:#856404
 ### 설계 노트
 의사결정 배경/주의는 blockquote: `> **설계 노트 — {주제}**: {내용}`. 시나리오 표현은 개발 용어보다 사람이 이해하기 쉬운 표현 우선(CLAUDE.md `## 표현 룰`).
 
+### 타 문서 링크 (파일 레벨)
+타 문서의 **특정 섹션·결정**을 참조할 때는 섹션 번호를 텍스트에 적고 링크는 파일 레벨로 건다(`[ADR-0007 결정3](../adr/0007-hotdeal-state-operations.md)`처럼 `#앵커` 없이). `<a id>`·자동 슬러그 앵커는 IntelliJ가 지원하지 않아 쓰지 않는다(파일 레벨 링크는 IntelliJ·GitHub 둘 다 작동). 상세 컨벤션은 [docs/README.md](../../../docs/README.md).
+
 ## Phase 2: 설계 문서 리뷰
 1. 참조 엔티티/Repository 가 실제 코드에 존재하는지 확인.
 2. 네이밍: Request `{Action}{Domain}Request`(record), Response record + MapStruct.
