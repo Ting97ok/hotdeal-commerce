@@ -18,12 +18,13 @@
 | [0008](0008-payment-model-pg-boundary.md) | 결제 모델·PG 경계 | 결제는 **시도(paymentKey)마다 1행**, 토스 의존은 **어댑터 한 곳**에 격리 | 확정 |
 | [0009](0009-stock-concurrency-design.md) | 재고 동시성 설계 | 재고를 **별도 행**으로 떼어 4방식 비교, 비관락은 **커넥션 풀 보호**로 NOWAIT | 확정 |
 | 0010 (예정) | 동시성 운영 전략 선정 | 벤치마크 결과로 **운영 1방식 확정** | 벤치마크 후 |
+| [0011](0011-product-inventory-reservation.md) | 상품 재고·핫딜 예약 | 재고는 **상품에 원본 보관**(`ProductStock` 실물·예약·가용), 핫딜은 거기서 예약. 경합 격리(재고 전용 테이블)를 상품 레벨로 일반화 | 확정 |
 
 ## 파일 없는 한 줄 결정
 
 | 결정 | 내용 | 근거 위치 |
 |---|---|---|
-| 구매 흐름 | 핫딜 전용 API, Product 는 조회만 — 트래픽 격리 + 스코프 절제 | [가설 2](../design/hotdeal-purchase-hypothesis.md) |
+| 구매 흐름·상품 재고 | Product 가 재고 원본 보관(`ProductStock` 실물·예약·가용) → 핫딜은 거기서 예약. 구매 API 는 **딜 주소**(`POST /api/orders {hotDealId}` — 읽기와 일관), 주문 모델은 **상품 참조 + 적용 딜 기록**(표준). 슬라이스 1 확정 | [ADR-0011](0011-product-inventory-reservation.md) |
 | **주문 식별자** | 공개 카탈로그(상품·핫딜)는 순번 id 노출 / 민감 리소스(주문)는 불투명 `order_no`(UUID, UNIQUE) — 권한 검증 실수의 안전망 + 주문량(사업 지표) 은닉 + 토스 주문번호 겸용. PK 는 순번 유지(UUID 를 PK 로 쓰면 InnoDB 삽입 성능 저하). BaseEntity 공통 UUID 는 5개 테이블 낭비라 미채택 | [erd 4·6](../design/erd.md) |
 | **금액 타입** | 전 금액 칼럼 `DECIMAL(12,0)` / JPA `BigDecimal` — 금액은 정확 십진수가 원칙(부동소수점 금지), BIGINT 대비 소수 확장(할인율·수수료)이 자릿수 변경으로 끝나고 스키마에 "돈" 의미가 드러남. (KRW 전용은 BIGINT 도 정당 — 의미·확장성으로 DECIMAL 선택) | [erd 6](../design/erd.md) |
 | 범위 밖 묶음 | 대기열·어뷰징 방어 / 승인 후 환불 / 주문 내역 조회·이어서 결제(만료 후 재구매로 갈음) / 다중 PG 일반화 / **멀티상품 이벤트**(핫딜=단일 상품 — 확장 경로 [0007](0007-hotdeal-state-operations.md) 결정6) | 가설 2 |
