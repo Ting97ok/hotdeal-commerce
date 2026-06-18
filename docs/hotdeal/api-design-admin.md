@@ -16,7 +16,7 @@
 POST /api/admin/hotdeals
 ```
 
-> 관리자가 상품 하나에 대해 특가·총 한정 수량·판매 기간을 정해 핫딜을 연다. 등록과 동시에 재고(Stock 1:1)가 `잔여 수량 = 총 한정 수량`으로 생성된다. 같은 상품의 ACTIVE 핫딜과 판매 기간이 겹치면 거부한다.
+> 관리자가 상품 하나에 대해 특가·총 한정 수량·판매 기간을 정해 핫딜을 연다. 등록 시 대상 상품의 재고 원본(`ProductStock`)에서 가용(실물−예약)이 총 한정 수량 이상인지 검사하고 그만큼 **예약을 차감**한 뒤, 핫딜 예약 재고(`HotDealStock` 1:1)를 `잔여 수량 = 총 한정 수량`으로 생성한다. 같은 상품의 ACTIVE 핫딜과 판매 기간이 겹치면 거부한다.
 >
 > 인증: ADMIN.
 
@@ -54,12 +54,13 @@ POST /api/admin/hotdeals
 | 판매 기간 유효성 (startAt < endAt) | 비즈니스 검증 (엔티티 `create()`) | INVALID_HOTDEAL_PERIOD |
 | 특가가 정가 미만 (dealPrice < 정가) | 비즈니스 검증 (엔티티 `create()`) | INVALID_DEAL_PRICE |
 | 같은 상품 ACTIVE 핫딜과 기간 겹침 | 비즈니스 검증 (Service) | HOTDEAL_PERIOD_OVERLAP |
+| 상품 가용 재고 충분 (가용 ≥ 총 한정 수량) | 비즈니스 검증 (productService 예약) | INSUFFICIENT_PRODUCT_STOCK |
 
 > **설계 노트 — dealPrice 검증**: 1 이상(`@DecimalMin("1")`) · 정수(`@Digits(fraction=0)` — 원화는 소수점이 없어 `DECIMAL(12,0)`을 입력 단계에서 미러, 미적용 시 소수가 DB에서 조용히 반올림됨) · 정가 미만(엔티티 `create()` → `INVALID_DEAL_PRICE`). 0원·음수·소수점은 입력 단계에서 `VALIDATION_ERROR`(400)로 거른다.
 >
 > **설계 노트 — startAt에 @Future를 두지 않는 이유**: 관리자가 과거/현재 시각으로도 핫딜을 열 수 있어야 하는 운영 재량을 남긴다(예: 즉시 오픈, 테스트 운영). 시간 도달 = 오픈이므로([ADR-0007 결정1](../adr/0007-hotdeal-state-operations.md)) 미래 강제는 정책으로 굳히지 않는다.
 >
-> **설계 노트 — 계층 경계(타 도메인 검증)**: 상품(Product)은 타 도메인이므로 핫딜 Service가 ProductRepository를 직접 부르면 [service.md](../../.claude/rules/service.md) 위반이다. Facade가 productService에서 검증된 상품을 확보해 핫딜 Service로 넘긴다. 기간 겹침 검증은 핫딜 자기 Repository 조회이므로 핫딜 Service 안에서 수행한다.
+> **설계 노트 — 계층 경계(타 도메인 검증·예약)**: 상품(Product·ProductStock)은 타 도메인이므로 핫딜 Service가 그 Repository를 직접 부르면 [service.md](../../.claude/rules/service.md) 위반이다. Facade가 productService에서 검증된 상품을 확보하고, **상품 재고 예약(가용 검사 + 예약 차감)도 productService에 위임**해 그 결과를 핫딜 Service로 넘긴다. 기간 겹침 검증은 핫딜 자기 Repository 조회이므로 핫딜 Service 안에서 수행한다.
 >
 > **설계 노트 — 기간 겹침 경합 수용**: 동시 등록 두 건이 기간 겹침 검증을 같이 통과하는 경합은 관리자 단독 운영 전제로 수용한다([ADR-0007 결정4](../adr/0007-hotdeal-state-operations.md)). 행 잠금·직렬화를 구현하지 않으며, 동시성 테스트도 두지 않는다(순차 등록의 겹침 거부만 검증).
 
@@ -89,8 +90,11 @@ flowchart TD
     P -- 아님 --> Q[/INVALID_DEAL_PRICE/]:::error
     P -- 낮음 --> G{같은 상품 진행 핫딜과\n판매 기간 겹침?}:::decision
     G -- 겹침 --> H[/HOTDEAL_PERIOD_OVERLAP/]:::error
-    G -- 안 겹침 --> K[핫딜 저장 → ID 확보\n상태 = 진행]:::process
-    K --> L[재고 생성\n잔여 수량 = 총 한정 수량]:::process
+    G -- 안 겹침 --> R{상품 가용 재고\n실물−예약 ≥ 총 한정 수량?}:::decision
+    R -- 부족 --> S[/INSUFFICIENT_PRODUCT_STOCK/]:::error
+    R -- 충분 --> T[상품 재고 예약 차감\n예약 += 총 한정 수량]:::process
+    T --> K[핫딜 저장 → ID 확보\n상태 = 진행]:::process
+    K --> L[핫딜 예약 재고 생성\n잔여 수량 = 총 한정 수량]:::process
     L --> M([핫딜 ID 반환]):::success
 
     classDef error fill:#f8d7da,stroke:#dc3545,color:#dc3545,font-weight:bold
@@ -99,9 +103,9 @@ flowchart TD
     classDef decision fill:#fff3cd,stroke:#ffc107,color:#856404
 ```
 
-> **설계 노트 — 저장 순서와 트랜잭션 원자화**: 재고(Stock)는 핫딜 ID를 raw 값으로 보유하므로(객체 연관 아님), 재고를 만들려면 핫딜의 PK가 먼저 필요하다. 따라서 핫딜을 먼저 저장해 ID를 확보한 뒤 그 ID로 재고를 생성한다. 두 저장은 같은 Facade 트랜잭션 안이라 하나가 실패하면 모두 롤백된다(부분 생성 방지). Facade는 클래스 레벨 트랜잭션 없이 이 메서드에만 쓰기 트랜잭션을 건다([service.md](../../.claude/rules/service.md)).
+> **설계 노트 — 저장 순서와 트랜잭션 원자화**: 핫딜 예약 재고(HotDealStock)는 핫딜 ID를 raw 값으로 보유하므로(객체 연관 아님), 만들려면 핫딜의 PK가 먼저 필요하다. 따라서 ① 상품 재고 예약 차감(ProductStock) → ② 핫딜 저장·ID 확보 → ③ 그 ID로 HotDealStock 생성 순서다. 셋은 같은 Facade 트랜잭션 안이라 하나가 실패하면 모두 롤백된다(부분 생성·초과 예약 방지). Facade는 클래스 레벨 트랜잭션 없이 이 메서드에만 쓰기 트랜잭션을 건다([service.md](../../.claude/rules/service.md)).
 >
-> **설계 노트 — 검증 순서**: 입력 검증(컨트롤러 진입 전) → 상품 존재(Facade) → 엔티티 생성 시 기간 유효성·특가<정가 검증 → 기간 겹침(Service) 순서다. 엔티티 생성은 메모리상 검증이라, `create()`를 겹침 쿼리보다 **먼저** 호출해 잘못된 입력에 무의미한 DB 쿼리가 도는 것을 막는다.
+> **설계 노트 — 검증 순서**: 입력 검증(컨트롤러 진입 전) → 상품 존재(Facade) → 엔티티 생성 시 기간 유효성·특가<정가 검증 → 기간 겹침(Service) → 상품 재고 가용 검사·예약(Facade가 productService 위임) 순서다. 엔티티 생성은 메모리상 검증이라 `create()`를 겹침 쿼리보다 **먼저** 호출해 잘못된 입력에 무의미한 DB 쿼리가 도는 것을 막고, 예약 차감(쓰기)은 모든 거절 사유를 통과한 맨 끝에 둔다.
 
 **엔티티 메서드 설계 (HotDeal)**
 
@@ -161,3 +165,5 @@ boolean existsOverlappingActiveHotDeal(@Param("productId") Long productId,
 | # | 테스트 케이스 | 시나리오 | 상태 | 작성일 |
 |---|---------------|----------|------|--------|
 | 1 | `createHotDealWithStock` | 정상 등록 시 핫딜+재고 생성, hotDealId 반환 | ✅ Pass | 2026-06-17 |
+
+> **ADR-0011 반영 노트**: #1(`createHotDealWithStock`, 커밋됨)은 ProductStock 도입 전 모델이다. 상품 가용 검사·예약 차감·`Stock→HotDealStock` 리네임은 다가올 TDD 사이클에서 #1을 개정하며 자란다(예약 성공·`INSUFFICIENT_PRODUCT_STOCK`·재고 부족 격리).
