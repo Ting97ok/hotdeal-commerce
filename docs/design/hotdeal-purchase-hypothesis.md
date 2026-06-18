@@ -17,7 +17,7 @@
 
 | 구분 | 내용 |
 |---|---|
-| 구매 | **핫딜 전용 API** (Product 는 조회만) |
+| 구매 | **핫딜 주소 API** (`POST /api/orders {hotDealId}`) — 주문은 상품(`product`)+적용 핫딜 참조, 재고 원본은 `ProductStock` ([ADR-0011](../adr/0011-product-inventory-reservation.md)) |
 | 가설 | **결제까지 완결** — 구현만 슬라이스(작업을 세로로 쪼갠 단위, API 하나 정도)로 나눠 쌓음 |
 | 본편 제외 | 대기열·봇/다계정 어뷰징(부정 구매) 방어 · 고트래픽 조회(4주차) · **승인 후 환불**(결제 전 이탈은 시간 초과 취소가 커버) · **주문 내역 조회·"이어서 결제"**(만료 후 재구매로 갈음) · 다중 PG 일반화 |
 
@@ -57,7 +57,7 @@
 
 - 진행/매진은 **판매 기간(startAt~endAt)과 남은 재고로 그때그때 판단** — 진행 상태값·스케줄러 없음 (정시 오픈 = 시작 시각 도달). `status {ACTIVE, CANCELED}` 는 관리자 취소 전용.
 - **취소 시**: 새 구매와 결제 승인 모두 차단(승인 검사는 토스 호출 전) · 기존 PAID 주문은 유효(환불은 토스 대시보드 수동) · PENDING 은 만료로 자연 취소.
-- **운영 중 수정·수량 변경 API 없음** — 변경은 취소 후 재등록, 추가 물량은 새 딜(회차) 등록. `totalQuantity` 등록 후 불변. (스코프 선택 — 재입고 증량의 실무 실재와 전환 경로는 [ADR-0007](../adr/0007-hotdeal-state-operations.md))
+- **운영 중 수정·수량 변경 API 없음** — 변경은 취소 후 재등록, 추가 물량은 새 핫딜(회차) 등록. `totalQuantity` 등록 후 불변. (스코프 선택 — 재입고 증량의 실무 실재와 전환 경로는 [ADR-0007](../adr/0007-hotdeal-state-operations.md))
 - **같은 상품에 판매 기간 겹치는 핫딜 등록 불가** — 관리자 등록 API 검증.
 - 운영 현황·집계는 DB 쿼리(정합 검증식 재사용)·토스 대시보드로 갈음. 매진 품절 표시는 선택 사항(표시는 캐시일 뿐, 판단 원본은 재고).
 
@@ -71,7 +71,7 @@
 | 재고 부족/매진 | `OUT_OF_STOCK` (409) |
 | 이미 구매함 | `ALREADY_PURCHASED` (409) |
 | 동시 경합에 밀림(재고는 남음) | `PURCHASE_CONFLICT` (409, "다시 시도") |
-| (결제 승인) 취소된 딜의 승인 시도 | `HOTDEAL_CANCELED` (400) — 검사는 토스 호출 전 |
+| (결제 승인) 취소된 핫딜의 승인 시도 | `HOTDEAL_CANCELED` (400) — 검사는 토스 호출 전 |
 | (결제 승인) 만료된 주문의 승인 시도 | `ORDER_EXPIRED` (409) |
 | (결제 승인) 금액 불일치 | `AMOUNT_MISMATCH` (400) |
 
@@ -86,17 +86,17 @@
 
 | # | 슬라이스 | 핵심 | 설계 노트 |
 |---|---|---|---|
-| **기반** | 엔티티 + V2 마이그레이션 | User(기존)·**Product**·HotDeal·Stock·Order·Payment 매핑 + Flyway V2 | Product 는 핫딜이 `productId` 로 참조해 **함께 생성**. FK 제약 없음·활성 유니크 생성 칼럼 등 [ERD 6](erd.md) |
-| **0** | 핫딜 등록(관리자) + 조회 | 등록 시 Stock(1:1) 동시 생성 · 기간 겹침 검증 | 수정·수량 변경 API 없음 — [ADR-0007](../adr/0007-hotdeal-state-operations.md) |
-| **1** | 구매 — 재고 선점 차감 + 주문 PENDING | 오버셀 0건 (낙관락부터) | 만료시각 부여(임시 10분) · 활성 유니크 · order_no · 정합 검증식 단언 |
+| **기반** | 엔티티 + V2 마이그레이션 | User(기존)·**Product·ProductStock**·HotDeal·HotDealStock·Order·Payment 매핑 + Flyway V2 | Product·ProductStock(재고 원본)는 핫딜이 참조·예약해 **함께 생성**(on_hand 시드). FK 제약 없음·활성 유니크 생성 칼럼 등 [ERD 6](erd.md) |
+| **0** | 핫딜 등록(관리자) + 조회 | 등록 시 ProductStock 가용 검사·예약 + HotDealStock(1:1) 동시 생성 · 기간 겹침 검증 | 수정·수량 변경 API 없음 — [ADR-0007](../adr/0007-hotdeal-state-operations.md)·[0011](../adr/0011-product-inventory-reservation.md) |
+| **1** | 구매 — 재고 선점 차감 + 주문 PENDING | 오버셀 0건 (낙관락부터) | 핫딜 주소 `POST /api/orders {hotDealId}` · 주문은 상품+핫딜 참조 · HotDealStock 한 행 차감 · 만료시각 부여(임시 10분) · 활성 유니크 · order_no · 정합 검증식 단언 |
 | **2** | 만료 복원 — 시간 지난 PENDING 자동 취소 | 조건부 전이(사유 EXPIRED) + 재고 복원 | 주문 1건=트랜잭션 1 · 잠금 순서 "주문→재고" · **이 시점부터 선점↔해제가 닫혀 상시 자기 완결** |
-| **3** | 토스 결제 승인 + PAID 확정 / 실패 CANCELED | 토스 호출 분리 · 금액 재검증 · 멱등 | 승인 가드(만료 주문·취소 딜 거부) · 이중 승인 방어 · 만료 처리에 토스 조회 보조 추가(결제됨 발견 = PAID 확정) · 어댑터 구조(PaymentGatewayClient) · **결제 동시성 테스트**: 가짜 대역에 지연·중복 승인·응답 유실 주입으로 이중 승인·만료↔결제 경합 재현(외부 부하 없이) — [ADR-0004](../adr/0004-stock-reservation-lifecycle.md)·[ADR-0008](../adr/0008-payment-model-pg-boundary.md) |
+| **3** | 토스 결제 승인 + PAID 확정 / 실패 CANCELED | 토스 호출 분리 · 금액 재검증 · 멱등 | 승인 가드(만료 주문·취소 핫딜 거부) · 이중 승인 방어 · 만료 처리에 토스 조회 보조 추가(결제됨 발견 = PAID 확정) · 어댑터 구조(PaymentGatewayClient) · **결제 동시성 테스트**: 가짜 대역에 지연·중복 승인·응답 유실 주입으로 이중 승인·만료↔결제 경합 재현(외부 부하 없이) — [ADR-0004](../adr/0004-stock-reservation-lifecycle.md)·[ADR-0008](../adr/0008-payment-model-pg-boundary.md) |
 | 3주차 | 4방식 비교 + k6(대량 가상 트래픽을 쏘는 부하 테스트 도구) | 성능/정확성 정량화 | NOWAIT vs 1초 · 교착 횟수 측정 — [ADR-0009](../adr/0009-stock-concurrency-design.md), 결과는 ADR-0010 로 |
 | 이후 | 대기열(분산/엣지) · 고트래픽 조회 | 본편 완수 후 | |
 
-## 10. 엔티티 (6개)
+## 10. 엔티티 (7개)
 
-**User · Product · HotDeal · Stock · Order · Payment** — Order : Payment = **1 : N**, Payment 행 단위 = **paymentKey 1개** ([ADR-0008](../adr/0008-payment-model-pg-boundary.md)). 관계·제약은 [erd.md](erd.md).
+**User · Product · ProductStock · HotDeal · HotDealStock · Order · Payment** — Product 가 재고 원본(`ProductStock` 실물·예약), 핫딜은 거기서 예약([ADR-0011](../adr/0011-product-inventory-reservation.md)). Order : Payment = **1 : N**, Payment 행 단위 = **paymentKey 1개** ([ADR-0008](../adr/0008-payment-model-pg-boundary.md)). 관계·제약은 [erd.md](erd.md).
 
 ## 11. 남은 일 (보류 항목)
 
