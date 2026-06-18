@@ -160,3 +160,4 @@ boolean existsOverlappingActiveHotDeal(@Param("productId") Long productId,
 
 | # | 테스트 케이스 | 시나리오 | 상태 | 작성일 |
 |---|---------------|----------|------|--------|
+| 1 | `createHotDealWithStock` | 정상 등록 시 핫딜+재고 생성, hotDealId 반환 | ✅ Pass | 2026-06-17 |
