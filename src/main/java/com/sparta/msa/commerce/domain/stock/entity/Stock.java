@@ -39,4 +39,11 @@ public class Stock extends BaseEntity {
   @Version
   @Column(nullable = false)
   Long version;
+
+  public static Stock create(Long hotDealId, int totalQuantity) {
+    return Stock.builder()
+        .hotDealId(hotDealId)
+        .remainingQuantity(totalQuantity)
+        .build();
+  }
 }

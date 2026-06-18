@@ -45,4 +45,12 @@ public class Product extends BaseEntity {
   @Enumerated(EnumType.STRING)
   @Column(nullable = false, length = 20)
   ProductStatus status;
+
+  public static Product create(String name, BigDecimal price) {
+    return Product.builder()
+        .name(name)
+        .price(price)
+        .status(ProductStatus.FOR_SALE)
+        .build();
+  }
 }

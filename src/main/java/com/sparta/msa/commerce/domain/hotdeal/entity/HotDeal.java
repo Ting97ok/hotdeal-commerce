@@ -4,6 +4,7 @@ import static jakarta.persistence.ConstraintMode.NO_CONSTRAINT;
 import static jakarta.persistence.FetchType.LAZY;
 import static lombok.AccessLevel.PRIVATE;
 
+import com.sparta.msa.commerce.domain.hotdeal.dto.request.CreateHotDealRequest;
 import com.sparta.msa.commerce.domain.product.entity.Product;
 import com.sparta.msa.commerce.global.entity.BaseEntity;
 import jakarta.persistence.Column;
@@ -65,4 +66,17 @@ public class HotDeal extends BaseEntity {
   @ManyToOne(fetch = LAZY)
   @JoinColumn(name = "product_id", foreignKey = @ForeignKey(NO_CONSTRAINT))
   Product product;
+
+  public static HotDeal create(CreateHotDealRequest request, Product product) {
+    // TODO(hotdeal-period): startAt<endAt 검증 → INVALID_HOTDEAL_PERIOD(400) 미구현
+    // TODO(hotdeal-deal-price): dealPrice<정가 검증 → INVALID_DEAL_PRICE(400) 미구현
+    return HotDeal.builder()
+        .product(product)
+        .dealPrice(request.dealPrice())
+        .totalQuantity(request.totalQuantity())
+        .startAt(request.startAt())
+        .endAt(request.endAt())
+        .status(HotDealStatus.ACTIVE)
+        .build();
+  }
 }
