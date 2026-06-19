@@ -171,5 +171,6 @@ boolean existsOverlappingActiveHotDeal(@Param("product") Product product,
 | 5 | `invalidPeriod` | 판매 시작 ≥ 종료면 INVALID_HOTDEAL_PERIOD(400), 핫딜 미생성 | ✅ Pass | 2026-06-19 |
 | 6 | `invalidDealPrice` | 특가 ≥ 정가면 INVALID_DEAL_PRICE(400), 핫딜 미생성 | ✅ Pass | 2026-06-19 |
 | 7 | `productNotFound` | 존재하지 않는 상품으로 등록 시 PRODUCT_NOT_FOUND(404), 핫딜 미생성 | ✅ Pass | 2026-06-19 |
+| 8 | `validationError` | 총 한정 수량 < 1이면 VALIDATION_ERROR(400), 핫딜 미생성 | ✅ Pass | 2026-06-19 |
 
 > **ADR-0011 반영 노트**: #1~#3 으로 ADR-0011 등록 재고(예약 차감 · 가용 부족 거부 · 경계 상한)가 반영 완료됐다(2026-06-19). 기간 겹침·기간 유효성·특가·상품 미존재·Bean Validation 은 작업2 범위 밖으로 후속 사이클에서 다룬다.
