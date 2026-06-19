@@ -51,4 +51,9 @@ public class ProductStock extends BaseEntity {
         .reservedQuantity(0)
         .build();
   }
+
+  public void reserve(int quantity) {
+    // TODO(stock-insufficient): 가용(on_hand−reserved) < quantity 거부 → INSUFFICIENT_PRODUCT_STOCK 미구현
+    this.reservedQuantity += quantity;
+  }
 }
