@@ -27,7 +27,7 @@ public class HotDealAdminFacade {
   public CreateHotDealResponse createHotDeal(CreateHotDealRequest request) {
     Product product = productService.getProduct(request.productId());
     HotDeal hotDeal = hotDealAdminService.create(request, product);
-    productStockService.reserve(request.productId(), request.totalQuantity());
+    productStockService.reserve(product.getId(), request.totalQuantity());
     hotDealStockService.createForHotDeal(hotDeal.getId(), request.totalQuantity());
     return hotDealMapper.toCreateResponse(hotDeal);
   }
