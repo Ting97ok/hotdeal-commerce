@@ -1,14 +1,18 @@
 package com.sparta.msa.commerce.domain.hotdeal.dto.request;
 
+import jakarta.validation.constraints.DecimalMin;
+import jakarta.validation.constraints.Digits;
+import jakarta.validation.constraints.Max;
+import jakarta.validation.constraints.Min;
+import jakarta.validation.constraints.NotNull;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 
 public record CreateHotDealRequest(
-    // TODO(hotdeal-validation): Bean Validation(@NotNull/@DecimalMin/@Digits/@Min/@Max) 미부착 → VALIDATION_ERROR 슬라이스에서 추가
-    Long productId,
-    BigDecimal dealPrice,
-    Integer totalQuantity,
-    LocalDateTime startAt,
-    LocalDateTime endAt
+    @NotNull Long productId,
+    @NotNull @DecimalMin("1") @Digits(integer = 12, fraction = 0) BigDecimal dealPrice,
+    @NotNull @Min(1) @Max(100000) Integer totalQuantity,
+    @NotNull LocalDateTime startAt,
+    @NotNull LocalDateTime endAt
 ) {
 }
