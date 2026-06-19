@@ -250,5 +250,29 @@ class CreateHotDealIntegrationTest {
 
       assertThat(hotDealRepository.count()).isZero();
     }
+
+    @Test
+    @DisplayName("총 한정 수량이 1 미만이면 VALIDATION_ERROR(400)를 반환한다")
+    void validationError() throws Exception {
+      Product product = productRepository.save(Product.create("맥북 프로", new BigDecimal("2000000")));
+      productStockRepository.save(ProductStock.create(product.getId(), 1000));
+      LocalDateTime start = LocalDateTime.now().plusDays(1);
+      LocalDateTime end = start.plusHours(2);
+      CreateHotDealRequest request = new CreateHotDealRequest(
+          product.getId(),
+          new BigDecimal("9900"),
+          0,
+          start,
+          end);
+
+      mockMvc.perform(post("/api/admin/hotdeals")
+              .contentType(APPLICATION_JSON)
+              .content(objectMapper.writeValueAsString(request)))
+          .andExpect(status().isBadRequest())
+          .andExpect(jsonPath("$.result").value(false))
+          .andExpect(jsonPath("$.error.code").value("VALIDATION_ERROR"));
+
+      assertThat(hotDealRepository.count()).isZero();
+    }
   }
 }
