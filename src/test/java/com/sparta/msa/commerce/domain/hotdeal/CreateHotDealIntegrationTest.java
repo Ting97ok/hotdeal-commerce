@@ -12,7 +12,9 @@ import com.sparta.msa.commerce.domain.hotdeal.repository.HotDealRepository;
 import com.sparta.msa.commerce.domain.product.entity.Product;
 import com.sparta.msa.commerce.domain.product.repository.ProductRepository;
 import com.sparta.msa.commerce.domain.stock.entity.HotDealStock;
+import com.sparta.msa.commerce.domain.stock.entity.ProductStock;
 import com.sparta.msa.commerce.domain.stock.repository.HotDealStockRepository;
+import com.sparta.msa.commerce.domain.stock.repository.ProductStockRepository;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import org.junit.jupiter.api.BeforeEach;
@@ -43,11 +45,14 @@ class CreateHotDealIntegrationTest {
   HotDealStockRepository hotDealStockRepository;
   @Autowired
   ProductRepository productRepository;
+  @Autowired
+  ProductStockRepository productStockRepository;
 
   @BeforeEach
   void setUp() {
     hotDealRepository.deleteAll();
     hotDealStockRepository.deleteAll();
+    productStockRepository.deleteAll();
     productRepository.deleteAll();
   }
 
@@ -56,9 +61,10 @@ class CreateHotDealIntegrationTest {
   class Success {
 
     @Test
-    @DisplayName("정상 등록 시 핫딜과 재고가 생성되고 핫딜 ID를 반환한다")
+    @DisplayName("정상 등록 시 상품 재고가 예약되고 핫딜·핫딜재고가 생성된다")
     void createHotDealWithStock() throws Exception {
       Product product = productRepository.save(Product.create("맥북 프로", new BigDecimal("2000000")));
+      productStockRepository.save(ProductStock.create(product.getId(), 1000));
       CreateHotDealRequest request = new CreateHotDealRequest(
           product.getId(),
           new BigDecimal("9900"),
@@ -79,6 +85,9 @@ class CreateHotDealIntegrationTest {
       HotDealStock stock = hotDealStockRepository.findAll().get(0);
       assertThat(stock.getHotDealId()).isEqualTo(hotDealId);
       assertThat(stock.getRemainingQuantity()).isEqualTo(100);
+
+      ProductStock productStock = productStockRepository.findByProductId(product.getId()).orElseThrow();
+      assertThat(productStock.getReservedQuantity()).isEqualTo(100);
     }
   }
 }
