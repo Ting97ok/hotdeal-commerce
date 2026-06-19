@@ -140,5 +140,37 @@ class CreateHotDealIntegrationTest {
       assertThat(hotDealRepository.count()).isZero();
       assertThat(hotDealStockRepository.count()).isZero();
     }
+
+    @Test
+    @DisplayName("같은 상품의 진행 중 핫딜과 판매 기간이 겹치면 HOTDEAL_PERIOD_OVERLAP(409)을 반환한다")
+    void overlappingActiveHotDeal() throws Exception {
+      Product product = productRepository.save(Product.create("맥북 프로", new BigDecimal("2000000")));
+      productStockRepository.save(ProductStock.create(product.getId(), 1000));
+      CreateHotDealRequest first = new CreateHotDealRequest(
+          product.getId(),
+          new BigDecimal("9900"),
+          100,
+          LocalDateTime.of(2026, 6, 20, 7, 0),
+          LocalDateTime.of(2026, 6, 20, 9, 0));
+      mockMvc.perform(post("/api/admin/hotdeals")
+              .contentType(APPLICATION_JSON)
+              .content(objectMapper.writeValueAsString(first)))
+          .andExpect(status().isOk());
+
+      CreateHotDealRequest overlapping = new CreateHotDealRequest(
+          product.getId(),
+          new BigDecimal("8900"),
+          50,
+          LocalDateTime.of(2026, 6, 20, 8, 0),
+          LocalDateTime.of(2026, 6, 20, 10, 0));
+      mockMvc.perform(post("/api/admin/hotdeals")
+              .contentType(APPLICATION_JSON)
+              .content(objectMapper.writeValueAsString(overlapping)))
+          .andExpect(status().isConflict())
+          .andExpect(jsonPath("$.result").value(false))
+          .andExpect(jsonPath("$.error.code").value("HOTDEAL_PERIOD_OVERLAP"));
+
+      assertThat(hotDealRepository.count()).isEqualTo(1);
+    }
   }
 }
