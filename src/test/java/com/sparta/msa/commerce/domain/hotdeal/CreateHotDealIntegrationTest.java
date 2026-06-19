@@ -216,5 +216,25 @@ class CreateHotDealIntegrationTest {
 
       assertThat(hotDealRepository.count()).isZero();
     }
+
+    @Test
+    @DisplayName("존재하지 않는 상품으로 등록하면 PRODUCT_NOT_FOUND(404)를 반환한다")
+    void productNotFound() throws Exception {
+      CreateHotDealRequest request = new CreateHotDealRequest(
+          999L,
+          new BigDecimal("9900"),
+          100,
+          LocalDateTime.of(2026, 6, 20, 7, 0),
+          LocalDateTime.of(2026, 6, 20, 9, 0));
+
+      mockMvc.perform(post("/api/admin/hotdeals")
+              .contentType(APPLICATION_JSON)
+              .content(objectMapper.writeValueAsString(request)))
+          .andExpect(status().isNotFound())
+          .andExpect(jsonPath("$.result").value(false))
+          .andExpect(jsonPath("$.error.code").value("PRODUCT_NOT_FOUND"));
+
+      assertThat(hotDealRepository.count()).isZero();
+    }
   }
 }
