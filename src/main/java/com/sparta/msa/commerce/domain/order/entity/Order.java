@@ -5,6 +5,7 @@ import static jakarta.persistence.FetchType.LAZY;
 import static lombok.AccessLevel.PRIVATE;
 
 import com.sparta.msa.commerce.domain.hotdeal.entity.HotDeal;
+import com.sparta.msa.commerce.domain.product.entity.Product;
 import com.sparta.msa.commerce.domain.user.entity.User;
 import com.sparta.msa.commerce.global.entity.BaseEntity;
 import jakarta.persistence.Column;
@@ -72,4 +73,9 @@ public class Order extends BaseEntity {
   @ManyToOne(fetch = LAZY)
   @JoinColumn(name = "hot_deal_id", foreignKey = @ForeignKey(NO_CONSTRAINT))
   HotDeal hotDeal;
+
+  @Comment("산 상품 (논리 참조)")
+  @ManyToOne(fetch = LAZY)
+  @JoinColumn(name = "product_id", foreignKey = @ForeignKey(NO_CONSTRAINT))
+  Product product;
 }

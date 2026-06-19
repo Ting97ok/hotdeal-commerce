@@ -3,6 +3,7 @@ CREATE TABLE orders (
     order_no      CHAR(36)       NOT NULL COMMENT '주문 번호 (UUID, 토스 orderId 겸용)',
     user_id       BIGINT         NOT NULL COMMENT '주문자 (논리 참조)',
     hot_deal_id   BIGINT         NOT NULL COMMENT '대상 핫딜 (논리 참조)',
+    product_id    BIGINT         NOT NULL COMMENT '산 상품 (논리 참조)',
     quantity      INT            NOT NULL COMMENT '주문 수량 (현재 1 고정)',
     order_amount  DECIMAL(12, 0) NOT NULL COMMENT '주문 금액 (특가×수량, 주문 시점 저장)',
     status        VARCHAR(20)    NOT NULL COMMENT '주문 상태 (PENDING/PAID/CANCELED)',

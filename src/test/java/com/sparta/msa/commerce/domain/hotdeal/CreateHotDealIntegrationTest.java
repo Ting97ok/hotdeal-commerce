@@ -11,8 +11,8 @@ import com.sparta.msa.commerce.domain.hotdeal.dto.request.CreateHotDealRequest;
 import com.sparta.msa.commerce.domain.hotdeal.repository.HotDealRepository;
 import com.sparta.msa.commerce.domain.product.entity.Product;
 import com.sparta.msa.commerce.domain.product.repository.ProductRepository;
-import com.sparta.msa.commerce.domain.stock.entity.Stock;
-import com.sparta.msa.commerce.domain.stock.repository.StockRepository;
+import com.sparta.msa.commerce.domain.stock.entity.HotDealStock;
+import com.sparta.msa.commerce.domain.stock.repository.HotDealStockRepository;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import org.junit.jupiter.api.BeforeEach;
@@ -40,14 +40,14 @@ class CreateHotDealIntegrationTest {
   @Autowired
   HotDealRepository hotDealRepository;
   @Autowired
-  StockRepository stockRepository;
+  HotDealStockRepository hotDealStockRepository;
   @Autowired
   ProductRepository productRepository;
 
   @BeforeEach
   void setUp() {
     hotDealRepository.deleteAll();
-    stockRepository.deleteAll();
+    hotDealStockRepository.deleteAll();
     productRepository.deleteAll();
   }
 
@@ -76,7 +76,7 @@ class CreateHotDealIntegrationTest {
       assertThat(hotDealRepository.count()).isEqualTo(1);
 
       Long hotDealId = hotDealRepository.findAll().get(0).getId();
-      Stock stock = stockRepository.findAll().get(0);
+      HotDealStock stock = hotDealStockRepository.findAll().get(0);
       assertThat(stock.getHotDealId()).isEqualTo(hotDealId);
       assertThat(stock.getRemainingQuantity()).isEqualTo(100);
     }
