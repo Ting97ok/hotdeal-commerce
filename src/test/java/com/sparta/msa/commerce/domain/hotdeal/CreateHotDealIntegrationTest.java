@@ -89,6 +89,29 @@ class CreateHotDealIntegrationTest {
       ProductStock productStock = productStockRepository.findByProductId(product.getId()).orElseThrow();
       assertThat(productStock.getReservedQuantity()).isEqualTo(100);
     }
+
+    @Test
+    @DisplayName("상품 가용 재고가 총 한정 수량과 정확히 같으면 예약에 성공하고 가용이 0이 된다")
+    void reserveExactlyAvailableStock() throws Exception {
+      Product product = productRepository.save(Product.create("맥북 프로", new BigDecimal("2000000")));
+      productStockRepository.save(ProductStock.create(product.getId(), 100));
+      CreateHotDealRequest request = new CreateHotDealRequest(
+          product.getId(),
+          new BigDecimal("9900"),
+          100,
+          LocalDateTime.of(2026, 6, 20, 7, 0),
+          LocalDateTime.of(2026, 6, 20, 9, 0));
+
+      mockMvc.perform(post("/api/admin/hotdeals")
+              .contentType(APPLICATION_JSON)
+              .content(objectMapper.writeValueAsString(request)))
+          .andExpect(status().isOk())
+          .andExpect(jsonPath("$.data.hotDealId").isNumber());
+
+      ProductStock productStock = productStockRepository.findByProductId(product.getId()).orElseThrow();
+      assertThat(productStock.getReservedQuantity()).isEqualTo(100);
+      assertThat(productStock.getOnHandQuantity() - productStock.getReservedQuantity()).isZero();
+    }
   }
 
   @Nested
