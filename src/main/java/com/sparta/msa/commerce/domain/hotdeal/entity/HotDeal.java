@@ -1,5 +1,6 @@
 package com.sparta.msa.commerce.domain.hotdeal.entity;
 
+import static com.sparta.msa.commerce.domain.hotdeal.exception.HotDealExceptionCode.INVALID_DEAL_PRICE;
 import static com.sparta.msa.commerce.domain.hotdeal.exception.HotDealExceptionCode.INVALID_HOTDEAL_PERIOD;
 import static jakarta.persistence.ConstraintMode.NO_CONSTRAINT;
 import static jakarta.persistence.FetchType.LAZY;
@@ -70,8 +71,8 @@ public class HotDeal extends BaseEntity {
   Product product;
 
   public static HotDeal create(CreateHotDealRequest request, Product product) {
-    // TODO(hotdeal-deal-price): dealPrice<정가 검증 → INVALID_DEAL_PRICE(400) 미구현
     validatePeriod(request.startAt(), request.endAt());
+    validateDealPrice(request.dealPrice(), product.getPrice());
     return HotDeal.builder()
         .product(product)
         .dealPrice(request.dealPrice())
@@ -85,6 +86,12 @@ public class HotDeal extends BaseEntity {
   private static void validatePeriod(LocalDateTime startAt, LocalDateTime endAt) {
     if (!startAt.isBefore(endAt)) {
       throw new DomainException(INVALID_HOTDEAL_PERIOD);
+    }
+  }
+
+  private static void validateDealPrice(BigDecimal dealPrice, BigDecimal listPrice) {
+    if (dealPrice.compareTo(listPrice) >= 0) {
+      throw new DomainException(INVALID_DEAL_PRICE);
     }
   }
 }
