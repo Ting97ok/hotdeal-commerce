@@ -1,7 +1,10 @@
 package com.sparta.msa.commerce.domain.stock.service;
 
+import static com.sparta.msa.commerce.domain.stock.exception.StockExceptionCode.STOCK_NOT_FOUND;
+
 import com.sparta.msa.commerce.domain.stock.entity.ProductStock;
 import com.sparta.msa.commerce.domain.stock.repository.ProductStockRepository;
+import com.sparta.msa.commerce.global.exception.DomainException;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -15,8 +18,8 @@ public class ProductStockService {
 
   @Transactional
   public void reserve(Long productId, int quantity) {
-    // TODO(stock-not-found): ProductStock 미존재 시 처리 — 현재 시드 픽스처 전제 orElseThrow()
-    ProductStock productStock = productStockRepository.findByProductId(productId).orElseThrow();
+    ProductStock productStock = productStockRepository.findByProductId(productId)
+        .orElseThrow(() -> new DomainException(STOCK_NOT_FOUND));
     productStock.reserve(quantity);
   }
 }

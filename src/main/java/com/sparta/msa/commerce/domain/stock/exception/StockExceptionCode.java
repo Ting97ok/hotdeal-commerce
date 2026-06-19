@@ -12,7 +12,8 @@ import org.springframework.http.HttpStatus;
 @FieldDefaults(level = AccessLevel.PRIVATE)
 public enum StockExceptionCode implements ExceptionCode {
 
-  INSUFFICIENT_PRODUCT_STOCK(HttpStatus.CONFLICT, "상품 가용 재고가 부족합니다.");
+  INSUFFICIENT_PRODUCT_STOCK(HttpStatus.CONFLICT, "상품 가용 재고가 부족합니다."),
+  STOCK_NOT_FOUND(HttpStatus.NOT_FOUND, "상품 재고 정보를 찾을 수 없습니다.");
 
   final HttpStatus status;
   final String message;
