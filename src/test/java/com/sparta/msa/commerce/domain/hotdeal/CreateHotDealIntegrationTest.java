@@ -65,12 +65,14 @@ class CreateHotDealIntegrationTest {
     void createHotDealWithStock() throws Exception {
       Product product = productRepository.save(Product.create("맥북 프로", new BigDecimal("2000000")));
       productStockRepository.save(ProductStock.create(product.getId(), 1000));
+      LocalDateTime start = LocalDateTime.now().plusDays(1);
+      LocalDateTime end = start.plusHours(2);
       CreateHotDealRequest request = new CreateHotDealRequest(
           product.getId(),
           new BigDecimal("9900"),
           100,
-          LocalDateTime.of(2026, 6, 20, 7, 0),
-          LocalDateTime.of(2026, 6, 20, 9, 0));
+          start,
+          end);
 
       mockMvc.perform(post("/api/admin/hotdeals")
               .contentType(APPLICATION_JSON)
@@ -95,12 +97,14 @@ class CreateHotDealIntegrationTest {
     void reserveExactlyAvailableStock() throws Exception {
       Product product = productRepository.save(Product.create("맥북 프로", new BigDecimal("2000000")));
       productStockRepository.save(ProductStock.create(product.getId(), 100));
+      LocalDateTime start = LocalDateTime.now().plusDays(1);
+      LocalDateTime end = start.plusHours(2);
       CreateHotDealRequest request = new CreateHotDealRequest(
           product.getId(),
           new BigDecimal("9900"),
           100,
-          LocalDateTime.of(2026, 6, 20, 7, 0),
-          LocalDateTime.of(2026, 6, 20, 9, 0));
+          start,
+          end);
 
       mockMvc.perform(post("/api/admin/hotdeals")
               .contentType(APPLICATION_JSON)
@@ -123,12 +127,14 @@ class CreateHotDealIntegrationTest {
     void insufficientProductStock() throws Exception {
       Product product = productRepository.save(Product.create("맥북 프로", new BigDecimal("2000000")));
       productStockRepository.save(ProductStock.create(product.getId(), 50));
+      LocalDateTime start = LocalDateTime.now().plusDays(1);
+      LocalDateTime end = start.plusHours(2);
       CreateHotDealRequest request = new CreateHotDealRequest(
           product.getId(),
           new BigDecimal("9900"),
           100,
-          LocalDateTime.of(2026, 6, 20, 7, 0),
-          LocalDateTime.of(2026, 6, 20, 9, 0));
+          start,
+          end);
 
       mockMvc.perform(post("/api/admin/hotdeals")
               .contentType(APPLICATION_JSON)
@@ -146,12 +152,14 @@ class CreateHotDealIntegrationTest {
     void overlappingActiveHotDeal() throws Exception {
       Product product = productRepository.save(Product.create("맥북 프로", new BigDecimal("2000000")));
       productStockRepository.save(ProductStock.create(product.getId(), 1000));
+      LocalDateTime start = LocalDateTime.now().plusDays(1);
+      LocalDateTime end = start.plusHours(2);
       CreateHotDealRequest first = new CreateHotDealRequest(
           product.getId(),
           new BigDecimal("9900"),
           100,
-          LocalDateTime.of(2026, 6, 20, 7, 0),
-          LocalDateTime.of(2026, 6, 20, 9, 0));
+          start,
+          end);
       mockMvc.perform(post("/api/admin/hotdeals")
               .contentType(APPLICATION_JSON)
               .content(objectMapper.writeValueAsString(first)))
@@ -161,8 +169,8 @@ class CreateHotDealIntegrationTest {
           product.getId(),
           new BigDecimal("8900"),
           50,
-          LocalDateTime.of(2026, 6, 20, 8, 0),
-          LocalDateTime.of(2026, 6, 20, 10, 0));
+          start.plusHours(1),
+          end.plusHours(1));
       mockMvc.perform(post("/api/admin/hotdeals")
               .contentType(APPLICATION_JSON)
               .content(objectMapper.writeValueAsString(overlapping)))
@@ -178,12 +186,14 @@ class CreateHotDealIntegrationTest {
     void invalidPeriod() throws Exception {
       Product product = productRepository.save(Product.create("맥북 프로", new BigDecimal("2000000")));
       productStockRepository.save(ProductStock.create(product.getId(), 1000));
+      LocalDateTime start = LocalDateTime.now().plusDays(1);
+      LocalDateTime end = start.minusHours(2);
       CreateHotDealRequest request = new CreateHotDealRequest(
           product.getId(),
           new BigDecimal("9900"),
           100,
-          LocalDateTime.of(2026, 6, 20, 9, 0),
-          LocalDateTime.of(2026, 6, 20, 7, 0));
+          start,
+          end);
 
       mockMvc.perform(post("/api/admin/hotdeals")
               .contentType(APPLICATION_JSON)
@@ -200,12 +210,14 @@ class CreateHotDealIntegrationTest {
     void invalidDealPrice() throws Exception {
       Product product = productRepository.save(Product.create("맥북 프로", new BigDecimal("2000000")));
       productStockRepository.save(ProductStock.create(product.getId(), 1000));
+      LocalDateTime start = LocalDateTime.now().plusDays(1);
+      LocalDateTime end = start.plusHours(2);
       CreateHotDealRequest request = new CreateHotDealRequest(
           product.getId(),
           new BigDecimal("2000000"),
           100,
-          LocalDateTime.of(2026, 6, 20, 7, 0),
-          LocalDateTime.of(2026, 6, 20, 9, 0));
+          start,
+          end);
 
       mockMvc.perform(post("/api/admin/hotdeals")
               .contentType(APPLICATION_JSON)
@@ -220,12 +232,14 @@ class CreateHotDealIntegrationTest {
     @Test
     @DisplayName("존재하지 않는 상품으로 등록하면 PRODUCT_NOT_FOUND(404)를 반환한다")
     void productNotFound() throws Exception {
+      LocalDateTime start = LocalDateTime.now().plusDays(1);
+      LocalDateTime end = start.plusHours(2);
       CreateHotDealRequest request = new CreateHotDealRequest(
           999L,
           new BigDecimal("9900"),
           100,
-          LocalDateTime.of(2026, 6, 20, 7, 0),
-          LocalDateTime.of(2026, 6, 20, 9, 0));
+          start,
+          end);
 
       mockMvc.perform(post("/api/admin/hotdeals")
               .contentType(APPLICATION_JSON)
