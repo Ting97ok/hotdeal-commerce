@@ -1,8 +1,10 @@
 package com.sparta.msa.commerce.domain.stock.entity;
 
+import static com.sparta.msa.commerce.domain.stock.exception.StockExceptionCode.INSUFFICIENT_PRODUCT_STOCK;
 import static lombok.AccessLevel.PRIVATE;
 
 import com.sparta.msa.commerce.global.entity.BaseEntity;
+import com.sparta.msa.commerce.global.exception.DomainException;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Table;
@@ -53,7 +55,9 @@ public class ProductStock extends BaseEntity {
   }
 
   public void reserve(int quantity) {
-    // TODO(stock-insufficient): 가용(on_hand−reserved) < quantity 거부 → INSUFFICIENT_PRODUCT_STOCK 미구현
+    if (onHandQuantity - reservedQuantity < quantity) {
+      throw new DomainException(INSUFFICIENT_PRODUCT_STOCK);
+    }
     this.reservedQuantity += quantity;
   }
 }
