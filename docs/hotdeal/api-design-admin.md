@@ -54,13 +54,13 @@ POST /api/admin/hotdeals
 | 판매 기간 유효성 (startAt < endAt) | 비즈니스 검증 (엔티티 `create()`) | INVALID_HOTDEAL_PERIOD |
 | 특가가 정가 미만 (dealPrice < 정가) | 비즈니스 검증 (엔티티 `create()`) | INVALID_DEAL_PRICE |
 | 같은 상품 ACTIVE 핫딜과 기간 겹침 | 비즈니스 검증 (Service) | HOTDEAL_PERIOD_OVERLAP |
-| 상품 가용 재고 충분 (가용 ≥ 총 한정 수량) | 비즈니스 검증 (productService 예약) | INSUFFICIENT_PRODUCT_STOCK |
+| 상품 가용 재고 충분 (가용 ≥ 총 한정 수량) | 비즈니스 검증 (productStockService 예약, stock 도메인) | INSUFFICIENT_PRODUCT_STOCK |
 
 > **설계 노트 — dealPrice 검증**: 1 이상(`@DecimalMin("1")`) · 정수(`@Digits(fraction=0)` — 원화는 소수점이 없어 `DECIMAL(12,0)`을 입력 단계에서 미러, 미적용 시 소수가 DB에서 조용히 반올림됨) · 정가 미만(엔티티 `create()` → `INVALID_DEAL_PRICE`). 0원·음수·소수점은 입력 단계에서 `VALIDATION_ERROR`(400)로 거른다.
 >
 > **설계 노트 — startAt에 @Future를 두지 않는 이유**: 관리자가 과거/현재 시각으로도 핫딜을 열 수 있어야 하는 운영 재량을 남긴다(예: 즉시 오픈, 테스트 운영). 시간 도달 = 오픈이므로([ADR-0007 결정1](../adr/0007-hotdeal-state-operations.md)) 미래 강제는 정책으로 굳히지 않는다.
 >
-> **설계 노트 — 계층 경계(타 도메인 검증·예약)**: 상품(Product·ProductStock)은 타 도메인이므로 핫딜 Service가 그 Repository를 직접 부르면 [service.md](../../.claude/rules/service.md) 위반이다. Facade가 productService에서 검증된 상품을 확보하고, **상품 재고 예약(가용 검사 + 예약 차감)도 productService에 위임**해 그 결과를 핫딜 Service로 넘긴다. 기간 겹침 검증은 핫딜 자기 Repository 조회이므로 핫딜 Service 안에서 수행한다.
+> **설계 노트 — 계층 경계(타 도메인 검증·예약)**: 상품 존재 검증과 재고 예약은 서로 다른 타 도메인이다([ADR-0012](../adr/0012-context-map-module-boundaries.md) — `Product`는 product 모듈, `ProductStock`은 stock 모듈). Facade가 **productService**(product)에서 상품을 확보하고, **상품 재고 예약(가용 검사 + 예약 차감)은 stock 도메인의 `productStockService`에 위임**한다. 핫딜 Service가 타 도메인 Repository를 직접 부르면 [service.md](../../.claude/rules/service.md) 위반이라 검증·예약 모두 Facade 경유다. 가용 < 수량이면 `StockExceptionCode.INSUFFICIENT_PRODUCT_STOCK`(409). 기간 겹침 검증만 핫딜 자기 Repository 조회이므로 핫딜 Service 안에서 수행한다.
 >
 > **설계 노트 — 기간 겹침 경합 수용**: 동시 등록 두 건이 기간 겹침 검증을 같이 통과하는 경합은 관리자 단독 운영 전제로 수용한다([ADR-0007 결정4](../adr/0007-hotdeal-state-operations.md)). 행 잠금·직렬화를 구현하지 않으며, 동시성 테스트도 두지 않는다(순차 등록의 겹침 거부만 검증).
 
