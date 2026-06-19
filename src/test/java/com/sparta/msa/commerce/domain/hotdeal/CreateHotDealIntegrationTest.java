@@ -274,5 +274,28 @@ class CreateHotDealIntegrationTest {
 
       assertThat(hotDealRepository.count()).isZero();
     }
+
+    @Test
+    @DisplayName("상품 재고 정보가 없으면 STOCK_NOT_FOUND(404)를 반환한다")
+    void stockNotFound() throws Exception {
+      Product product = productRepository.save(Product.create("맥북 프로", new BigDecimal("2000000")));
+      LocalDateTime start = LocalDateTime.now().plusDays(1);
+      LocalDateTime end = start.plusHours(2);
+      CreateHotDealRequest request = new CreateHotDealRequest(
+          product.getId(),
+          new BigDecimal("9900"),
+          100,
+          start,
+          end);
+
+      mockMvc.perform(post("/api/admin/hotdeals")
+              .contentType(APPLICATION_JSON)
+              .content(objectMapper.writeValueAsString(request)))
+          .andExpect(status().isNotFound())
+          .andExpect(jsonPath("$.result").value(false))
+          .andExpect(jsonPath("$.error.code").value("STOCK_NOT_FOUND"));
+
+      assertThat(hotDealRepository.count()).isZero();
+    }
   }
 }
