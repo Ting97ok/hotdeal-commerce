@@ -146,12 +146,12 @@ private static void validateDealPrice(BigDecimal dealPrice, BigDecimal listPrice
 // HotDealRepository — 겹침 판정: s1 < e2 AND s2 < e1, ACTIVE 만
 @Query("""
     SELECT COUNT(h) > 0 FROM HotDeal h
-    WHERE h.product.id = :productId
+    WHERE h.product = :product
       AND h.status = 'ACTIVE'
       AND h.startAt < :endAt
       AND :startAt < h.endAt
 """)
-boolean existsOverlappingActiveHotDeal(@Param("productId") Long productId,
+boolean existsOverlappingActiveHotDeal(@Param("product") Product product,
                                        @Param("startAt") LocalDateTime startAt,
                                        @Param("endAt") LocalDateTime endAt);
 ```
@@ -167,5 +167,6 @@ boolean existsOverlappingActiveHotDeal(@Param("productId") Long productId,
 | 1 | `createHotDealWithStock` | 정상 등록 시 상품재고 예약(reserved 차감) + 핫딜·핫딜재고 생성, hotDealId 반환 | ✅ Pass | 2026-06-19 |
 | 2 | `insufficientProductStock` | 상품 가용(실물−예약) < 총 한정 수량이면 INSUFFICIENT_PRODUCT_STOCK(409) + 핫딜·핫딜재고 미생성(롤백) | ✅ Pass | 2026-06-19 |
 | 3 | `reserveExactlyAvailableStock` | 가용 == 총 한정 수량이면 예약 성공 + 예약 후 가용 0 (off-by-one 상한 명세) | ✅ Pass | 2026-06-19 |
+| 4 | `overlappingActiveHotDeal` | 같은 상품 ACTIVE 핫딜과 판매기간 겹치면 HOTDEAL_PERIOD_OVERLAP(409), 두 번째 미생성 | ✅ Pass | 2026-06-19 |
 
 > **ADR-0011 반영 노트**: #1~#3 으로 ADR-0011 등록 재고(예약 차감 · 가용 부족 거부 · 경계 상한)가 반영 완료됐다(2026-06-19). 기간 겹침·기간 유효성·특가·상품 미존재·Bean Validation 은 작업2 범위 밖으로 후속 사이클에서 다룬다.
