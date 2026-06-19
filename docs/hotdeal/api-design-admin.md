@@ -164,6 +164,6 @@ boolean existsOverlappingActiveHotDeal(@Param("productId") Long productId,
 
 | # | 테스트 케이스 | 시나리오 | 상태 | 작성일 |
 |---|---------------|----------|------|--------|
-| 1 | `createHotDealWithStock` | 정상 등록 시 핫딜+재고 생성, hotDealId 반환 | ✅ Pass | 2026-06-17 |
+| 1 | `createHotDealWithStock` | 정상 등록 시 상품재고 예약(reserved 차감) + 핫딜·핫딜재고 생성, hotDealId 반환 | ✅ Pass | 2026-06-19 |
 
-> **ADR-0011 반영 노트**: #1(`createHotDealWithStock`, 커밋됨)은 ProductStock 도입 전 모델이다. 상품 가용 검사·예약 차감·`Stock→HotDealStock` 리네임은 다가올 TDD 사이클에서 #1을 개정하며 자란다(예약 성공·`INSUFFICIENT_PRODUCT_STOCK`·재고 부족 격리).
+> **ADR-0011 반영 노트**: #1 은 2026-06-19 상품재고 예약 차감(`reserved += 수량`, 가용검사 없는 최소 구현)을 반영해 개정됐다. 가용 부족 거부(`INSUFFICIENT_PRODUCT_STOCK`)·경계 케이스는 다음 사이클에서 #2~ 로 자란다.
