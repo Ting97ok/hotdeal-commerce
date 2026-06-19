@@ -194,5 +194,27 @@ class CreateHotDealIntegrationTest {
 
       assertThat(hotDealRepository.count()).isZero();
     }
+
+    @Test
+    @DisplayName("특가가 정가 이상이면 INVALID_DEAL_PRICE(400)을 반환한다")
+    void invalidDealPrice() throws Exception {
+      Product product = productRepository.save(Product.create("맥북 프로", new BigDecimal("2000000")));
+      productStockRepository.save(ProductStock.create(product.getId(), 1000));
+      CreateHotDealRequest request = new CreateHotDealRequest(
+          product.getId(),
+          new BigDecimal("2000000"),
+          100,
+          LocalDateTime.of(2026, 6, 20, 7, 0),
+          LocalDateTime.of(2026, 6, 20, 9, 0));
+
+      mockMvc.perform(post("/api/admin/hotdeals")
+              .contentType(APPLICATION_JSON)
+              .content(objectMapper.writeValueAsString(request)))
+          .andExpect(status().isBadRequest())
+          .andExpect(jsonPath("$.result").value(false))
+          .andExpect(jsonPath("$.error.code").value("INVALID_DEAL_PRICE"));
+
+      assertThat(hotDealRepository.count()).isZero();
+    }
   }
 }
