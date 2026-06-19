@@ -90,4 +90,32 @@ class CreateHotDealIntegrationTest {
       assertThat(productStock.getReservedQuantity()).isEqualTo(100);
     }
   }
+
+  @Nested
+  @DisplayName("실패")
+  class Failure {
+
+    @Test
+    @DisplayName("상품 가용 재고가 총 한정 수량보다 적으면 INSUFFICIENT_PRODUCT_STOCK(409)을 반환하고 핫딜이 생성되지 않는다")
+    void insufficientProductStock() throws Exception {
+      Product product = productRepository.save(Product.create("맥북 프로", new BigDecimal("2000000")));
+      productStockRepository.save(ProductStock.create(product.getId(), 50));
+      CreateHotDealRequest request = new CreateHotDealRequest(
+          product.getId(),
+          new BigDecimal("9900"),
+          100,
+          LocalDateTime.of(2026, 6, 20, 7, 0),
+          LocalDateTime.of(2026, 6, 20, 9, 0));
+
+      mockMvc.perform(post("/api/admin/hotdeals")
+              .contentType(APPLICATION_JSON)
+              .content(objectMapper.writeValueAsString(request)))
+          .andExpect(status().isConflict())
+          .andExpect(jsonPath("$.result").value(false))
+          .andExpect(jsonPath("$.error.code").value("INSUFFICIENT_PRODUCT_STOCK"));
+
+      assertThat(hotDealRepository.count()).isZero();
+      assertThat(hotDealStockRepository.count()).isZero();
+    }
+  }
 }
