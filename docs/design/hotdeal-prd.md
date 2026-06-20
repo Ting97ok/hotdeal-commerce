@@ -62,7 +62,7 @@
 |---|---|---|
 | 1 | 관리자 핫딜 등록 — 상품·특가·수량·기간, 등록 검증(기간 겹침·한계값) 포함, **상품 재고 원본(`ProductStock`) 가용 검사·예약** + 핫딜 재고(`HotDealStock`) 동시 생성 | 슬라이스 0 · [ADR-0007](../adr/0007-hotdeal-state-operations.md) · [0011](../adr/0011-product-inventory-reservation.md) |
 | 2 | 핫딜 조회 — 목록·상세, **잔여 수량 포함**, 시작 전 핫딜 노출(정시 오픈 트래픽의 전제) | 슬라이스 0 · 7장 오픈 이슈(노출 범위 상세) |
-| 3 | 구매 — 재고 선점 + 주문 생성(회원 전용, 핫딜 주소 `POST /api/orders {hotDealId}`), 만료시각 부여 | 슬라이스 1 · [ADR-0004](../adr/0004-stock-reservation-lifecycle.md)·[0005](../adr/0005-one-per-user-active-unique.md)·[0011](../adr/0011-product-inventory-reservation.md) |
+| 3 | 구매 — 재고 선점 + 주문 생성(회원 전용, 상품 주소 `POST /api/orders {productId}` — 서버가 활성 핫딜 해소), 만료시각 부여 | 슬라이스 1 · [ADR-0004](../adr/0004-stock-reservation-lifecycle.md)·[0005](../adr/0005-one-per-user-active-unique.md)·[0011](../adr/0011-product-inventory-reservation.md) |
 | 4 | 미결제 주문 자동 만료 — 취소 + 재고 복원(정확히 한 번) | 슬라이스 2 · [ADR-0004](../adr/0004-stock-reservation-lifecycle.md) |
 | 5 | 토스 결제 승인 → 주문 확정(PAID) — 금액 재검증·멱등 | 슬라이스 3 · [ADR-0008](../adr/0008-payment-model-pg-boundary.md) |
 | 6 | 결제 실패 처리 — **실패 분류별**: 재시도 가능(한도 초과 등) = 제한시간 내 같은 주문 유지 / 재시도 무의미 = 즉시 취소+복원 (방향 — 슬라이스 3 확정) | 슬라이스 3 · 7장 오픈 이슈 |

@@ -10,7 +10,7 @@
 | **오버셀 0 + 거짓 성공 0** (덜 팔림은 허용) | "거의 맞음"은 실패 — 샀는데 못 받는 게 최악. 폭주 실패는 정직하게 "다시 시도" | [ADR-0006](adr/0006-correctness-invariants-defense-layers.md) |
 | **주문 시 재고 선점** | 선착순 = "먼저 잡은 사람" — 결제 후 차감은 그 의미가 깨진다 | [ADR-0004](adr/0004-stock-reservation-lifecycle.md) |
 | **1인 1개 = DB 활성 유니크** | 앱 검증은 동시 클릭에 뚫린다 — 최종 직렬화는 DB 만 가능 | [ADR-0005](adr/0005-one-per-user-active-unique.md) |
-| **재고 동시성 4방식 벤치마크** | 운영은 1개, 나머지 3개는 그 선택의 근거(정확성 ↔ 성능 트레이드오프) | [ADR-0009](adr/0009-stock-concurrency-design.md) |
+| **재고 동시성 5방식 벤치마크** | 운영은 1개, 나머지 4개는 그 선택의 근거(정확성 ↔ 성능 트레이드오프) | [ADR-0009](adr/0009-stock-concurrency-design.md) |
 | **결제는 어댑터 뒤로 격리** | 토스 의존이 비즈니스 로직에 새지 않게 — 교체 지점을 한 곳에 모음 | [ADR-0008](adr/0008-payment-model-pg-boundary.md) |
 | **DB FK 제약 미사용** | 폭주 쓰기의 부모 행 잠금 제거 + 결제 후속 MSA 분리 대비 | [ADR-0003](adr/0003-no-db-fk-constraints.md) |
 

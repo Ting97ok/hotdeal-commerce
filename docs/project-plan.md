@@ -65,7 +65,7 @@
 ## 5. 진행 순서 (슬라이스)
 
 - **A. 셋업 + 기반**: ✅ 셋업(Spring Boot 3.5.13/Java 21/MySQL 8.4+Flyway/Redis/Docker) · ✅ 회원 로그인(JWT·RTR·tokenVersion) · ⬜ 상품 엔티티·시드·조회 (상품 엔티티는 핫딜 기반과 함께 생성)
-- **B+C. 핫딜 본편 (쓰기 · 1차 주연)**: ⓪ 등록/조회 → ① 구매(재고 선점+PENDING, 낙관락) → ② 만료 복원 → ③ 토스 결제 승인 → 재고 동시성 4방식(낙관/비관/Redis/분산락) 벤치마크 + k6 → 운영 전략 확정 — **확정 슬라이스·스키마는 [기술 가설 9](design/hotdeal-purchase-hypothesis.md)·[ERD](design/erd.md) 기준**
+- **B+C. 핫딜 본편 (쓰기 · 1차 주연)**: ⓪ 등록/조회 → ① 구매(재고 선점+PENDING, 낙관락) → ② 만료 복원 → ③ 토스 결제 승인 → 재고 동시성 5방식(낙관/비관/Redis/분산락/원자적 조건부 UPDATE) 벤치마크 + k6 → 운영 전략 확정 — **확정 슬라이스·스키마는 [기술 가설 9](design/hotdeal-purchase-hypothesis.md)·[ERD](design/erd.md) 기준**
 - **D. 고트래픽 상품 조회 (읽기 · 2차)**: 목록 조회(페이징/필터) · 인덱스 설계 + 쿼리 최적화(실행계획) · Redis 캐싱 + 무효화 · k6
 - **E. v2 결제 후속 MSA 전환**: 경계 분리 · Kafka 프로듀서/컨슈머(멱등) · Saga 보상 · DLT · Before/After 다이어그램
 - **F. 관측/마무리**: 메트릭(Micrometer)/로그/알람 · README · ADR
