@@ -1,14 +1,11 @@
 package com.sparta.msa.commerce.domain.stock.entity;
 
-import static com.sparta.msa.commerce.domain.stock.exception.StockExceptionCode.INSUFFICIENT_PRODUCT_STOCK;
 import static lombok.AccessLevel.PRIVATE;
 
 import com.sparta.msa.commerce.global.entity.BaseEntity;
-import com.sparta.msa.commerce.global.exception.DomainException;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Table;
-import jakarta.persistence.Version;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Getter;
@@ -41,23 +38,11 @@ public class ProductStock extends BaseEntity {
   @Column(name = "reserved_quantity", nullable = false)
   int reservedQuantity;
 
-  @Comment("낙관락 버전")
-  @Version
-  @Column(nullable = false)
-  Long version;
-
   public static ProductStock create(Long productId, int onHandQuantity) {
     return ProductStock.builder()
         .productId(productId)
         .onHandQuantity(onHandQuantity)
         .reservedQuantity(0)
         .build();
-  }
-
-  public void reserve(int quantity) {
-    if (onHandQuantity - reservedQuantity < quantity) {
-      throw new DomainException(INSUFFICIENT_PRODUCT_STOCK);
-    }
-    this.reservedQuantity += quantity;
   }
 }

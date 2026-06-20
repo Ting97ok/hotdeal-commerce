@@ -14,7 +14,6 @@ CREATE TABLE product_stock (
     product_id        BIGINT      NOT NULL COMMENT '상품 ID (논리 참조, 1:1)',
     on_hand_quantity  INT         NOT NULL COMMENT '실물 수량 (창고 실재 수)',
     reserved_quantity INT         NOT NULL DEFAULT 0 COMMENT '예약 수량 (핫딜에 떼어 둔 수)',
-    version           BIGINT      NOT NULL DEFAULT 0 COMMENT '낙관락 버전',
     created_at        DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
     updated_at        DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
     PRIMARY KEY (id),
