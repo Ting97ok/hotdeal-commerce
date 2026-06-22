@@ -1,5 +1,6 @@
 package com.sparta.msa.commerce.global.exception;
 
+import static com.sparta.msa.commerce.global.exception.DomainExceptionCode.CONCURRENT_UPDATE_CONFLICT;
 import static com.sparta.msa.commerce.global.exception.DomainExceptionCode.DATA_INTEGRITY_VIOLATION;
 import static com.sparta.msa.commerce.global.exception.DomainExceptionCode.SERVER_ERROR;
 import static com.sparta.msa.commerce.global.exception.DomainExceptionCode.VALIDATION_ERROR;
@@ -14,6 +15,7 @@ import org.springframework.context.support.DefaultMessageSourceResolvable;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
+import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.validation.BindException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
@@ -85,6 +87,13 @@ public class GlobalExceptionHandler {
     return fail(DATA_INTEGRITY_VIOLATION, DATA_INTEGRITY_VIOLATION.getMessage());
   }
 
+  @ExceptionHandler(ObjectOptimisticLockingFailureException.class)
+  public ResponseEntity<ApiResponse<Void>> handleObjectOptimisticLockingFailureException(
+      ObjectOptimisticLockingFailureException ex) {
+    log.warn("[OptimisticLockConflict] : {}", ex.getMessage());
+    return fail(CONCURRENT_UPDATE_CONFLICT, CONCURRENT_UPDATE_CONFLICT.getMessage());
+  }
+
   @ExceptionHandler(Exception.class)
   public ResponseEntity<ApiResponse<Void>> handleException(Exception ex) {
     log.error("[Exception] : ", ex);
@@ -92,7 +101,7 @@ public class GlobalExceptionHandler {
     return fail(SERVER_ERROR, message);
   }
 
-  private ResponseEntity<ApiResponse<Void>> fail(DomainExceptionCode code, String message) {
+  private ResponseEntity<ApiResponse<Void>> fail(ExceptionCode code, String message) {
     return ApiResponse.fail(code.getStatus(), code.name(), message);
   }
 
