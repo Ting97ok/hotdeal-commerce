@@ -8,6 +8,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.sparta.msa.commerce.domain.hotdeal.dto.request.CreateHotDealRequest;
+import com.sparta.msa.commerce.domain.hotdeal.entity.HotDeal;
 import com.sparta.msa.commerce.domain.hotdeal.repository.HotDealRepository;
 import com.sparta.msa.commerce.domain.product.entity.Product;
 import com.sparta.msa.commerce.domain.product.repository.ProductRepository;
@@ -117,6 +118,30 @@ class CreateHotDealIntegrationTest {
       ProductStock productStock = productStockRepository.findByProductId(product.getId()).orElseThrow();
       assertThat(productStock.getReservedQuantity()).isEqualTo(100);
       assertThat(productStock.getOnHandQuantity() - productStock.getReservedQuantity()).isZero();
+    }
+
+    @Test
+    @DisplayName("등록 시 입력한 maxPerOrder(1주문 최대 수량)가 그대로 저장된다")
+    void storeMaxPerOrder() throws Exception {
+      Product product = productRepository.save(Product.create("맥북 프로", new BigDecimal("2000000")));
+      productStockRepository.save(ProductStock.create(product.getId(), 1000));
+      LocalDateTime start = LocalDateTime.now().plusDays(1);
+      LocalDateTime end = start.plusHours(2);
+      CreateHotDealRequest request = new CreateHotDealRequest(
+          product.getId(),
+          new BigDecimal("9900"),
+          100,
+          3,
+          start,
+          end);
+
+      mockMvc.perform(post("/api/admin/hotdeals")
+              .contentType(APPLICATION_JSON)
+              .content(objectMapper.writeValueAsString(request)))
+          .andExpect(status().isOk());
+
+      HotDeal hotDeal = hotDealRepository.findAll().get(0);
+      assertThat(hotDeal.getMaxPerOrder()).isEqualTo(3);
     }
   }
 
@@ -304,6 +329,81 @@ class CreateHotDealIntegrationTest {
           .andExpect(status().isNotFound())
           .andExpect(jsonPath("$.result").value(false))
           .andExpect(jsonPath("$.error.code").value("STOCK_NOT_FOUND"));
+
+      assertThat(hotDealRepository.count()).isZero();
+    }
+
+    @Test
+    @DisplayName("maxPerOrder가 1 미만이면 VALIDATION_ERROR(400)를 반환한다")
+    void maxPerOrderBelowMin() throws Exception {
+      Product product = productRepository.save(Product.create("맥북 프로", new BigDecimal("2000000")));
+      productStockRepository.save(ProductStock.create(product.getId(), 1000));
+      LocalDateTime start = LocalDateTime.now().plusDays(1);
+      LocalDateTime end = start.plusHours(2);
+      CreateHotDealRequest request = new CreateHotDealRequest(
+          product.getId(),
+          new BigDecimal("9900"),
+          100,
+          0,
+          start,
+          end);
+
+      mockMvc.perform(post("/api/admin/hotdeals")
+              .contentType(APPLICATION_JSON)
+              .content(objectMapper.writeValueAsString(request)))
+          .andExpect(status().isBadRequest())
+          .andExpect(jsonPath("$.result").value(false))
+          .andExpect(jsonPath("$.error.code").value("VALIDATION_ERROR"));
+
+      assertThat(hotDealRepository.count()).isZero();
+    }
+
+    @Test
+    @DisplayName("maxPerOrder가 없으면 VALIDATION_ERROR(400)를 반환한다")
+    void maxPerOrderMissing() throws Exception {
+      Product product = productRepository.save(Product.create("맥북 프로", new BigDecimal("2000000")));
+      productStockRepository.save(ProductStock.create(product.getId(), 1000));
+      LocalDateTime start = LocalDateTime.now().plusDays(1);
+      LocalDateTime end = start.plusHours(2);
+      CreateHotDealRequest request = new CreateHotDealRequest(
+          product.getId(),
+          new BigDecimal("9900"),
+          100,
+          null,
+          start,
+          end);
+
+      mockMvc.perform(post("/api/admin/hotdeals")
+              .contentType(APPLICATION_JSON)
+              .content(objectMapper.writeValueAsString(request)))
+          .andExpect(status().isBadRequest())
+          .andExpect(jsonPath("$.result").value(false))
+          .andExpect(jsonPath("$.error.code").value("VALIDATION_ERROR"));
+
+      assertThat(hotDealRepository.count()).isZero();
+    }
+
+    @Test
+    @DisplayName("maxPerOrder가 10만을 초과하면 VALIDATION_ERROR(400)를 반환한다")
+    void maxPerOrderExceedsMax() throws Exception {
+      Product product = productRepository.save(Product.create("맥북 프로", new BigDecimal("2000000")));
+      productStockRepository.save(ProductStock.create(product.getId(), 1000));
+      LocalDateTime start = LocalDateTime.now().plusDays(1);
+      LocalDateTime end = start.plusHours(2);
+      CreateHotDealRequest request = new CreateHotDealRequest(
+          product.getId(),
+          new BigDecimal("9900"),
+          100,
+          100001,
+          start,
+          end);
+
+      mockMvc.perform(post("/api/admin/hotdeals")
+              .contentType(APPLICATION_JSON)
+              .content(objectMapper.writeValueAsString(request)))
+          .andExpect(status().isBadRequest())
+          .andExpect(jsonPath("$.result").value(false))
+          .andExpect(jsonPath("$.error.code").value("VALIDATION_ERROR"));
 
       assertThat(hotDealRepository.count()).isZero();
     }
