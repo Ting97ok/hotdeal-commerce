@@ -218,5 +218,67 @@ class CreateOrderIntegrationTest {
 
       assertThat(orderRepository.count()).isZero();
     }
+
+    @Test
+    @DisplayName("구매 수량이 1 미만이면 VALIDATION_ERROR(400)를 반환한다")
+    void validationError() throws Exception {
+      User user = userRepository.save(
+          User.create("buyer@test.com", passwordEncoder.encode("password123"), "구매자", UserRole.USER));
+      String token = tokenIssuer.createAccessToken(user.getId(), UserRole.USER);
+      Product product = productRepository.save(Product.create("맥북 프로", new BigDecimal("2000000")));
+
+      CreateOrderRequest request = new CreateOrderRequest(product.getId(), 0);
+
+      mockMvc.perform(post("/api/orders")
+              .header(AUTHORIZATION, "Bearer " + token)
+              .contentType(APPLICATION_JSON)
+              .content(objectMapper.writeValueAsString(request)))
+          .andExpect(status().isBadRequest())
+          .andExpect(jsonPath("$.result").value(false))
+          .andExpect(jsonPath("$.error.code").value("VALIDATION_ERROR"));
+
+      assertThat(orderRepository.count()).isZero();
+    }
+
+    @Test
+    @DisplayName("주문자가 존재하지 않으면 USER_NOT_FOUND(404)를 반환한다")
+    void userNotFound() throws Exception {
+      long missingUserId = 999_999L;
+      String token = tokenIssuer.createAccessToken(missingUserId, UserRole.USER);
+      Product product = productRepository.save(Product.create("맥북 프로", new BigDecimal("2000000")));
+
+      CreateOrderRequest request = new CreateOrderRequest(product.getId(), 1);
+
+      mockMvc.perform(post("/api/orders")
+              .header(AUTHORIZATION, "Bearer " + token)
+              .contentType(APPLICATION_JSON)
+              .content(objectMapper.writeValueAsString(request)))
+          .andExpect(status().isNotFound())
+          .andExpect(jsonPath("$.result").value(false))
+          .andExpect(jsonPath("$.error.code").value("USER_NOT_FOUND"));
+
+      assertThat(orderRepository.count()).isZero();
+    }
+
+    @Test
+    @DisplayName("상품이 존재하지 않으면 PRODUCT_NOT_FOUND(404)를 반환한다")
+    void productNotFound() throws Exception {
+      User user = userRepository.save(
+          User.create("buyer@test.com", passwordEncoder.encode("password123"), "구매자", UserRole.USER));
+      String token = tokenIssuer.createAccessToken(user.getId(), UserRole.USER);
+      long missingProductId = 999_999L;
+
+      CreateOrderRequest request = new CreateOrderRequest(missingProductId, 1);
+
+      mockMvc.perform(post("/api/orders")
+              .header(AUTHORIZATION, "Bearer " + token)
+              .contentType(APPLICATION_JSON)
+              .content(objectMapper.writeValueAsString(request)))
+          .andExpect(status().isNotFound())
+          .andExpect(jsonPath("$.result").value(false))
+          .andExpect(jsonPath("$.error.code").value("PRODUCT_NOT_FOUND"));
+
+      assertThat(orderRepository.count()).isZero();
+    }
   }
 }
