@@ -48,7 +48,7 @@ POST /api/orders
 | 1인 1활성주문 | 비즈니스 사전가드(existsActiveOrder) + DB 유니크(uk_orders_active) | ALREADY_PURCHASED |
 | 수량 ≤ maxPerOrder | 비즈니스 검증 (엔티티 `Order.create`) | EXCEEDS_PURCHASE_LIMIT |
 | 핫딜 잔여 ≥ quantity | 비즈니스 검증 (엔티티 `HotDealStock.deduct`) | SOLD_OUT |
-| 재고 차감 경합 | 비즈니스 검증 (낙관락 version flush) | PURCHASE_CONFLICT |
+| 재고 차감 경합 | 비즈니스 검증 (낙관락 version flush) | CONCURRENT_UPDATE_CONFLICT |
 
 > **설계 노트 — 활성 핫딜 해소(NO_ACTIVE_DEAL 404)**: 클라이언트는 productId만 보내고 서버가 그 상품의 활성 핫딜(현재시각 ∈ [startAt, endAt) + status=ACTIVE)을 찾는다. 없으면 404 — "지금 이 상품을 핫딜가로 살 대상(활성 핫딜 리소스)이 없음"은 리소스 부재 성격(`PRODUCT_NOT_FOUND`와 동류). `commonHotDealService.getActiveHotDeal`이 직접 던지며(`getProduct`·`getById`처럼 조회 Service가 없으면 자기 도메인 예외), `NO_ACTIVE_DEAL`은 hotdeal 상태의 사실이라 `HotDealExceptionCode` 소속이다(슬라이스0 `HOTDEAL_NOT_FOUND`와 같은 계열). 같은 상품 기간 겹침은 등록이 막으므로([ADR-0007 결정4](../adr/0007-hotdeal-state-operations.md)) 한 시점 활성 핫딜은 0 또는 1건이며, 쿼리는 방어적으로 `startAt DESC` 첫 건을 쓴다(N건이 떠도 최신 1건).
 >
@@ -58,7 +58,7 @@ POST /api/orders
 >
 > **설계 노트 — 1인 1활성주문 이중 방어**: 사전 가드(existsActiveOrder)로 대부분을 친절히 거절(`ALREADY_PURCHASED` 409)하고, 동시 중복 클릭은 `uk_orders_active` 유니크가 최종 직렬화한다(위반 → `DataIntegrityViolationException` → `ALREADY_PURCHASED`). 가드는 싸고 사유 있는 거절, 유니크는 동시성 최종 차단([ADR-0006](../adr/0006-correctness-invariants-defense-layers.md) 방어 분업). 활성 판정 = `status IN (PENDING, PAID)`.
 >
-> **설계 노트 — 주문→재고 순서 + 낙관락 차감**: 한 Facade 트랜잭션에서 주문 INSERT(④)를 재고 차감 UPDATE(⑤)보다 먼저 둔다(Hibernate 기본 flush 순서와 일치 — [ADR-0009](../adr/0009-stock-concurrency-design.md) 결정4). 1인1개 유니크 위반이 주문 INSERT에서 먼저 걸려 불필요한 차감을 막는 부가 이점도 있다. 재고 차감은 낙관락(@Version) — `findByHotDealId`로 행을 PC에 올려 `deduct` 후 커밋 flush에서 version 비교, 충돌 시 `PURCHASE_CONFLICT`(409, 재시도 없음). **핫딜 등록의 ProductStock 원자적 조건부 UPDATE와 메커니즘이 다르다**(혼동 주의).
+> **설계 노트 — 주문→재고 순서 + 낙관락 차감**: 한 Facade 트랜잭션에서 주문 INSERT(④)를 재고 차감 UPDATE(⑤)보다 먼저 둔다(Hibernate 기본 flush 순서와 일치 — [ADR-0009](../adr/0009-stock-concurrency-design.md) 결정4). 1인1개 유니크 위반이 주문 INSERT에서 먼저 걸려 불필요한 차감을 막는 부가 이점도 있다. 재고 차감은 낙관락(@Version) — `findByHotDealId`로 행을 PC에 올려 `deduct` 후 커밋 flush에서 version 비교, 충돌 시 `CONCURRENT_UPDATE_CONFLICT`(409, 재시도 없음). **핫딜 등록의 ProductStock 원자적 조건부 UPDATE와 메커니즘이 다르다**(혼동 주의).
 >
 > **설계 노트 — 계층 경계**: order Facade가 타 도메인 Service를 조합한다 — `userService`(user)·`productService`(product)·`commonHotDealService`(hotdeal)·`hotDealStockService`(stock). order Service는 자기 `OrderRepository`와 `Order` 도메인 로직만. 활성 핫딜 해소는 "모든 구매가 동일해야 하는 정규 조회"라 hotdeal의 Common 진입 Service에 둔다([service.md](../../.claude/rules/service.md)). 조회 Service가 없으면 자기 도메인 예외를 직접 던지므로(`getProduct`→`PRODUCT_NOT_FOUND`, `getActiveHotDeal`→`NO_ACTIVE_DEAL`) Facade는 `orElseThrow` 없이 결과를 받는다.
 
@@ -98,6 +98,7 @@ POST /api/orders
 | 3 | `alreadyPurchased` | 같은 회원이 같은 핫딜 이미 구매 시 ALREADY_PURCHASED(409, 사전가드), 주문 1건 유지 | ✅ Pass | 2026-06-22 |
 | 4 | `exceedsPurchaseLimit` | quantity > maxPerOrder 구매 시 EXCEEDS_PURCHASE_LIMIT(400), 주문 미생성 | ✅ Pass | 2026-06-22 |
 | 5 | `soldOut` | 핫딜 잔여보다 많이 구매 시 SOLD_OUT(409), 주문 미생성(롤백) | ✅ Pass | 2026-06-22 |
+| 6 | `concurrentPurchaseNeverOversells` | 서로 다른 N명 동시 구매 시 오버셀 0 + 잔여=초기재고−Σ성공수량 정합, 낙관락 충돌은 CONCURRENT_UPDATE_CONFLICT(409) | ✅ Pass | 2026-06-22 |
 
 **구현 로직**
 
@@ -124,7 +125,7 @@ flowchart TD
     R -- 부족 --> S[/SOLD_OUT/]:::error
     R -- 충분 --> T[핫딜 재고 차감\n잔여 -= 수량]:::process
     T --> U{차감 경합?\n낙관락 version}:::decision
-    U -- 충돌 --> V[/PURCHASE_CONFLICT/]:::error
+    U -- 충돌 --> V[/CONCURRENT_UPDATE_CONFLICT/]:::error
     U -- 성공 --> W([주문 정보 반환]):::success
 
     classDef error fill:#f8d7da,stroke:#dc3545,color:#dc3545,font-weight:bold
