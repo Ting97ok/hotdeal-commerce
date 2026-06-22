@@ -100,6 +100,9 @@ POST /api/orders
 | 5 | `soldOut` | 핫딜 잔여보다 많이 구매 시 SOLD_OUT(409), 주문 미생성(롤백) | ✅ Pass | 2026-06-22 |
 | 6 | `concurrentPurchaseNeverOversells` | 서로 다른 N명 동시 구매 시 오버셀 0 + 잔여=초기재고−Σ성공수량 정합, 낙관락 충돌은 CONCURRENT_UPDATE_CONFLICT(409) | ✅ Pass | 2026-06-22 |
 | 7 | `concurrentDuplicatePurchaseKeepsSingleOrder` | 같은 회원 동시 중복 구매 시 주문 1건 유지, 유니크(uk_orders_active) 위반은 ALREADY_PURCHASED(409) | ✅ Pass | 2026-06-22 |
+| 8 | `validationError` | quantity가 1 미만이면 VALIDATION_ERROR(400), 주문 미생성 | ✅ Pass | 2026-06-22 |
+| 9 | `userNotFound` | 주문자가 존재하지 않으면 USER_NOT_FOUND(404), 주문 미생성 | ✅ Pass | 2026-06-22 |
+| 10 | `productNotFound` | 상품이 존재하지 않으면 PRODUCT_NOT_FOUND(404), 주문 미생성 | ✅ Pass | 2026-06-22 |
 
 **구현 로직**
 
