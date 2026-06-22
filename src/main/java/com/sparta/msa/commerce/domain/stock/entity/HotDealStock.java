@@ -46,4 +46,8 @@ public class HotDealStock extends BaseEntity {
         .remainingQuantity(totalQuantity)
         .build();
   }
+
+  public void deduct(int quantity) {
+    remainingQuantity -= quantity;
+  }
 }

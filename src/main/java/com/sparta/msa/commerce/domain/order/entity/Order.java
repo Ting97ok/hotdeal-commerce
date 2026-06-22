@@ -18,6 +18,7 @@ import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.util.UUID;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Getter;
@@ -78,4 +79,18 @@ public class Order extends BaseEntity {
   @ManyToOne(fetch = LAZY)
   @JoinColumn(name = "product_id", foreignKey = @ForeignKey(NO_CONSTRAINT))
   Product product;
+
+  public static Order create(User user, HotDeal hotDeal, Product product, int quantity,
+      LocalDateTime expiresAt) {
+    return Order.builder()
+        .user(user)
+        .hotDeal(hotDeal)
+        .product(product)
+        .quantity(quantity)
+        .orderNo(UUID.randomUUID().toString())
+        .orderAmount(hotDeal.getDealPrice().multiply(BigDecimal.valueOf(quantity)))
+        .status(OrderStatus.PENDING)
+        .expiresAt(expiresAt)
+        .build();
+  }
 }

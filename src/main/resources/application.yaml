@@ -46,3 +46,6 @@ jwt:
     exp-minute-time: 30
     refresh-exp-minute-time: 20160
     issuer: commerce
+
+order:
+  payment-timeout: PT10M
