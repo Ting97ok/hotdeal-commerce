@@ -50,7 +50,7 @@ POST /api/orders
 | 핫딜 잔여 ≥ quantity | 비즈니스 검증 (엔티티 `HotDealStock.deduct`) | SOLD_OUT |
 | 재고 차감 경합 | 비즈니스 검증 (낙관락 version flush) | PURCHASE_CONFLICT |
 
-> **설계 노트 — 활성 핫딜 해소(NO_ACTIVE_DEAL 404)**: 클라이언트는 productId만 보내고 서버가 그 상품의 활성 핫딜(현재시각 ∈ [startAt, endAt) + status=ACTIVE)을 찾는다. 없으면 404 — "지금 이 상품을 핫딜가로 살 대상(활성 핫딜 리소스)이 없음"은 리소스 부재 성격(`PRODUCT_NOT_FOUND`와 동류). 같은 상품 기간 겹침은 등록이 막으므로([ADR-0007 결정4](../adr/0007-hotdeal-state-operations.md)) 한 시점 활성 핫딜은 0 또는 1건이며, 쿼리는 방어적으로 `startAt DESC` 첫 건을 쓴다(N건이 떠도 최신 1건).
+> **설계 노트 — 활성 핫딜 해소(NO_ACTIVE_DEAL 404)**: 클라이언트는 productId만 보내고 서버가 그 상품의 활성 핫딜(현재시각 ∈ [startAt, endAt) + status=ACTIVE)을 찾는다. 없으면 404 — "지금 이 상품을 핫딜가로 살 대상(활성 핫딜 리소스)이 없음"은 리소스 부재 성격(`PRODUCT_NOT_FOUND`와 동류). `commonHotDealService.getActiveHotDeal`이 직접 던지며(`getProduct`·`getById`처럼 조회 Service가 없으면 자기 도메인 예외), `NO_ACTIVE_DEAL`은 hotdeal 상태의 사실이라 `HotDealExceptionCode` 소속이다(슬라이스0 `HOTDEAL_NOT_FOUND`와 같은 계열). 같은 상품 기간 겹침은 등록이 막으므로([ADR-0007 결정4](../adr/0007-hotdeal-state-operations.md)) 한 시점 활성 핫딜은 0 또는 1건이며, 쿼리는 방어적으로 `startAt DESC` 첫 건을 쓴다(N건이 떠도 최신 1건).
 >
 > **설계 노트 — 만료시각 외부화**: `expiresAt = 주문시각 + order.payment-timeout`. application.yml에 `order.payment-timeout: PT10M`(Duration, 임시 10분 — 최종값 슬라이스2)으로 외부화하고 Service가 `now().plus(timeout)`로 계산한다. 고객 고지 제한시간이 이 값을 참조하므로 엔티티에 하드코딩하지 않는다([ADR-0004](../adr/0004-stock-reservation-lifecycle.md)). 테스트는 절대시각 대신 `now()` 상대(예: `expiresAt > createdAt`, `≈ now + 10분` 허용오차)로 단언한다.
 >
@@ -60,7 +60,7 @@ POST /api/orders
 >
 > **설계 노트 — 주문→재고 순서 + 낙관락 차감**: 한 Facade 트랜잭션에서 주문 INSERT(④)를 재고 차감 UPDATE(⑤)보다 먼저 둔다(Hibernate 기본 flush 순서와 일치 — [ADR-0009](../adr/0009-stock-concurrency-design.md) 결정4). 1인1개 유니크 위반이 주문 INSERT에서 먼저 걸려 불필요한 차감을 막는 부가 이점도 있다. 재고 차감은 낙관락(@Version) — `findByHotDealId`로 행을 PC에 올려 `deduct` 후 커밋 flush에서 version 비교, 충돌 시 `PURCHASE_CONFLICT`(409, 재시도 없음). **핫딜 등록의 ProductStock 원자적 조건부 UPDATE와 메커니즘이 다르다**(혼동 주의).
 >
-> **설계 노트 — 계층 경계**: order Facade가 타 도메인 Service를 조합한다 — `userService`(user)·`productService`(product)·`commonHotDealService`(hotdeal)·`hotDealStockService`(stock). order Service는 자기 `OrderRepository`와 `Order` 도메인 로직만. 활성 핫딜 해소는 "모든 구매가 동일해야 하는 정규 조회"라 hotdeal의 Common 진입 Service에 둔다([service.md](../../.claude/rules/service.md)).
+> **설계 노트 — 계층 경계**: order Facade가 타 도메인 Service를 조합한다 — `userService`(user)·`productService`(product)·`commonHotDealService`(hotdeal)·`hotDealStockService`(stock). order Service는 자기 `OrderRepository`와 `Order` 도메인 로직만. 활성 핫딜 해소는 "모든 구매가 동일해야 하는 정규 조회"라 hotdeal의 Common 진입 Service에 둔다([service.md](../../.claude/rules/service.md)). 조회 Service가 없으면 자기 도메인 예외를 직접 던지므로(`getProduct`→`PRODUCT_NOT_FOUND`, `getActiveHotDeal`→`NO_ACTIVE_DEAL`) Facade는 `orElseThrow` 없이 결과를 받는다.
 
 **Response**
 
@@ -93,6 +93,7 @@ POST /api/orders
 
 | # | 테스트 케이스 | 시나리오 | 상태 | 작성일 |
 |---|---------------|----------|------|--------|
+| 1 | `purchaseHotDeal` | 활성 핫딜 구매 시 주문 PENDING 생성 + 핫딜 재고 차감(낙관락, 98=100−2) | ✅ Pass | 2026-06-22 |
 
 **구현 로직**
 
@@ -170,7 +171,7 @@ public void deduct(int quantity) {
 활성 핫딜 해소는 조건이 3개(productId + 시각 범위 + status)라 가독성을 위해 `@Query` JPQL을 쓴다. 사전 가드는 `status IN (PENDING, PAID)` 존재 검사라 `@Query`로 의미를 명명한다([repository.md](../../.claude/rules/repository.md)).
 
 ```java
-// HotDealRepository — 활성 핫딜 해소: now ∈ [startAt, endAt), ACTIVE (정상 0/1 건, 방어적 최신 우선)
+// HotDealRepository — 활성 핫딜 해소: now ∈ [startAt, endAt), ACTIVE, 최신 1건만 (LIMIT 1)
 @Query("""
     SELECT h FROM HotDeal h
     WHERE h.product = :product
@@ -178,8 +179,9 @@ public void deduct(int quantity) {
       AND h.startAt <= :now
       AND :now < h.endAt
     ORDER BY h.startAt DESC
+    LIMIT 1
 """)
-List<HotDeal> findActiveByProduct(@Param("product") Product product, @Param("now") LocalDateTime now);
+Optional<HotDeal> findActiveByProduct(@Param("product") Product product, @Param("now") LocalDateTime now);
 
 // HotDealStockRepository — 차감 위해 행을 PC 에 로드 (낙관락 version 추적)
 Optional<HotDealStock> findByHotDealId(Long hotDealId);
@@ -194,4 +196,4 @@ Optional<HotDealStock> findByHotDealId(Long hotDealId);
 boolean existsActiveOrder(@Param("userId") Long userId, @Param("hotDealId") Long hotDealId);
 ```
 
-> **설계 노트 — findActiveByProduct 가 List 인 이유**: 기간 겹침 금지 가드(등록)가 정상 운영에서 상품당 활성 핫딜을 0/1건으로 보장하지만, 관리자 동시 등록 경합(수용 — [ADR-0007 결정4](../adr/0007-hotdeal-state-operations.md))의 이론적 N건에 깨지지 않도록 `List` + `startAt DESC` 첫 건을 택한다(`Optional` 단건 쿼리는 N건일 때 `NonUniqueResult` 예외). Service가 `findFirst`로 최신 1건을 쓰고, 비면 `NO_ACTIVE_DEAL`. N건 동시성 테스트는 두지 않는다.
+> **설계 노트 — 활성 핫딜 단건 조회(LIMIT 1)**: 기간 겹침 금지 가드(등록)가 정상 운영에서 상품당 활성 핫딜을 0/1건으로 보장하지만, 관리자 동시 등록 경합(수용 — [ADR-0007 결정4](../adr/0007-hotdeal-state-operations.md))의 이론적 N건이 있어도 쿼리에 `ORDER BY startAt DESC LIMIT 1`을 걸어 DB가 최신 1건만 반환한다(`Optional<HotDeal>`). 따라서 `NonUniqueResult` 없이 단건이고, Service는 `orElseThrow(NO_ACTIVE_DEAL)`만 한다 — List 전체 로딩·`stream().findFirst()`가 필요 없다. N건 동시성 테스트는 두지 않는다.

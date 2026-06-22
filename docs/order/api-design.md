@@ -90,11 +90,11 @@
 
 ### 주문 ExceptionCode
 
-실패 응답의 `error.code`는 enum 이름과 같다. 구매 흐름의 거절 사유는 order, 재고 부족·정보 없음은 stock, 주문자·상품 부재는 각 도메인 소속이다.
+실패 응답의 `error.code`는 enum 이름과 같다. 구매 흐름의 거절 사유는 order, 재고 부족·정보 없음은 stock, 활성 핫딜·주문자·상품 부재는 각 도메인(hotdeal·user·product) 소속이다 — 조회 Service가 없으면 자기 도메인 예외를 직접 던진다.
 
 | ExceptionCode | 소속 enum | HttpStatus | 발생 |
 |---------------|-----------|:----------:|------|
-| NO_ACTIVE_DEAL | OrderExceptionCode | 404 | 구매 — 상품에 현재 활성(판매기간 내 ACTIVE) 핫딜 없음 |
+| NO_ACTIVE_DEAL | HotDealExceptionCode | 404 | 구매 — 상품에 현재 활성(판매기간 내 ACTIVE) 핫딜 없음 |
 | ALREADY_PURCHASED | OrderExceptionCode | 409 | 구매 — 같은 핫딜에 이미 살아 있는 주문 있음(계정당 1활성) |
 | EXCEEDS_PURCHASE_LIMIT | OrderExceptionCode | 400 | 구매 — `quantity > 핫딜 maxPerOrder` |
 | PURCHASE_CONFLICT | OrderExceptionCode | 409 | 구매 — 재고 차감 낙관락 경합(동시 차감 충돌) |
