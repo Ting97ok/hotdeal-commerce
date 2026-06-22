@@ -95,6 +95,7 @@ POST /api/orders
 |---|---------------|----------|------|--------|
 | 1 | `purchaseHotDeal` | 활성 핫딜 구매 시 주문 PENDING 생성 + 핫딜 재고 차감(낙관락, 98=100−2) | ✅ Pass | 2026-06-22 |
 | 2 | `noActiveDeal` | 활성 핫딜 없는 상품 구매 시 NO_ACTIVE_DEAL(404), 주문 미생성 | ✅ Pass | 2026-06-22 |
+| 3 | `alreadyPurchased` | 같은 회원이 같은 핫딜 이미 구매 시 ALREADY_PURCHASED(409, 사전가드), 주문 1건 유지 | ✅ Pass | 2026-06-22 |
 
 **구현 로직**
 
@@ -187,14 +188,14 @@ Optional<HotDeal> findActiveByProduct(@Param("product") Product product, @Param(
 // HotDealStockRepository — 차감 위해 행을 PC 에 로드 (낙관락 version 추적)
 Optional<HotDealStock> findByHotDealId(Long hotDealId);
 
-// OrderRepository — 사전 1인1개 가드 (살아있는 주문 = PENDING/PAID)
+// OrderRepository — 사전 1인1개 가드 (살아있는 주문 = PENDING/PAID, 엔티티 객체 파라미터)
 @Query("""
     SELECT COUNT(o) > 0 FROM Order o
-    WHERE o.user.id = :userId
-      AND o.hotDeal.id = :hotDealId
+    WHERE o.user = :user
+      AND o.hotDeal = :hotDeal
       AND o.status IN ('PENDING', 'PAID')
 """)
-boolean existsActiveOrder(@Param("userId") Long userId, @Param("hotDealId") Long hotDealId);
+boolean existsActiveOrder(@Param("user") User user, @Param("hotDeal") HotDeal hotDeal);
 ```
 
 > **설계 노트 — 활성 핫딜 단건 조회(LIMIT 1)**: 기간 겹침 금지 가드(등록)가 정상 운영에서 상품당 활성 핫딜을 0/1건으로 보장하지만, 관리자 동시 등록 경합(수용 — [ADR-0007 결정4](../adr/0007-hotdeal-state-operations.md))의 이론적 N건이 있어도 쿼리에 `ORDER BY startAt DESC LIMIT 1`을 걸어 DB가 최신 1건만 반환한다(`Optional<HotDeal>`). 따라서 `NonUniqueResult` 없이 단건이고, Service는 `orElseThrow(NO_ACTIVE_DEAL)`만 한다 — List 전체 로딩·`stream().findFirst()`가 필요 없다. N건 동시성 테스트는 두지 않는다.
