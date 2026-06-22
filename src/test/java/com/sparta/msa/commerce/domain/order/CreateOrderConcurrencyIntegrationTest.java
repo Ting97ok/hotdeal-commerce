@@ -137,4 +137,57 @@ class CreateOrderConcurrencyIntegrationTest {
     assertThat(stock.getRemainingQuantity()).isEqualTo(stockQuantity - soldQuantity);
     assertThat(orderRepository.count()).isEqualTo(successCount);
   }
+
+  @Test
+  @DisplayName("같은 회원이 같은 핫딜을 동시에 여러 번 구매해도 주문은 1건이고 나머지는 ALREADY_PURCHASED(409)다")
+  void concurrentDuplicatePurchaseKeepsSingleOrder() throws Exception {
+    int stockQuantity = 100;
+    int attemptCount = 10;
+
+    Product product = productRepository.save(Product.create("맥북 프로", new BigDecimal("2000000")));
+    LocalDateTime start = LocalDateTime.now().minusHours(1);
+    LocalDateTime end = LocalDateTime.now().plusHours(1);
+    HotDeal hotDeal = hotDealRepository.save(HotDeal.create(
+        new CreateHotDealRequest(product.getId(), new BigDecimal("9900"), stockQuantity, 5, start, end), product));
+    hotDealStockRepository.save(HotDealStock.create(hotDeal.getId(), stockQuantity));
+
+    User user = userRepository.save(User.create(
+        "buyer@test.com", passwordEncoder.encode("password123"), "구매자", UserRole.USER));
+    String token = tokenIssuer.createAccessToken(user.getId(), UserRole.USER);
+    String body = objectMapper.writeValueAsString(new CreateOrderRequest(product.getId(), 1));
+
+    ExecutorService pool = Executors.newFixedThreadPool(attemptCount);
+    CountDownLatch ready = new CountDownLatch(attemptCount);
+    CountDownLatch startSignal = new CountDownLatch(1);
+    Queue<Integer> statuses = new ConcurrentLinkedQueue<>();
+
+    for (int i = 0; i < attemptCount; i++) {
+      pool.submit(() -> {
+        ready.countDown();
+        try {
+          startSignal.await();
+          int status = mockMvc.perform(post("/api/orders")
+                  .header(AUTHORIZATION, "Bearer " + token)
+                  .contentType(APPLICATION_JSON)
+                  .content(body))
+              .andReturn().getResponse().getStatus();
+          statuses.add(status);
+        } catch (Exception e) {
+          statuses.add(-1);
+        }
+      });
+    }
+
+    ready.await();
+    startSignal.countDown();
+    pool.shutdown();
+    pool.awaitTermination(30, TimeUnit.SECONDS);
+
+    long successCount = statuses.stream().filter(status -> status == 200).count();
+
+    assertThat(statuses).hasSize(attemptCount);
+    assertThat(successCount).isEqualTo(1);
+    assertThat(orderRepository.count()).isEqualTo(1);
+    assertThat(statuses).allMatch(status -> status == 200 || status == 409);
+  }
 }
