@@ -17,6 +17,7 @@ import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
 import java.math.BigDecimal;
+import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.UUID;
 import lombok.AllArgsConstructor;
@@ -81,7 +82,7 @@ public class Order extends BaseEntity {
   Product product;
 
   public static Order create(User user, HotDeal hotDeal, Product product, int quantity,
-      LocalDateTime expiresAt) {
+      Duration paymentTimeout) {
     return Order.builder()
         .user(user)
         .hotDeal(hotDeal)
@@ -90,7 +91,7 @@ public class Order extends BaseEntity {
         .orderNo(UUID.randomUUID().toString())
         .orderAmount(hotDeal.getDealPrice().multiply(BigDecimal.valueOf(quantity)))
         .status(OrderStatus.PENDING)
-        .expiresAt(expiresAt)
+        .expiresAt(LocalDateTime.now().plus(paymentTimeout))
         .build();
   }
 }
