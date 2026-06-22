@@ -1,5 +1,6 @@
 package com.sparta.msa.commerce.global.exception;
 
+import static com.sparta.msa.commerce.domain.order.exception.OrderExceptionCode.ALREADY_PURCHASED;
 import static com.sparta.msa.commerce.global.exception.DomainExceptionCode.CONCURRENT_UPDATE_CONFLICT;
 import static com.sparta.msa.commerce.global.exception.DomainExceptionCode.DATA_INTEGRITY_VIOLATION;
 import static com.sparta.msa.commerce.global.exception.DomainExceptionCode.SERVER_ERROR;
@@ -83,7 +84,11 @@ public class GlobalExceptionHandler {
   @ExceptionHandler(DataIntegrityViolationException.class)
   public ResponseEntity<ApiResponse<Void>> handleDataIntegrityViolationException(
       DataIntegrityViolationException ex) {
-    log.error("[DataIntegrityViolation] : {}", ex.getMostSpecificCause().getMessage());
+    String cause = ex.getMostSpecificCause().getMessage();
+    log.error("[DataIntegrityViolation] : {}", cause);
+    if (cause != null && cause.contains("uk_orders_active")) {
+      return fail(ALREADY_PURCHASED, ALREADY_PURCHASED.getMessage());
+    }
     return fail(DATA_INTEGRITY_VIOLATION, DATA_INTEGRITY_VIOLATION.getMessage());
   }
 
