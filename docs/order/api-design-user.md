@@ -52,7 +52,7 @@ POST /api/orders
 
 > **설계 노트 — 활성 핫딜 해소(NO_ACTIVE_DEAL 404)**: 클라이언트는 productId만 보내고 서버가 그 상품의 활성 핫딜(현재시각 ∈ [startAt, endAt) + status=ACTIVE)을 찾는다. 없으면 404 — "지금 이 상품을 핫딜가로 살 대상(활성 핫딜 리소스)이 없음"은 리소스 부재 성격(`PRODUCT_NOT_FOUND`와 동류). `commonHotDealService.getActiveHotDeal`이 직접 던지며(`getProduct`·`getById`처럼 조회 Service가 없으면 자기 도메인 예외), `NO_ACTIVE_DEAL`은 hotdeal 상태의 사실이라 `HotDealExceptionCode` 소속이다(슬라이스0 `HOTDEAL_NOT_FOUND`와 같은 계열). 같은 상품 기간 겹침은 등록이 막으므로([ADR-0007 결정4](../adr/0007-hotdeal-state-operations.md)) 한 시점 활성 핫딜은 0 또는 1건이며, 쿼리는 방어적으로 `startAt DESC` 첫 건을 쓴다(N건이 떠도 최신 1건).
 >
-> **설계 노트 — 만료시각 외부화**: `expiresAt = 주문시각 + order.payment-timeout`. application.yml에 `order.payment-timeout: PT10M`(Duration, 임시 10분 — 최종값 슬라이스2)으로 외부화하고 Service가 `now().plus(timeout)`로 계산한다. 고객 고지 제한시간이 이 값을 참조하므로 엔티티에 하드코딩하지 않는다([ADR-0004](../adr/0004-stock-reservation-lifecycle.md)). 테스트는 절대시각 대신 `now()` 상대(예: `expiresAt > createdAt`, `≈ now + 10분` 허용오차)로 단언한다.
+> **설계 노트 — 만료시각 외부화**: `expiresAt = 주문시각 + order.payment-timeout`. application.yml에 `order.payment-timeout: PT10M`(`@ConfigurationProperties` `OrderProperties`, 임시 10분 — 최종값 슬라이스2)으로 외부화하고, `Order.create`가 `paymentTimeout`(Duration)을 받아 `now().plus(timeout)`로 계산한다 — orderNo·금액과 함께 엔티티가 주문 생성 규칙을 캡슐화하고, Service는 `OrderProperties`에서 timeout만 전달한다. timeout 값을 엔티티에 하드코딩하지 않고 외부화한 건 고객 고지 제한시간이 이 값을 참조하고 슬라이스2에서 값만 조정하기 위해서다([ADR-0004](../adr/0004-stock-reservation-lifecycle.md)). 테스트는 절대시각 대신 `now()` 상대(예: `expiresAt > createdAt`, `≈ now + 10분` 허용오차)로 단언한다.
 >
 > **설계 노트 — quantity 다수 허용**: 한 주문 수량은 1 이상이고 상한은 핫딜 `maxPerOrder`다. "계정당 1개"는 **주문 건수 1**(활성 유니크)이지 **수량 1**이 아니다 — 별개 축이다. `quantity > maxPerOrder`면 `EXCEEDS_PURCHASE_LIMIT`(400). `order_amount = dealPrice × quantity`, 핫딜 재고도 `quantity` 단위로 차감([ADR-0005 결정2](../adr/0005-one-per-user-active-unique.md)).
 >
@@ -136,8 +136,8 @@ flowchart TD
 `Order.create`는 maxPerOrder 검증·PENDING·orderNo·금액·만료를 캡슐화하고, `HotDealStock.deduct`는 잔여 검사·차감을 캡슐화한다([entity.md](../../.claude/rules/entity.md)). 아래는 구현 가이드용 의사 코드다. 메서드 존재는 TDD GREEN 단계에서 정당화한다.
 
 ```java
-// Order — 정적 팩토리 (expiresAt 은 Service 가 now + timeout 으로 계산해 전달)
-public static Order create(User user, HotDeal hotDeal, Product product, int quantity, LocalDateTime expiresAt) {
+// Order — 정적 팩토리 (orderNo·금액·상태·만료를 한곳에 캡슐화; Service 는 OrderProperties 의 timeout 만 전달)
+public static Order create(User user, HotDeal hotDeal, Product product, int quantity, Duration paymentTimeout) {
     validatePurchaseLimit(quantity, hotDeal.getMaxPerOrder());
     return Order.builder()
         .user(user)
@@ -147,7 +147,7 @@ public static Order create(User user, HotDeal hotDeal, Product product, int quan
         .orderNo(UUID.randomUUID().toString())
         .orderAmount(hotDeal.getDealPrice().multiply(BigDecimal.valueOf(quantity)))
         .status(OrderStatus.PENDING)
-        .expiresAt(expiresAt)
+        .expiresAt(LocalDateTime.now().plus(paymentTimeout))
         .build();
 }
 
