@@ -1,8 +1,10 @@
 package com.sparta.msa.commerce.domain.stock.entity;
 
+import static com.sparta.msa.commerce.domain.stock.exception.StockExceptionCode.SOLD_OUT;
 import static lombok.AccessLevel.PRIVATE;
 
 import com.sparta.msa.commerce.global.entity.BaseEntity;
+import com.sparta.msa.commerce.global.exception.DomainException;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Table;
@@ -48,6 +50,9 @@ public class HotDealStock extends BaseEntity {
   }
 
   public void deduct(int quantity) {
+    if (remainingQuantity < quantity) {
+      throw new DomainException(SOLD_OUT);
+    }
     remainingQuantity -= quantity;
   }
 }
