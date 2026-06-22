@@ -27,6 +27,7 @@ POST /api/admin/hotdeals
 | Body | productId | Long | O | @NotNull | 대상 상품 ID |
 | Body | dealPrice | BigDecimal | O | @NotNull @DecimalMin("1") @Digits(integer=12, fraction=0) | 특가 (1 이상 정수, 정가 미만) |
 | Body | totalQuantity | Integer | O | @NotNull @Min(1) @Max(100000) | 총 한정 수량 (1~10만, 등록 후 불변) |
+| Body | maxPerOrder | Integer | O | @NotNull @Min(1) @Max(100000) | 1주문 최대 수량 (1~10만) |
 | Body | startAt | LocalDateTime | O | @NotNull | 판매 시작 시각 |
 | Body | endAt | LocalDateTime | O | @NotNull | 판매 종료 시각 |
 
@@ -37,6 +38,7 @@ POST /api/admin/hotdeals
   "productId": 10,
   "dealPrice": 9900,
   "totalQuantity": 100,
+  "maxPerOrder": 5,
   "startAt": "2026-06-20T07:00:00",
   "endAt": "2026-06-20T09:00:00"
 }
@@ -49,6 +51,7 @@ POST /api/admin/hotdeals
 | productId 필수 | @NotNull | VALIDATION_ERROR |
 | dealPrice 필수·1 이상·정수 | @NotNull @DecimalMin("1") @Digits(integer=12, fraction=0) | VALIDATION_ERROR |
 | totalQuantity 필수·1~10만 | @NotNull @Min(1) @Max(100000) | VALIDATION_ERROR |
+| maxPerOrder 필수·1~10만 | @NotNull @Min(1) @Max(100000) | VALIDATION_ERROR |
 | startAt·endAt 필수 | @NotNull | VALIDATION_ERROR |
 | 대상 상품 존재 여부 | 비즈니스 검증 (productService.getProduct) | PRODUCT_NOT_FOUND |
 | 판매 기간 유효성 (startAt < endAt) | 비즈니스 검증 (엔티티 `create()`) | INVALID_HOTDEAL_PERIOD |
@@ -56,6 +59,8 @@ POST /api/admin/hotdeals
 | 같은 상품 ACTIVE 핫딜과 기간 겹침 | 비즈니스 검증 (Service) | HOTDEAL_PERIOD_OVERLAP |
 | 상품 가용 재고 충분 (가용 ≥ 총 한정 수량) | 비즈니스 검증 (productStockService 예약, stock 도메인) | INSUFFICIENT_PRODUCT_STOCK |
 
+> **설계 노트 — maxPerOrder(1주문 최대 수량)**: 1인 구매 제한의 주문당 상한([ADR-0005 결정2](../adr/0005-one-per-user-active-unique.md)). 등록 시 핫딜에 저장만 하고, 구매 시 `quantity ≤ maxPerOrder` 검증(`EXCEEDS_PURCHASE_LIMIT`)은 슬라이스1이다. `totalQuantity`와 독립 축이라 교차검증을 두지 않는다 — `maxPerOrder > totalQuantity`여도 구매 차감이 `HotDealStock`(잔여=`totalQuantity`) 기준이라 오버셀 불변식엔 무해([ADR-0006](../adr/0006-correctness-invariants-defense-layers.md)).
+>
 > **설계 노트 — dealPrice 검증**: 1 이상(`@DecimalMin("1")`) · 정수(`@Digits(fraction=0)` — 원화는 소수점이 없어 `DECIMAL(12,0)`을 입력 단계에서 미러, 미적용 시 소수가 DB에서 조용히 반올림됨) · 정가 미만(엔티티 `create()` → `INVALID_DEAL_PRICE`). 0원·음수·소수점은 입력 단계에서 `VALIDATION_ERROR`(400)로 거른다.
 >
 > **설계 노트 — startAt에 @Future를 두지 않는 이유**: 관리자가 과거/현재 시각으로도 핫딜을 열 수 있어야 하는 운영 재량을 남긴다(예: 즉시 오픈, 테스트 운영). 시간 도달 = 오픈이므로([ADR-0007 결정1](../adr/0007-hotdeal-state-operations.md)) 미래 강제는 정책으로 굳히지 않는다.
@@ -119,6 +124,7 @@ public static HotDeal create(CreateHotDealRequest request, Product product) {
         .product(product)
         .dealPrice(request.dealPrice())
         .totalQuantity(request.totalQuantity())
+        .maxPerOrder(request.maxPerOrder())
         .startAt(request.startAt())
         .endAt(request.endAt())
         .status(HotDealStatus.ACTIVE)
@@ -174,6 +180,10 @@ boolean existsOverlappingActiveHotDeal(@Param("product") Product product,
 | 8 | `validationError` | 총 한정 수량 < 1이면 VALIDATION_ERROR(400), 핫딜 미생성 | ✅ Pass | 2026-06-19 |
 | 9 | `stockNotFound` | 상품 재고 정보(ProductStock)가 없으면 STOCK_NOT_FOUND(404), 핫딜 미생성 | ✅ Pass | 2026-06-19 |
 | 10 | `concurrentReserveNeverOversells` | 같은 상품에 동시 N등록이 몰려도 예약이 가용을 못 넘음(오버셀 0)·정확 소진·성공 수 = 가용÷수량 — 원자적 조건부 UPDATE([ADR-0011](../adr/0011-product-inventory-reservation.md) 결정 4) | ✅ Pass | 2026-06-20 |
+| 11 | `storeMaxPerOrder` | 등록 시 입력한 maxPerOrder(1주문 최대 수량)가 그대로 저장 | ✅ Pass | 2026-06-22 |
+| 12 | `maxPerOrderBelowMin` | maxPerOrder < 1이면 VALIDATION_ERROR(400), 핫딜 미생성 | ✅ Pass | 2026-06-22 |
+| 13 | `maxPerOrderMissing` | maxPerOrder 누락이면 VALIDATION_ERROR(400), 핫딜 미생성 | ✅ Pass | 2026-06-22 |
+| 14 | `maxPerOrderExceedsMax` | maxPerOrder > 10만이면 VALIDATION_ERROR(400), 핫딜 미생성 | ✅ Pass | 2026-06-22 |
 
 > **ADR-0011 반영 노트**: #1~#3 으로 ADR-0011 등록 재고(예약 차감 · 가용 부족 거부 · 경계 상한)가 반영 완료됐다(2026-06-19). 기간 겹침·기간 유효성·특가·상품 미존재·Bean Validation 은 작업2 범위 밖으로 후속 사이클에서 다룬다.
 >
