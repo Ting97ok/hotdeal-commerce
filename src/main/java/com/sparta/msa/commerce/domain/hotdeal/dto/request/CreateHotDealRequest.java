@@ -12,7 +12,7 @@ public record CreateHotDealRequest(
     @NotNull Long productId,
     @NotNull @DecimalMin("1") @Digits(integer = 12, fraction = 0) BigDecimal dealPrice,
     @NotNull @Min(1) @Max(100000) Integer totalQuantity,
-    Integer maxPerOrder,
+    @NotNull @Min(1) @Max(100000) Integer maxPerOrder,
     @NotNull LocalDateTime startAt,
     @NotNull LocalDateTime endAt
 ) {
