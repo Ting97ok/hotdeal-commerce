@@ -99,6 +99,7 @@ POST /api/orders
 | 4 | `exceedsPurchaseLimit` | quantity > maxPerOrder 구매 시 EXCEEDS_PURCHASE_LIMIT(400), 주문 미생성 | ✅ Pass | 2026-06-22 |
 | 5 | `soldOut` | 핫딜 잔여보다 많이 구매 시 SOLD_OUT(409), 주문 미생성(롤백) | ✅ Pass | 2026-06-22 |
 | 6 | `concurrentPurchaseNeverOversells` | 서로 다른 N명 동시 구매 시 오버셀 0 + 잔여=초기재고−Σ성공수량 정합, 낙관락 충돌은 CONCURRENT_UPDATE_CONFLICT(409) | ✅ Pass | 2026-06-22 |
+| 7 | `concurrentDuplicatePurchaseKeepsSingleOrder` | 같은 회원 동시 중복 구매 시 주문 1건 유지, 유니크(uk_orders_active) 위반은 ALREADY_PURCHASED(409) | ✅ Pass | 2026-06-22 |
 
 **구현 로직**
 
