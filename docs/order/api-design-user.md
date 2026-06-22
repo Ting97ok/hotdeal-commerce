@@ -97,6 +97,7 @@ POST /api/orders
 | 2 | `noActiveDeal` | 활성 핫딜 없는 상품 구매 시 NO_ACTIVE_DEAL(404), 주문 미생성 | ✅ Pass | 2026-06-22 |
 | 3 | `alreadyPurchased` | 같은 회원이 같은 핫딜 이미 구매 시 ALREADY_PURCHASED(409, 사전가드), 주문 1건 유지 | ✅ Pass | 2026-06-22 |
 | 4 | `exceedsPurchaseLimit` | quantity > maxPerOrder 구매 시 EXCEEDS_PURCHASE_LIMIT(400), 주문 미생성 | ✅ Pass | 2026-06-22 |
+| 5 | `soldOut` | 핫딜 잔여보다 많이 구매 시 SOLD_OUT(409), 주문 미생성(롤백) | ✅ Pass | 2026-06-22 |
 
 **구현 로직**
 
