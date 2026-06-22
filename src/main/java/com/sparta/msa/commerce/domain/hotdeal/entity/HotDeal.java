@@ -48,6 +48,10 @@ public class HotDeal extends BaseEntity {
   @Column(name = "total_quantity", nullable = false)
   int totalQuantity;
 
+  @Comment("1주문 최대 수량")
+  @Column(name = "max_per_order", nullable = false)
+  int maxPerOrder;
+
   @Comment("판매 시작 시각")
   @Column(name = "start_at", nullable = false)
   LocalDateTime startAt;
@@ -77,6 +81,7 @@ public class HotDeal extends BaseEntity {
         .product(product)
         .dealPrice(request.dealPrice())
         .totalQuantity(request.totalQuantity())
+        .maxPerOrder(request.maxPerOrder())
         .startAt(request.startAt())
         .endAt(request.endAt())
         .status(HotDealStatus.ACTIVE)

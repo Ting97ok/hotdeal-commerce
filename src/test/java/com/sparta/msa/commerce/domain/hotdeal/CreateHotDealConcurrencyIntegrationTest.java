@@ -74,6 +74,7 @@ class CreateHotDealConcurrencyIntegrationTest {
               product.getId(),
               new BigDecimal("9900"),
               quantityPerDeal,
+              5,
               dealStart,
               dealStart.plusHours(2));
           hotDealAdminFacade.createHotDeal(request);

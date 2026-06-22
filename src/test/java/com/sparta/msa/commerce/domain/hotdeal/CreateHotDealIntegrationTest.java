@@ -71,6 +71,7 @@ class CreateHotDealIntegrationTest {
           product.getId(),
           new BigDecimal("9900"),
           100,
+          5,
           start,
           end);
 
@@ -103,6 +104,7 @@ class CreateHotDealIntegrationTest {
           product.getId(),
           new BigDecimal("9900"),
           100,
+          5,
           start,
           end);
 
@@ -133,6 +135,7 @@ class CreateHotDealIntegrationTest {
           product.getId(),
           new BigDecimal("9900"),
           100,
+          5,
           start,
           end);
 
@@ -158,6 +161,7 @@ class CreateHotDealIntegrationTest {
           product.getId(),
           new BigDecimal("9900"),
           100,
+          5,
           start,
           end);
       mockMvc.perform(post("/api/admin/hotdeals")
@@ -169,6 +173,7 @@ class CreateHotDealIntegrationTest {
           product.getId(),
           new BigDecimal("8900"),
           50,
+          5,
           start.plusHours(1),
           end.plusHours(1));
       mockMvc.perform(post("/api/admin/hotdeals")
@@ -192,6 +197,7 @@ class CreateHotDealIntegrationTest {
           product.getId(),
           new BigDecimal("9900"),
           100,
+          5,
           start,
           end);
 
@@ -216,6 +222,7 @@ class CreateHotDealIntegrationTest {
           product.getId(),
           new BigDecimal("2000000"),
           100,
+          5,
           start,
           end);
 
@@ -238,6 +245,7 @@ class CreateHotDealIntegrationTest {
           999L,
           new BigDecimal("9900"),
           100,
+          5,
           start,
           end);
 
@@ -262,6 +270,7 @@ class CreateHotDealIntegrationTest {
           product.getId(),
           new BigDecimal("9900"),
           0,
+          5,
           start,
           end);
 
@@ -285,6 +294,7 @@ class CreateHotDealIntegrationTest {
           product.getId(),
           new BigDecimal("9900"),
           100,
+          5,
           start,
           end);
 
