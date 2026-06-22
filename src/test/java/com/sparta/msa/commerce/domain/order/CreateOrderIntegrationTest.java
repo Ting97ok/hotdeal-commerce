@@ -110,4 +110,30 @@ class CreateOrderIntegrationTest {
       assertThat(stock.getRemainingQuantity()).isEqualTo(98);
     }
   }
+
+  @Nested
+  @DisplayName("실패")
+  class Failure {
+
+    @Test
+    @DisplayName("상품에 활성 핫딜이 없으면 NO_ACTIVE_DEAL(404)을 반환한다")
+    void noActiveDeal() throws Exception {
+      User user = userRepository.save(
+          User.create("buyer@test.com", passwordEncoder.encode("password123"), "구매자", UserRole.USER));
+      String token = tokenIssuer.createAccessToken(user.getId(), UserRole.USER);
+      Product product = productRepository.save(Product.create("맥북 프로", new BigDecimal("2000000")));
+
+      CreateOrderRequest request = new CreateOrderRequest(product.getId(), 1);
+
+      mockMvc.perform(post("/api/orders")
+              .header(AUTHORIZATION, "Bearer " + token)
+              .contentType(APPLICATION_JSON)
+              .content(objectMapper.writeValueAsString(request)))
+          .andExpect(status().isNotFound())
+          .andExpect(jsonPath("$.result").value(false))
+          .andExpect(jsonPath("$.error.code").value("NO_ACTIVE_DEAL"));
+
+      assertThat(orderRepository.count()).isZero();
+    }
+  }
 }
