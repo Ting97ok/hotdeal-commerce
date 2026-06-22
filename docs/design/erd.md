@@ -92,7 +92,7 @@ erDiagram
 | **ProductStock** | 상품 재고 **원본**(실물·예약) | 가용=실물−예약(계산, 저장 안 함). 핫딜 등록이 여기서 **예약**, 결제확정이 실물·예약 차감 — 등록/취소·결제확정(저경합)만 건드려 핫 패스와 분리 ([ADR-0011](../adr/0011-product-inventory-reservation.md)) |
 | **HotDeal** | 한정 수량·기간 특가 | 선착순 구매가 일어나는 곳. 가격/기간 **메타**만 — 진행/매진 상태값 없음 ([ADR-0007](../adr/0007-hotdeal-state-operations.md)) |
 | **HotDealStock** | HotDeal 예약 재고 행 | **동시성 핫스팟**(경합이 한 지점에 집중되는 자리) — 모든 동시 구매가 이 한 행을 차감 |
-| **Order** | 구매 1건(회원 × 핫딜) | 산 상품(`product`) + 적용 핫딜(`hot_deal`) 참조 · 주문 시점 금액 저장 · 1인 1개 유니크 · 불투명 주문번호 · 선점 만료 시각 · 취소 사유 |
+| **Order** | 구매 1건(회원 × 핫딜) | 산 상품(`product`) + 적용 핫딜(`hot_deal`) 참조 · 주문 시점 금액 저장 · 계정당 1활성주문 유니크 · 불투명 주문번호 · 선점 만료 시각 · 취소 사유 |
 | **Payment** | 토스 결제 **시도** 기록 — **행 단위 = paymentKey 1개** | 토스 호출 ↔ DB 트랜잭션 분리 지점. 실패 시도도 행으로 보존 ([ADR-0008](../adr/0008-payment-model-pg-boundary.md)) |
 
 ---
@@ -116,7 +116,7 @@ erDiagram
 | 가설 규칙 ([가설 4](hotdeal-purchase-hypothesis.md)) | 데이터 모델에서의 구현 위치 |
 |---|---|
 | 오버셀 0 + 거짓 성공 0 | `HotDealStock.remainingQuantity` 차감의 원자성 + `version`(낙관락 출발점) + CHECK(`remaining >= 0`, 최후 방어선). 거짓 성공은 "응답 = 커밋된 트랜잭션"으로 차단 |
-| 1인 1개 | `orders` 활성 유니크 — 생성 칼럼 (아래 '6. 물리 DDL 정책') |
+| 계정당 1활성주문 | `orders` 활성 유니크 — 생성 칼럼 (아래 '6. 물리 DDL 정책'). 주문당 `maxPerOrder`·총량 `maxPerAccount`는 [ADR-0005](../adr/0005-one-per-user-active-unique.md) |
 | 선점 + 복원 정확히 한 번 | HotDealStock 차감과 `Order(PENDING)` 생성이 한 트랜잭션. 복원은 `PENDING→CANCELED` 조건부 갱신 성공(1행) 시에만 + `cancel_reason`. `expiresAt`(주문 생성 시 부여)으로 만료 추적 |
 | 금액 조작 방지 | `Order.orderAmount` 주문 시점 저장 — 결제 검증은 서버가 이 값으로 |
 | 멱등 2겹 | 내부 = 활성 유니크 / 외부 = `Payment.idempotencyKey` + 행 단위 = paymentKey |
@@ -145,7 +145,7 @@ erDiagram
 - **상품 재고 시드** — `on_hand` 초기값은 시드/픽스처(운영 입고 API 는 스코프 밖 — [ADR-0011](../adr/0011-product-inventory-reservation.md) 보류). Product 생성 시 `product_stock` 행 동반 생성 — 핫딜 등록 가용검사가 의존하므로 "출처 없음" 재발 방지.
 - **orders 칼럼 확정** — `order_no CHAR(36)`(UUID v4) · `product_id BIGINT NOT NULL`(논리 참조 — 산 상품) · `hot_deal_id BIGINT NOT NULL`(논리 참조 — 적용 핫딜) · `expires_at DATETIME(6) NOT NULL`(임시 10분 — 최종값은 슬라이스 2) · `cancel_reason VARCHAR(30) NULL`(후보: PAYMENT_FAILED·EXPIRED).
 - **hot_deals 칼럼 추가** — `canceled_at DATETIME(6) NULL`(긴급 중단 시각 — 검수 쿼리가 "언제 중단됐나"에 답. 중단 사유 기록은 범위 밖 — 1인 운영).
-- **활성 유니크(1인 1개)** ([ADR-0005](../adr/0005-one-per-user-active-unique.md)):
+- **활성 유니크(계정당 1활성주문)** ([ADR-0005](../adr/0005-one-per-user-active-unique.md)):
   `is_active TINYINT GENERATED ALWAYS AS (IF(status IN ('PENDING','PAID'), 1, NULL)) STORED`
   + `UNIQUE KEY uk_orders_active (user_id, hot_deal_id, is_active)` — 취소 주문(is_active=NULL)은 유일성 검사 대상에서 제외되는데 이는 SQL 표준 NULL 의미론(PostgreSQL 동일 — [ADR-0005](../adr/0005-one-per-user-active-unique.md)). **엔티티에 매핑하지 않음(DDL 전용)**.
 - **제약명으로 예외 구분** — `uk_orders_active` 위반 = `ALREADY_PURCHASED` / `uk_orders_order_no` 위반 = UUID 충돌(사실상 불가, 재시도).

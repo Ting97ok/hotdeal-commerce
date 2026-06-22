@@ -116,6 +116,7 @@
 - **우아한형제들 기술블로그**([한정수량 재고 시스템](https://techblog.woowahan.com/2709/), 1차 — 9.3에서 인용한 글): 시스템 기능으로 **"인당 구매제한수량"** 이 실재.
 - 2차: [알리익스프레스 타임딜 규칙 정리](https://www.alipress.kr/2022/10/aliexpress-time-deals/) — "1인당 1일 1개" · 위메프 타임딜 "주문건당 1개"(7절).
 - 종합: 인당 구매 제한은 한정수량 특가의 **표준 장치**고, 1인 1개는 그중 가장 엄격한 설정값.
+  > 갱신(2026-06-20): 이후 다층 제한(계정당 1활성주문 + 주문당 `maxPerOrder` + 총량 `maxPerAccount`)으로 확장 — [ADR-0005](../adr/0005-one-per-user-active-unique.md). 본문 "1인 1개"는 조사 시점 기록.
 
 ### 10.3 선점 + 결제 제한시간 — 예약형의 공식 확인
 - **인터파크(NOL 티켓) 공식 FAQ**([좌석 선점 안내](https://help.interpark.com/ticket/faq?categoryDetail=TICKET_TICKET_02&category=TICKET_TICKET&article=1550)): 좌석 선택 시 선점 — "좌석 보호와 공정한 예매 기회를 위해 **시간을 제한**(타이머 표시), **시간 내 결제 미완료 시 선점 좌석 해제**". 구체 분 수는 상품 정책별 상이.

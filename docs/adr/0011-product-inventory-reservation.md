@@ -75,11 +75,11 @@
 
 구매 설계는 **주문 데이터 모델(표준이 강제)과 API 주소 방식(아키텍처 선택)을 가른다** — 둘은 별개다.
 
-- **주문 모델 = 상품 참조 + 적용 핫딜 기록 + 금액 스냅샷** (표준 강제 · 변경 없음): 커머스 주문의 라인아이템은 상품을 참조하고 적용 프로모션 id 와 주문 시점 가격을 함께 보존한다(Salesforce B2C `ProductLineItem`·commercetools·Craft Commerce). → `Order` 는 `product_id`(무엇을 샀나) + `hot_deal_id`(적용 핫딜) + `order_amount`(스냅샷)를 가진다. 1인 1개 유니크는 `hot_deal_id` 기준 유지. **이 모델은 이전 판 그대로다.**
+- **주문 모델 = 상품 참조 + 적용 핫딜 기록 + 금액 스냅샷** (표준 강제 · 변경 없음): 커머스 주문의 라인아이템은 상품을 참조하고 적용 프로모션 id 와 주문 시점 가격을 함께 보존한다(Salesforce B2C `ProductLineItem`·commercetools·Craft Commerce). → `Order` 는 `product_id`(무엇을 샀나) + `hot_deal_id`(적용 핫딜) + `order_amount`(스냅샷)를 가진다. 계정당 1활성주문 유니크는 `hot_deal_id` 기준 유지(수량 상한은 [ADR-0005](0005-one-per-user-active-unique.md)). **이 모델은 이전 판 그대로다.**
 - **API = 상품 주소 + 서버가 활성 핫딜 해소** (2026-06-20 재조사로 확정): 구매는 최상위 `POST /api/orders` 에 **`{productId, quantity}`** 를 실어 **상품**을 지정한다. 서버가 그 상품의 **현재 활성 핫딜을 해소**(상품 + 현재 시각 ∈ [startAt, endAt] + status=ACTIVE 조회, 없으면 `NO_ACTIVE_DEAL`)해 핫딜가를 적용하고 `HotDealStock` 을 차감한다. 손님은 핫딜 id 를 들고 다니지 않고 "이 상품을 산다"만 표현한다.
 - **왜 상품 주소로 뒤집었나**: 서구(Shopify Checkout·Stripe Checkout·commercetools)와 한국(쿠팡·29CM) 커머스를 재조사한 결과, 손님이 보는 구매 단위는 **상품**이고 특가/프로모션 적용은 **서버 책임**이 표준이다. 손님에게 "핫딜 id"라는 내부 식별자를 쥐여 주는 주소는 흔치 않다. 이전 판(핫딜 주소 `{hotDealId}`)은 "읽기 API 가 핫딜 중심이라 일관"을 근거로 들었으나, **읽기가 핫딜 중심인 것과 쓰기(구매) 주소를 상품으로 두는 것은 양립**한다 — 상세는 핫딜로 읽고(`GET /api/hotdeals/{id}`), 구매는 상품으로 보낸다. 상품 주소가 요구하는 "상품→활성 핫딜 해소" 간접층은 비용이 아니라 **표준 그 자체**다.
 - **REST 형태**: 주문은 사용자가 소유하고 `order_no` 로 독립 조회되며 핫딜 취소 후에도 PAID 주문이 유효([ADR-0007 결정2](0007-hotdeal-state-operations.md))해 핫딜 종속 하위 리소스가 아니므로, `POST /api/hotdeals/{id}/orders` 가 아니라 최상위 `/orders` + 본문 참조가 맞다(Stripe·Shopify·commercetools 공통).
-- **새 거부 케이스**: 상품에 활성 핫딜이 없으면 `NO_ACTIVE_DEAL`(코드·Status 는 슬라이스 1에서 확정). 활성 핫딜 해소 로직·1인 1개 유니크 충돌 등 상세는 구매 슬라이스 1 설계 문서에서 다룬다.
+- **새 거부 케이스**: 상품에 활성 핫딜이 없으면 `NO_ACTIVE_DEAL`(코드·Status 는 슬라이스 1에서 확정). 활성 핫딜 해소 로직·계정당 1활성주문 유니크 충돌 등 상세는 구매 슬라이스 1 설계 문서에서 다룬다.
 
 ## 스코프 기준 — 타 도메인은 어디까지
 
