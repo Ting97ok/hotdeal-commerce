@@ -1,5 +1,6 @@
 package com.sparta.msa.commerce.domain.order.entity;
 
+import static com.sparta.msa.commerce.domain.order.exception.OrderExceptionCode.EXCEEDS_PURCHASE_LIMIT;
 import static jakarta.persistence.ConstraintMode.NO_CONSTRAINT;
 import static jakarta.persistence.FetchType.LAZY;
 import static lombok.AccessLevel.PRIVATE;
@@ -8,6 +9,7 @@ import com.sparta.msa.commerce.domain.hotdeal.entity.HotDeal;
 import com.sparta.msa.commerce.domain.product.entity.Product;
 import com.sparta.msa.commerce.domain.user.entity.User;
 import com.sparta.msa.commerce.global.entity.BaseEntity;
+import com.sparta.msa.commerce.global.exception.DomainException;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
@@ -83,6 +85,7 @@ public class Order extends BaseEntity {
 
   public static Order create(User user, HotDeal hotDeal, Product product, int quantity,
       Duration paymentTimeout) {
+    validatePurchaseLimit(quantity, hotDeal.getMaxPerOrder());
     return Order.builder()
         .user(user)
         .hotDeal(hotDeal)
@@ -93,5 +96,11 @@ public class Order extends BaseEntity {
         .status(OrderStatus.PENDING)
         .expiresAt(LocalDateTime.now().plus(paymentTimeout))
         .build();
+  }
+
+  private static void validatePurchaseLimit(int quantity, int maxPerOrder) {
+    if (quantity > maxPerOrder) {
+      throw new DomainException(EXCEEDS_PURCHASE_LIMIT);
+    }
   }
 }
