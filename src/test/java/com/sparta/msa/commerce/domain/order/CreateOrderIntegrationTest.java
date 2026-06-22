@@ -192,5 +192,31 @@ class CreateOrderIntegrationTest {
 
       assertThat(orderRepository.count()).isZero();
     }
+
+    @Test
+    @DisplayName("핫딜 잔여 수량보다 많이 구매하면 SOLD_OUT(409)을 반환한다")
+    void soldOut() throws Exception {
+      User user = userRepository.save(
+          User.create("buyer@test.com", passwordEncoder.encode("password123"), "구매자", UserRole.USER));
+      String token = tokenIssuer.createAccessToken(user.getId(), UserRole.USER);
+      Product product = productRepository.save(Product.create("맥북 프로", new BigDecimal("2000000")));
+      LocalDateTime start = LocalDateTime.now().minusHours(1);
+      LocalDateTime end = LocalDateTime.now().plusHours(1);
+      HotDeal hotDeal = hotDealRepository.save(HotDeal.create(
+          new CreateHotDealRequest(product.getId(), new BigDecimal("9900"), 100, 5, start, end), product));
+      hotDealStockRepository.save(HotDealStock.create(hotDeal.getId(), 1));
+
+      CreateOrderRequest request = new CreateOrderRequest(product.getId(), 2);
+
+      mockMvc.perform(post("/api/orders")
+              .header(AUTHORIZATION, "Bearer " + token)
+              .contentType(APPLICATION_JSON)
+              .content(objectMapper.writeValueAsString(request)))
+          .andExpect(status().isConflict())
+          .andExpect(jsonPath("$.result").value(false))
+          .andExpect(jsonPath("$.error.code").value("SOLD_OUT"));
+
+      assertThat(orderRepository.count()).isZero();
+    }
   }
 }
