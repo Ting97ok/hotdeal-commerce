@@ -21,12 +21,19 @@ import com.sparta.msa.commerce.domain.user.repository.UserRepository;
 import java.math.BigDecimal;
 import java.time.Duration;
 import java.time.LocalDateTime;
+import java.util.Queue;
+import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.context.ActiveProfiles;
 
@@ -116,6 +123,68 @@ class OrderExpiryIntegrationTest {
 
       HotDealStock stock = hotDealStockRepository.findByHotDealId(hotDeal.getId()).orElseThrow();
       assertThat(stock.getRemainingQuantity()).isEqualTo(98);
+    }
+  }
+
+  @Nested
+  @DisplayName("동시성")
+  class Concurrency {
+
+    @Test
+    @DisplayName("같은 만료 주문을 여러 스레드가 동시에 sweep해도 핫딜 재고는 정확히 1회만 복원된다")
+    void concurrentSweepRestoresStockOnce() throws Exception {
+      int sweeperCount = 10;
+
+      User user = userRepository.save(
+          User.create("buyer@test.com", passwordEncoder.encode("password123"), "구매자", UserRole.USER));
+      Product product = productRepository.save(Product.create("맥북 프로", new BigDecimal("2000000")));
+      LocalDateTime start = LocalDateTime.now().minusHours(1);
+      LocalDateTime end = LocalDateTime.now().plusHours(1);
+      HotDeal hotDeal = hotDealRepository.save(HotDeal.create(
+          new CreateHotDealRequest(product.getId(), new BigDecimal("9900"), 100, 5, start, end), product));
+      hotDealStockRepository.save(HotDealStock.create(hotDeal.getId(), 98));
+
+      Order order = orderRepository.save(
+          Order.create(user, hotDeal, product, 2, Duration.ofMinutes(10)));
+
+      LocalDateTime sweepTime = LocalDateTime.now().plusMinutes(11);
+
+      ExecutorService pool = Executors.newFixedThreadPool(sweeperCount);
+      CountDownLatch ready = new CountDownLatch(sweeperCount);
+      CountDownLatch startSignal = new CountDownLatch(1);
+      Queue<Throwable> errors = new ConcurrentLinkedQueue<>();
+
+      for (int i = 0; i < sweeperCount; i++) {
+        pool.submit(() -> {
+          ready.countDown();
+          try {
+            startSignal.await();
+          } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return;
+          }
+          try {
+            orderExpiryFacade.expireOverdueOrders(sweepTime);
+          } catch (Throwable t) {
+            errors.add(t);
+          }
+        });
+      }
+
+      ready.await();
+      startSignal.countDown();
+      pool.shutdown();
+      pool.awaitTermination(30, TimeUnit.SECONDS);
+
+      Order swept = orderRepository.findById(order.getId()).orElseThrow();
+      assertThat(swept.getStatus()).isEqualTo(CANCELED);
+
+      HotDealStock stock = hotDealStockRepository.findByHotDealId(hotDeal.getId()).orElseThrow();
+      assertThat(stock.getRemainingQuantity()).isEqualTo(100);
+      assertThat(stock.getVersion()).isEqualTo(1L);
+
+      assertThat(errors).isNotEmpty();
+      assertThat(errors).allMatch(error -> error instanceof ObjectOptimisticLockingFailureException);
     }
   }
 }
