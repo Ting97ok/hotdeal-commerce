@@ -24,8 +24,16 @@ public class HotDealStockService {
 
   @Transactional
   public void deduct(Long hotDealId, int quantity) {
-    HotDealStock hotDealStock = hotDealStockRepository.findByHotDealId(hotDealId)
+    getByHotDealId(hotDealId).deduct(quantity);
+  }
+
+  @Transactional
+  public void restore(Long hotDealId, int quantity) {
+    getByHotDealId(hotDealId).restore(quantity);
+  }
+
+  private HotDealStock getByHotDealId(Long hotDealId) {
+    return hotDealStockRepository.findByHotDealId(hotDealId)
         .orElseThrow(() -> new DomainException(STOCK_NOT_FOUND));
-    hotDealStock.deduct(quantity);
   }
 }

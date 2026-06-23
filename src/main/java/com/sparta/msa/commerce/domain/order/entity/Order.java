@@ -103,4 +103,9 @@ public class Order extends BaseEntity {
       throw new DomainException(EXCEEDS_PURCHASE_LIMIT);
     }
   }
+
+  public void expire() {
+    this.status = OrderStatus.CANCELED;
+    this.cancelReason = CancelReason.EXPIRED;
+  }
 }

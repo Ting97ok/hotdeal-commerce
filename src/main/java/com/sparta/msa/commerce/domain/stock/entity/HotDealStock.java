@@ -55,4 +55,8 @@ public class HotDealStock extends BaseEntity {
     }
     remainingQuantity -= quantity;
   }
+
+  public void restore(int quantity) {
+    remainingQuantity += quantity;
+  }
 }
