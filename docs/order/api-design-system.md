@@ -38,7 +38,7 @@
 | 만료 방식 | **DB sweep 스케줄러**(`@Scheduled`) | Redis 키 TTL은 만료 통보(키 만료 알림)가 재시작 유실·전달 비보장이라 정확성 경로엔 백업 sweep이 또 필요 → 방식은 어차피 sweep. [리서치 9.2절](../design/research-flash-sale.md) |
 | 결제 제한시간 | **`PT10M` 확정** (`order.payment-timeout`) | 리서치 권장대역 5~15분 내, 고객 고지 제한시간. [ADR-0004](../adr/0004-stock-reservation-lifecycle.md) |
 | sweep 판정 기준 | **`order.expiresAt`만** (핫딜 `endAt` 무관) | 진입 고객은 자기 결제창 시간까지 보호("판매 종료는 새 주문에만"). 판매종료·관리자 중단 ↔ 결제 차단은 슬라이스3 결제 게이트. [ADR-0007](../adr/0007-hotdeal-state-operations.md) |
-| 다중 서버 중복 | **잠금 없이 시작** | 여러 서버가 동시 sweep해도 조건부 전이가 **복원 1회**를 보장(중복 sweep 무해). redundant sweep 비용은 부하 측정 후 필요 시 **Redis ShedLock**(정확성 아닌 **최적화** — 전이가 정확성 보장)으로 추가. 스케일아웃 트레이드오프 인지. [ADR-0006](../adr/0006-correctness-invariants-defense-layers.md) |
+| 다중 서버 중복 | **잠금 없이 시작** | 여러 서버가 동시 sweep해도 **HotDealStock `@Version`(슬라이스1 낙관락)이 복원 1회를 보장**(두 번째 복원이 version 충돌→롤백, 동시성 테스트로 증명). redundant sweep 비용은 부하 측정 후 필요 시 **Redis ShedLock**(정확성 아닌 **최적화** — @Version이 정확성 보장)으로 추가. 스케일아웃 트레이드오프 인지. [ADR-0006](../adr/0006-correctness-invariants-defense-layers.md) |
 
 > **설계 노트 — sweep이 조금 늦어도 안전한 이유**: sweep은 주기적으로 돌므로 `expiresAt`(만료 시각)과 실제 CANCELED 사이에 시간 차(갭)가 생긴다. 하지만 이 갭이 늦추는 건 **재고를 다시 풀어주는 시점**뿐이고(10분 창에 수십 초 더라 미미), 정확성과는 무관하다. '이 주문 지금 결제할 수 있나?'처럼 **즉시 정확해야 하는 판정**은, 만료를 sweep이 처리하길 기다리지 않고 **결제 요청이 들어온 바로 그 순간에** `expiresAt`를 직접 확인해서 막는다(슬라이스3 결제 게이트). 그래서 sweep이 늦게 취소하더라도 "만료됐는데 결제되는" 창은 생기지 않는다. 정리하면 — **즉시 정확해야 하는 판정은 요청이 들어온 그 순간에**, **조금 늦어도 되는 재고 회수는 주기 sweep에** 나눠 맡긴 설계다.
 
@@ -46,10 +46,10 @@
 
 | 불변식 | 방어 | 비고 |
 |--------|------|------|
-| **복원 정확히 1회** (restore-once) | 조건부 전이의 **영향 행 1**일 때만 복원 | 동시 sweep·sweep↔결제(슬라이스3) 경합 모두 1회 복원. 동시성 테스트로 못 박는다 |
+| **복원 정확히 1회** (restore-once) | **슬라이스2(sweep↔sweep)**: HotDealStock `@Version` 충돌→롤백 / **슬라이스3(sweep↔결제)**: 조건부 전이 `WHERE status='PENDING'` 영향 행 1 게이트 | 슬라이스2는 동시성 테스트로 증명(`version=1`). 주문엔 @Version이 없어 sweep↔결제는 게이트 필요 |
 | 오버셀 0 + 정합 | 정합 검증식 `총 수량 = 남은 재고 + 살아있는 주문 수량 합` | 백스톱 — 오버복원 탐지 ([ADR-0006](../adr/0006-correctness-invariants-defense-layers.md) · [가설 4절](../design/hotdeal-purchase-hypothesis.md)) |
 
-> **설계 노트 — restore-once 게이트는 빼면 안 된다**: `if (영향 행 == 1)` 게이트를 빼고 무조건 복원하면, 동시에 같은 주문을 sweep한 서버 중 진 쪽(영향 행 0)도 복원해 **복원이 두 번 → 오버셀**이 된다. 이 버그는 **서버 1대인 개발·테스트 환경에선** 영향 행 0 케이스가 안 생겨 통과하고, **서버 여러 대인 운영에서만** 조용히 터진다(예외·에러 로그 없이 재고만 부풀어 오버셀로 뒤늦게 드러남). 그래서 이 게이트는 반드시 **동시성 테스트**로 보호한다. 분산락(ShedLock)을 얹더라도 sweep↔결제 경합엔 여전히 이 게이트가 필요하다(잠금은 정확성을 대체하지 못함).
+> **설계 노트 — 슬라이스2 restore-once는 @Version, 게이트는 슬라이스3**: 슬라이스2의 동시 sweep(같은 주문을 여러 서버가 취소)은 둘 다 **HotDealStock을 복원**하므로, 슬라이스1의 `@Version`(낙관락)이 두 번째 복원을 충돌→롤백시켜 **복원 1회**를 보장한다 — 동시성 테스트가 `version=1` + `ObjectOptimisticLockingFailureException`으로 증명. 그래서 슬라이스2엔 주문 쪽 `affected==1` 게이트가 필요 없다. **그 게이트는 슬라이스3 sweep↔결제에서 필요**해진다: 같은 **주문**에서 취소(만료) vs 결제(PAID)가 부딪히는데 **주문엔 @Version이 없어서**, `WHERE status='PENDING'` 게이트가 있어야 "결제됐는데 만료로 취소"를 막는다. 그 경합은 **서버 1대 dev/test는 통과·운영에서만 조용히 터지는** 종류라 슬라이스3에서 동시성 테스트로 못 박는다.
 
 **새 ExceptionCode**
 
@@ -63,6 +63,7 @@
 |---|---------------|----------|------|--------|
 | 1 | `expireOverdueOrder` | 결제 제한시간 지난 PENDING → sweep 시 CANCELED(EXPIRED) + 핫딜 재고 복원 | ✅ Pass | 2026-06-23 |
 | 2 | `notYetExpiredOrderIsPreserved` | 만료 안 된 PENDING은 sweep해도 PENDING 유지 + 재고 불변 | ✅ Pass | 2026-06-23 |
+| 3 | `concurrentSweepRestoresStockOnce` | 같은 만료 주문 동시 N-sweep → 재고 1회만 복원(@Version, version=1) + 낙관락 충돌 발생 | ✅ Pass | 2026-06-23 |
 
 **구현 로직**
 
