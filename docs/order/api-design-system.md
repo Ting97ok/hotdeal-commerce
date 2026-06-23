@@ -62,6 +62,7 @@
 | # | 테스트 케이스 | 시나리오 | 상태 | 작성일 |
 |---|---------------|----------|------|--------|
 | 1 | `expireOverdueOrder` | 결제 제한시간 지난 PENDING → sweep 시 CANCELED(EXPIRED) + 핫딜 재고 복원 | ✅ Pass | 2026-06-23 |
+| 2 | `notYetExpiredOrderIsPreserved` | 만료 안 된 PENDING은 sweep해도 PENDING 유지 + 재고 불변 | ✅ Pass | 2026-06-23 |
 
 **구현 로직**
 
