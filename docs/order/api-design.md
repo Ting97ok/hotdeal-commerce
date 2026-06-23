@@ -4,9 +4,9 @@
 
 주문(order)은 회원이 활성 핫딜의 상품을 특가로 사는 구매 행위다. 클라이언트는 핫딜 ID를 모른 채 상품만 지정하고, 서버가 그 상품의 활성 핫딜을 찾아(해소) 핫딜 예약 재고를 수량만큼 차감한 뒤 결제 대기(PENDING) 주문을 만든다.
 
-- **현재 범위**: 핫딜 구매(회원) — 슬라이스 1(slice 1, 한 번에 끝까지 통과시키는 세로 작업 단위, API 하나)
-- **이 범위의 설계 제약**: 결제 승인·PAID 확정·만료 sweep·취소는 두지 않는다(슬라이스 2·3). 주문은 **PENDING 생성까지**이며 payment 도메인을 건드리지 않는다.
-- **문서 구조**: User API → [api-design-user.md](api-design-user.md)
+- **현재 범위**: 핫딜 구매(회원, 슬라이스 1) + 미결제 주문 만료(시스템, 슬라이스 2). 슬라이스(slice)는 한 번에 끝까지 통과시키는 세로 작업 단위다.
+- **이 범위의 설계 제약**: 결제 승인·PAID 확정은 두지 않는다(슬라이스 3). 슬라이스 2는 **미결제 만료**(`expiresAt` 지난 PENDING → CANCELED + 핫딜 재고 복원)까지이며 payment 도메인을 건드리지 않는다.
+- **문서 구조**: User API(구매) → [api-design-user.md](api-design-user.md) · System(스케줄러, 만료 sweep) → [api-design-system.md](api-design-system.md)
 - **단계 추적**: 단계가 늘어도 파일을 추가하지 않고 이 문서를 고도화하며, 변경은 아래 변경 이력에 한 줄씩 남긴다.
 
 ---
@@ -16,6 +16,7 @@
 | 버전 | 일자 | 내용 |
 |------|------|------|
 | v0.1 | 2026-06-22 | 핫딜 구매 1개 API 설계 초안 (슬라이스 1) |
+| v0.2 | 2026-06-23 | 미결제 주문 만료 sweep 설계 추가 (슬라이스 2) |
 
 ---
 
@@ -66,7 +67,7 @@
 | PAID | 결제 완료 (슬라이스3) |
 | CANCELED | 취소 (결제 실패·만료, 슬라이스2·3) |
 
-> 슬라이스1은 `PENDING`만 사용한다. `CancelReason`(PAYMENT_FAILED·EXPIRED)은 슬라이스2·3 범위.
+> 슬라이스2는 미결제 만료 시 `PENDING → CANCELED` 전이(`CancelReason.EXPIRED`)를 쓴다. 결제 실패 취소(`PAYMENT_FAILED`)는 슬라이스3 범위.
 
 ---
 
@@ -111,8 +112,9 @@
 |------|------|------|
 | 1인 1활성주문 | `uk_orders_active`(생성 칼럼)가 계정당 살아 있는 주문 1건을 강제. 사전 가드(existsActiveOrder)로 친절 거절 + 유니크로 동시 중복 최종 차단(방어 분업). | [ADR-0005](../adr/0005-one-per-user-active-unique.md) · [ADR-0006](../adr/0006-correctness-invariants-defense-layers.md) |
 | 주문→재고 순서 | 한 트랜잭션에서 주문 INSERT를 재고 차감 UPDATE보다 먼저. Hibernate 기본 flush 순서와 일치(우회 불필요). | [ADR-0009](../adr/0009-stock-concurrency-design.md) 결정4 |
-| 만료시각 외부화 | `expiresAt = 주문시각 + order.payment-timeout`(application.yml, 임시 `PT10M`). 슬라이스2에서 최종값 확정. | [ADR-0004](../adr/0004-stock-reservation-lifecycle.md) |
-| 결제 범위 밖 | 결제 승인·PAID·만료·취소는 슬라이스2·3. 슬라이스1은 PENDING 생성까지. payment 미접촉. | — |
+| 만료시각 외부화 | `expiresAt = 주문시각 + order.payment-timeout`(application.yml, **`PT10M` 확정** — 슬라이스2). | [ADR-0004](../adr/0004-stock-reservation-lifecycle.md) |
+| 결제 범위 밖 | 결제 승인·PAID 확정은 슬라이스3. 슬라이스2는 미결제 만료(PENDING→CANCELED + 재고 복원)까지. payment 미접촉. | — |
+| 미결제 만료 sweep | `expiresAt` 지난 PENDING → CANCELED(`EXPIRED`) + 핫딜 재고 복원. **DB sweep 스케줄러**, **잠금 없이**(조건부 전이가 복원 1회 보장), 판정 기준 = **`expiresAt`만**. 상세 → [api-design-system.md](api-design-system.md). | [ADR-0004](../adr/0004-stock-reservation-lifecycle.md) |
 | 구매 인증 | 회원 전용. `SecurityConfig`의 `anyRequest().authenticated()`가 커버(비회원 401) — 별도 규칙 불필요. | — |
 | 마이그레이션 변경 없음 | `orders`·`hot_deal_stock` 스키마가 슬라이스1 필요분 완비(작업1 ADR-0011 반영). 새 V 파일·기존 V 수정 모두 없음. | [ADR-0011](../adr/0011-product-inventory-reservation.md) |
 | DB CHECK 최후 방어 | 서비스 검증이 뚫려도 데이터 오염을 막는 백스톱 — `ck_orders_quantity`(>=1) · `ck_orders_order_amount`(>=0) · `ck_hot_deal_stock_remaining`(remaining_quantity >= 0). | [ADR-0006](../adr/0006-correctness-invariants-defense-layers.md) |
