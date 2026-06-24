@@ -88,6 +88,7 @@ POST /api/payments/confirm
 |---|---------------|----------|------|--------|
 | 1 | `결제_승인_성공_시_Payment_DONE_생성_주문_PAID_전이` | PENDING 주문 + 토스 승인 성공 mock → 200, Payment DONE 생성, Order PAID 전이 | ✅ Pass | 2026-06-24 |
 | 2 | `만료_CANCELED_주문_결제_승인_시_409_ORDER_STATUS_CONFLICT_Payment_미생성` | 만료로 CANCELED된 주문 + 토스 승인 성공 mock → 409 ORDER_STATUS_CONFLICT, Payment 0건(@Transactional 롤백), 주문 CANCELED 유지 | ✅ Pass | 2026-06-24 |
+| 3 | `이미_PAID_주문_결제_승인_시_409_ORDER_STATUS_CONFLICT_Payment_미생성` | 이미 PAID된 주문 + 토스 승인 성공 mock → 409 ORDER_STATUS_CONFLICT, Payment 0건(@Transactional 롤백), 주문 PAID 유지 | ✅ Pass | 2026-06-24 |
 
 **구현 로직**
 
