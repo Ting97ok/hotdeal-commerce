@@ -1,16 +1,12 @@
 package com.sparta.msa.commerce.domain.payment.entity;
 
-import static jakarta.persistence.ConstraintMode.NO_CONSTRAINT;
-import static jakarta.persistence.FetchType.LAZY;
 import static lombok.AccessLevel.PRIVATE;
 
-import com.sparta.msa.commerce.domain.order.entity.Order;
 import com.sparta.msa.commerce.global.entity.BaseEntity;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
-import jakarta.persistence.ForeignKey;
-import jakarta.persistence.JoinColumn;
-import jakarta.persistence.ManyToOne;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
 import jakarta.persistence.Table;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
@@ -38,10 +34,10 @@ public class Payment extends BaseEntity {
   @Column(nullable = false, precision = 12, scale = 0)
   BigDecimal amount;
 
-  // TODO(slice-3): 결제 상태·칼럼 확정 (토스 응답 기준 — PaymentStatus enum 도입 등)
-  @Comment("결제 상태 (슬라이스 3 확정)")
-  @Column(length = 20)
-  String status;
+  @Comment("결제 상태")
+  @Enumerated(EnumType.STRING)
+  @Column(nullable = false, length = 20)
+  PaymentStatus status;
 
   @Comment("PG 거래 키")
   @Column(name = "pg_payment_key", unique = true, length = 200)
@@ -55,8 +51,19 @@ public class Payment extends BaseEntity {
   @Column(name = "approved_at")
   LocalDateTime approvedAt;
 
-  @Comment("주문 (논리 참조, 1:N)")
-  @ManyToOne(fetch = LAZY)
-  @JoinColumn(name = "order_id", nullable = false, foreignKey = @ForeignKey(NO_CONSTRAINT))
-  Order order;
+  @Comment("주문 ID (FK 값, 객체 탐색 불필요)")
+  @Column(name = "order_id", nullable = false)
+  Long orderId;
+
+  public static Payment create(Long orderId, BigDecimal amount, String pgPaymentKey,
+      String idempotencyKey, LocalDateTime approvedAt) {
+    return Payment.builder()
+        .orderId(orderId)
+        .amount(amount)
+        .status(PaymentStatus.DONE)
+        .pgPaymentKey(pgPaymentKey)
+        .idempotencyKey(idempotencyKey)
+        .approvedAt(approvedAt)
+        .build();
+  }
 }
