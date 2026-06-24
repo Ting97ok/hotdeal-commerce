@@ -62,6 +62,7 @@
 | 1 | `expireOverdueOrder` | 결제 제한시간 지난 PENDING → 만료 처리 시 CANCELED(EXPIRED) + 핫딜 재고 복원 | ✅ Pass | 2026-06-23 |
 | 2 | `notYetExpiredOrderIsPreserved` | 만료 안 된 PENDING은 만료 처리해도 PENDING 유지 + 재고 불변 | ✅ Pass | 2026-06-23 |
 | 3 | `concurrentSweepRestoresStockOnce` | 같은 만료 주문 동시 N건 만료 처리 → 재고 1회만 복원(@Version, version=1) + 낙관락 충돌 발생 | ✅ Pass | 2026-06-23 |
+| 4 | `canRepurchaseAfterExpiry` | 만료(CANCELED) 후 같은 회원이 같은 핫딜 재구매 성공(`is_active` 해제) | ✅ Pass | 2026-06-24 |
 
 **구현 로직**
 
