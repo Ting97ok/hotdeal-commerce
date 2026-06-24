@@ -5,11 +5,19 @@ import com.sparta.msa.commerce.domain.order.entity.Order;
 import com.sparta.msa.commerce.domain.user.entity.User;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Optional;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 public interface OrderRepository extends JpaRepository<Order, Long> {
+
+  Optional<Order> findByOrderNo(String orderNo);
+
+  @Modifying
+  @Query("UPDATE Order o SET o.status = 'PAID' WHERE o.id = :#{#order.id} AND o.status = 'PENDING'")
+  int markPaid(@Param("order") Order order);
 
   @Query("""
       SELECT COUNT(o) > 0 FROM Order o
