@@ -23,3 +23,7 @@ spring:
 logging:
   level:
     org.hibernate.SQL: DEBUG
+
+order:
+  expiry-scheduler:
+    enabled: false

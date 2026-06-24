@@ -49,3 +49,5 @@ jwt:
 
 order:
   payment-timeout: PT10M
+  expiry-scheduler:
+    enabled: true
