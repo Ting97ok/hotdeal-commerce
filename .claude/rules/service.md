@@ -110,7 +110,7 @@ public class ProductAdminService {
 - Service: `@Service` → `@RequiredArgsConstructor` → `@Transactional(readOnly = true)`
 - Facade: `@Service` → `@RequiredArgsConstructor` (클래스 레벨 `@Transactional` 없음 — 메서드별 지정)
 
-## 검증 메서드 self-guarding
+## 검증 메서드 self-guarding (순수 입력 부재 한정)
 
 검증 메서드는 입력 null/empty 분기를 **자기 안에서** 처리한다. 호출부에 `if (list != null && !list.isEmpty())` 분기나 `hasXxx` 변수를 두지 않는다 (호출부가 if 분기 없이 직선으로 흐르도록).
 
@@ -126,6 +126,25 @@ private void validateDuplicateNames(List<String> names) {
     // ... 검증 ...
 }
 ```
+
+**적용 한계**: self-guard 는 입력 부재가 "검증할 대상이 없음"을 뜻할 때만 쓴다(빈 목록 → 중복 검사 불필요). 입력의 null/empty 가 **별개의 비즈니스 분기**(예: `hotDeal == null` = 핫딜 주문이 아님)를 뜻하면, 그 분기는 숨기지 말고 드러낸다.
+
+## 비즈니스 분기는 이름으로 표출 (메커니즘 네이밍 금지)
+
+비즈니스 분기를 self-guard 로 처리하면서 호출부 if 를 피하려면, **메서드 이름에 비즈니스 의도**를 담는다. 이름은 사람이 도메인을 이해하라고 쓰는 것이므로 코드 조건(null 여부)이 아니라 도메인 의미를 담는다.
+
+```java
+// ❌ 메커니즘을 이름에 박음 — null 이라는 코드 사실만 드러남
+commonHotDealService.validateNotCanceledIfNotNull(hotDeal);
+
+// ✅ 비즈니스 분기를 이름에 담음 — "핫딜 주문이면 검증"
+commonHotDealService.validateNotCanceledIfHotDeal(hotDeal);
+```
+
+- 검증 동사(`validate`/`ensure`/`require`/`assert`)만으로는 "null 이면 통과"가 안 드러난다 → 조건부 스킵이면 `IfXxx`(비즈니스 조건) 접미사로 표출.
+- 코드 조건을 이름에 그대로 늘어놓는 메커니즘 네이밍은 derived query 등 [repository.md](repository.md) 계층에서만 허용. 위 계층(Facade/Service)일수록 의도, 아래(Repository)일수록 메커니즘으로 명명한다.
+- `IfXxx` 는 단일 비즈니스 조건까지만. 조건이 둘 이상 얽히면 이름으로 우기지 말고 호출부 `if` 로 뺀다.
+- 단서: 비즈니스 이름은 그 조건이 **실제로 그 비즈니스 경우와 정확히 일치**할 때만 정직하다. `IfHotDeal` 이 맞으려면 "`hotDeal == null` ⟺ 핫딜 주문 아님"이 설계상 보장돼야 한다 — null 이 로딩 누락/버그일 수 있으면 self-guard 가 아니라 fail-fast(`requireNonNull`)가 맞다.
 
 ## saveAll 빈 리스트 안전 + 호출 메서드 빈 입력 처리
 
