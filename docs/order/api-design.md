@@ -6,7 +6,7 @@
 
 - **현재 범위**: 핫딜 구매(회원, 슬라이스 1) + 미결제 주문 만료(시스템, 슬라이스 2). 슬라이스(slice)는 한 번에 끝까지 통과시키는 세로 작업 단위다.
 - **이 범위의 설계 제약**: 결제 승인·PAID 확정은 두지 않는다(슬라이스 3). 슬라이스 2는 **미결제 만료**(`expiresAt` 지난 PENDING → CANCELED + 핫딜 재고 복원)까지이며 payment 도메인을 건드리지 않는다.
-- **문서 구조**: User API(구매) → [api-design-user.md](api-design-user.md) · System(스케줄러, 만료 sweep) → [api-design-system.md](api-design-system.md)
+- **문서 구조**: User API(구매) → [api-design-user.md](api-design-user.md) · System(스케줄러, 만료 처리) → [api-design-system.md](api-design-system.md)
 - **단계 추적**: 단계가 늘어도 파일을 추가하지 않고 이 문서를 고도화하며, 변경은 아래 변경 이력에 한 줄씩 남긴다.
 
 ---
@@ -16,7 +16,7 @@
 | 버전 | 일자 | 내용 |
 |------|------|------|
 | v0.1 | 2026-06-22 | 핫딜 구매 1개 API 설계 초안 (슬라이스 1) |
-| v0.2 | 2026-06-23 | 미결제 주문 만료 sweep 설계 추가 (슬라이스 2) |
+| v0.2 | 2026-06-23 | 미결제 주문 만료 처리 설계 추가 (슬라이스 2) |
 
 ---
 
@@ -114,7 +114,7 @@
 | 주문→재고 순서 | 한 트랜잭션에서 주문 INSERT를 재고 차감 UPDATE보다 먼저. Hibernate 기본 flush 순서와 일치(우회 불필요). | [ADR-0009](../adr/0009-stock-concurrency-design.md) 결정4 |
 | 만료시각 외부화 | `expiresAt = 주문시각 + order.payment-timeout`(application.yml, **`PT10M` 확정** — 슬라이스2). | [ADR-0004](../adr/0004-stock-reservation-lifecycle.md) |
 | 결제 범위 밖 | 결제 승인·PAID 확정은 슬라이스3. 슬라이스2는 미결제 만료(PENDING→CANCELED + 재고 복원)까지. payment 미접촉. | — |
-| 미결제 만료 sweep | `expiresAt` 지난 PENDING → CANCELED(`EXPIRED`) + 핫딜 재고 복원. **DB sweep 스케줄러**, **잠금 없이**(조건부 전이가 복원 1회 보장), 판정 기준 = **`expiresAt`만**. 상세 → [api-design-system.md](api-design-system.md). | [ADR-0004](../adr/0004-stock-reservation-lifecycle.md) |
+| 미결제 만료 처리 | `expiresAt` 지난 PENDING → CANCELED(`EXPIRED`) + 핫딜 재고 복원. **DB 만료 스케줄러**, **잠금 없이**(HotDealStock @Version이 복원 1회 보장), 판정 기준 = **`expiresAt`만**. 상세 → [api-design-system.md](api-design-system.md). | [ADR-0004](../adr/0004-stock-reservation-lifecycle.md) |
 | 구매 인증 | 회원 전용. `SecurityConfig`의 `anyRequest().authenticated()`가 커버(비회원 401) — 별도 규칙 불필요. | — |
 | 마이그레이션 변경 없음 | `orders`·`hot_deal_stock` 스키마가 슬라이스1 필요분 완비(작업1 ADR-0011 반영). 새 V 파일·기존 V 수정 모두 없음. | [ADR-0011](../adr/0011-product-inventory-reservation.md) |
-| DB CHECK 최후 방어 | 서비스 검증이 뚫려도 데이터 오염을 막는 백스톱 — `ck_orders_quantity`(>=1) · `ck_orders_order_amount`(>=0) · `ck_hot_deal_stock_remaining`(remaining_quantity >= 0). | [ADR-0006](../adr/0006-correctness-invariants-defense-layers.md) |
+| DB CHECK 최후 방어 | 서비스 검증이 뚫려도 데이터 오염을 막는 안전망 — `ck_orders_quantity`(>=1) · `ck_orders_order_amount`(>=0) · `ck_hot_deal_stock_remaining`(remaining_quantity >= 0). | [ADR-0006](../adr/0006-correctness-invariants-defense-layers.md) |

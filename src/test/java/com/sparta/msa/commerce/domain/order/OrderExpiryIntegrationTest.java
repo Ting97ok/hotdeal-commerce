@@ -39,7 +39,7 @@ import org.springframework.test.context.ActiveProfiles;
 
 @SpringBootTest
 @ActiveProfiles("test")
-@DisplayName("미결제 주문 만료 sweep")
+@DisplayName("미결제 주문 만료 처리")
 class OrderExpiryIntegrationTest {
 
   @Autowired
@@ -71,7 +71,7 @@ class OrderExpiryIntegrationTest {
   class Success {
 
     @Test
-    @DisplayName("결제 제한시간이 지난 PENDING 주문은 sweep 시 CANCELED(EXPIRED)로 전이되고 핫딜 재고가 복원된다")
+    @DisplayName("결제 제한시간이 지난 PENDING 주문은 만료 처리 시 CANCELED(EXPIRED)로 전이되고 핫딜 재고가 복원된다")
     void expireOverdueOrder() {
       User user = userRepository.save(
           User.create("buyer@test.com", passwordEncoder.encode("password123"), "구매자", UserRole.USER));
@@ -101,7 +101,7 @@ class OrderExpiryIntegrationTest {
   class Preserve {
 
     @Test
-    @DisplayName("결제 제한시간이 지나지 않은 PENDING 주문은 sweep해도 PENDING으로 유지되고 재고가 변하지 않는다")
+    @DisplayName("결제 제한시간이 지나지 않은 PENDING 주문은 만료 처리해도 PENDING으로 유지되고 재고가 변하지 않는다")
     void notYetExpiredOrderIsPreserved() {
       User user = userRepository.save(
           User.create("buyer@test.com", passwordEncoder.encode("password123"), "구매자", UserRole.USER));
@@ -131,7 +131,7 @@ class OrderExpiryIntegrationTest {
   class Concurrency {
 
     @Test
-    @DisplayName("같은 만료 주문을 여러 스레드가 동시에 sweep해도 핫딜 재고는 정확히 1회만 복원된다")
+    @DisplayName("같은 만료 주문을 여러 스레드가 동시에 만료 처리해도 핫딜 재고는 정확히 1회만 복원된다")
     void concurrentSweepRestoresStockOnce() throws Exception {
       int sweeperCount = 10;
 

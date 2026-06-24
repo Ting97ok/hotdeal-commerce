@@ -157,7 +157,7 @@ erDiagram
 ## 7. 범위 경계 / 후속
 
 - **Payment 컬럼·상태는 슬라이스 3(결제 승인)에서 확정** — 토스 응답 기준 + 어댑터 구조(PaymentGatewayClient / TossPaymentClient / TossHttpClient)·이중 승인 보정 포함 ([ADR-0008](../adr/0008-payment-model-pg-boundary.md)).
-- **만료 복원(슬라이스 2)** — 처리 방식(스케줄러 sweep vs Redis TTL)·만료시각 최종값 ([ADR-0004 보류](../adr/0004-stock-reservation-lifecycle.md)). 슬라이스 3부터 취소 전 토스 조회(보조) 추가 — 결제됨 발견 시 PAID 확정.
+- **만료 복원(슬라이스 2)** — 처리 방식(스케줄러 만료 처리 vs Redis 키 TTL)·만료시각 최종값 ([ADR-0004 보류](../adr/0004-stock-reservation-lifecycle.md)). 슬라이스 3부터 취소 전 토스 조회(보조) 추가 — 결제됨 발견 시 PAID 확정.
 - **JPA 매핑 노트(api-design 에 반영)** — User 는 `getReferenceById`(SELECT 없이 참조만 — JWT 인증 통과 = 실존 보장, 탈퇴 도입 시 재검토) · HotDeal 은 `findById`(가드 검증 겸용) · `HotDealStock`·`ProductStock` 은 객체 연관 없이 전용 조회(`@OneToOne` 반대편 lazy 불가 함정 회피 + 3주차 Redis 교체 유연성). `ProductStock` 은 등록/결제확정 경로에서 **원자적 조건부 UPDATE**(`WHERE 가용 >= 수량`)로 예약·차감([ADR-0011](../adr/0011-product-inventory-reservation.md) 결정 4).
 - **구매 API(슬라이스 1)** — 상품 주소 `POST /api/orders {productId}`(서버가 활성 핫딜 해소), `Order` 는 `product`+`hot_deal` 참조 + 금액 스냅샷([ADR-0011](../adr/0011-product-inventory-reservation.md) 관련 방향).
 - **MSA 전환(v2, 스트레치) 경계 = 결제 후속 처리** ([ADR-0002](../adr/0002-monolith-first-partial-msa.md)).
