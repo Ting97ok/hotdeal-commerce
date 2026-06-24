@@ -86,6 +86,7 @@ POST /api/payments/confirm
 
 | # | 테스트 케이스 | 시나리오 | 상태 | 작성일 |
 |---|---------------|----------|------|--------|
+| 1 | `결제_승인_성공_시_Payment_DONE_생성_주문_PAID_전이` | PENDING 주문 + 토스 승인 성공 mock → 200, Payment DONE 생성, Order PAID 전이 | ✅ Pass | 2026-06-24 |
 
 **구현 로직**
 
