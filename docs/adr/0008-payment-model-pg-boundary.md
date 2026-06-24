@@ -29,9 +29,9 @@
 진짜 의존이 생기는 지점에 **어댑터**(Adapter — 외부 시스템을 우리 계약에 끼워 맞추는 변환 구현체. DDD 의 부패 방지 계층(Anti-Corruption Layer)과 같은 역할)를 둔다:
 
 ```
-PaymentFacade(트랜잭션 밖) → PaymentGatewayClient(계약 인터페이스) 
-                              └ TossPaymentClient(어댑터 — 변환) → TossHttpClient(전송)
-DB 상태 전이·복원은 PaymentService(@Transactional)
+PaymentFacade(@Transactional) → PaymentGatewayClient(계약 인터페이스) 
+                                 └ TossPaymentClient(어댑터 — 변환) → TossHttpClient(전송)
+DB 상태 전이·복원은 PaymentService(@Transactional) — Facade TX에 합류(REQUIRED)
 ```
 
 | 층 | 역할 | 규율 |
