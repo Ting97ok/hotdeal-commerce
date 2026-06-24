@@ -15,6 +15,7 @@ import com.sparta.msa.commerce.domain.hotdeal.repository.HotDealRepository;
 import com.sparta.msa.commerce.domain.order.entity.Order;
 import com.sparta.msa.commerce.domain.order.entity.OrderStatus;
 import com.sparta.msa.commerce.domain.order.repository.OrderRepository;
+import com.sparta.msa.commerce.domain.order.service.CommonOrderService;
 import com.sparta.msa.commerce.domain.payment.dto.request.ConfirmPaymentRequest;
 import com.sparta.msa.commerce.domain.payment.entity.Payment;
 import com.sparta.msa.commerce.domain.payment.entity.PaymentStatus;
@@ -62,6 +63,7 @@ class ConfirmPaymentIntegrationTest {
   @Autowired HotDealStockRepository hotDealStockRepository;
   @Autowired OrderRepository orderRepository;
   @Autowired PaymentRepository paymentRepository;
+  @Autowired CommonOrderService commonOrderService;
   @MockitoBean PaymentGatewayClient paymentGatewayClient;
 
   @BeforeEach
@@ -157,6 +159,49 @@ class ConfirmPaymentIntegrationTest {
 
       Order conflicted = orderRepository.findById(order.getId()).orElseThrow();
       assertThat(conflicted.getStatus()).isEqualTo(OrderStatus.CANCELED);
+
+      assertThat(paymentRepository.findAll()).isEmpty();
+    }
+  }
+
+  @Nested
+  @DisplayName("중복 승인")
+  class DuplicateConfirm {
+
+    @Test
+    @DisplayName("이미 PAID된 주문에 결제 승인이 들어오면 409 ORDER_STATUS_CONFLICT를 반환하고 Payment 행이 생성되지 않는다")
+    void rejectsConfirmOnPaidOrder() throws Exception {
+      User user = userRepository.save(
+          User.create("buyer@test.com", passwordEncoder.encode("pass"), "구매자", UserRole.USER));
+      Product product = productRepository.save(Product.create("맥북 프로", new BigDecimal("2000000")));
+      LocalDateTime start = LocalDateTime.now().minusHours(1);
+      LocalDateTime end = LocalDateTime.now().plusHours(1);
+      HotDeal hotDeal = hotDealRepository.save(HotDeal.create(
+          new CreateHotDealRequest(product.getId(), new BigDecimal("19800"), 100, 5, start, end),
+          product));
+      hotDealStockRepository.save(HotDealStock.create(hotDeal.getId(), 99));
+      Order order = orderRepository.save(
+          Order.create(user, hotDeal, product, 1, Duration.ofMinutes(10)));
+
+      commonOrderService.markPaid(order);
+
+      String pgPaymentKey = "toss_pk_abc123";
+      given(paymentGatewayClient.confirm(any(), any(), any()))
+          .willReturn(new PgConfirmResult(pgPaymentKey, UUID.randomUUID().toString(),
+              order.getOrderAmount(), LocalDateTime.now()));
+
+      ConfirmPaymentRequest request = new ConfirmPaymentRequest(
+          pgPaymentKey, order.getOrderNo(), order.getOrderAmount());
+
+      mockMvc.perform(post("/api/payments/confirm")
+              .contentType(APPLICATION_JSON)
+              .content(objectMapper.writeValueAsString(request)))
+          .andExpect(status().isConflict())
+          .andExpect(jsonPath("$.result").value(false))
+          .andExpect(jsonPath("$.error.code").value("ORDER_STATUS_CONFLICT"));
+
+      Order conflicted = orderRepository.findById(order.getId()).orElseThrow();
+      assertThat(conflicted.getStatus()).isEqualTo(OrderStatus.PAID);
 
       assertThat(paymentRepository.findAll()).isEmpty();
     }
