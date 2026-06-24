@@ -29,7 +29,7 @@ public class OrderFacade {
 
   @Transactional
   public CreateOrderResponse createOrder(Long userId, CreateOrderRequest request) {
-    User user = userService.getById(userId);
+    User user = userService.getUser(userId);
     Product product = productService.getProduct(request.productId());
     HotDeal hotDeal = commonHotDealService.getActiveHotDeal(product);
     Order order = orderService.create(user, hotDeal, product, request.quantity());

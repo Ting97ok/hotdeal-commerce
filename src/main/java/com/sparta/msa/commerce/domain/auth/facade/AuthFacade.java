@@ -38,7 +38,7 @@ public class AuthFacade {
   @Transactional(readOnly = true)
   public TokenResponse reissue(String refreshToken) {
     RefreshTokenInfo info = authService.consumeRefreshToken(refreshToken);
-    User user = userService.getById(info.userId());
+    User user = userService.getUser(info.userId());
     return authService.reissueFor(user, info.tokenVersion());
   }
 
@@ -53,7 +53,7 @@ public class AuthFacade {
 
   @Transactional(readOnly = true)
   public MeResponse getMe(Long userId) {
-    User user = userService.getById(userId);
+    User user = userService.getUser(userId);
     return MeResponse.from(user);
   }
 }

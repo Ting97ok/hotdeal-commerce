@@ -1,6 +1,5 @@
 package com.sparta.msa.commerce.domain.order.service;
 
-import static com.sparta.msa.commerce.domain.order.exception.OrderExceptionCode.AMOUNT_MISMATCH;
 import static com.sparta.msa.commerce.domain.order.exception.OrderExceptionCode.ORDER_NOT_FOUND;
 import static com.sparta.msa.commerce.domain.order.exception.OrderExceptionCode.ORDER_STATUS_CONFLICT;
 
@@ -26,9 +25,7 @@ public class CommonOrderService {
 
   public Order getOrderForPayment(String orderNo, BigDecimal paymentAmount) {
     Order order = getOrder(orderNo);
-    if (order.getOrderAmount().compareTo(paymentAmount) != 0) {
-      throw new DomainException(AMOUNT_MISMATCH);
-    }
+    order.validatePaymentAmount(paymentAmount);
     return order;
   }
 

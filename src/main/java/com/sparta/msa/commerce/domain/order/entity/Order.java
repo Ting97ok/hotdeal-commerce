@@ -1,5 +1,6 @@
 package com.sparta.msa.commerce.domain.order.entity;
 
+import static com.sparta.msa.commerce.domain.order.exception.OrderExceptionCode.AMOUNT_MISMATCH;
 import static com.sparta.msa.commerce.domain.order.exception.OrderExceptionCode.EXCEEDS_PURCHASE_LIMIT;
 import static jakarta.persistence.ConstraintMode.NO_CONSTRAINT;
 import static jakarta.persistence.FetchType.LAZY;
@@ -92,7 +93,7 @@ public class Order extends BaseEntity {
         .product(product)
         .quantity(quantity)
         .orderNo(UUID.randomUUID().toString())
-        .orderAmount(hotDeal.getDealPrice().multiply(BigDecimal.valueOf(quantity)))
+        .orderAmount(hotDeal.calculateTotalPrice(quantity))
         .status(OrderStatus.PENDING)
         .expiresAt(LocalDateTime.now().plus(paymentTimeout))
         .build();
@@ -107,5 +108,11 @@ public class Order extends BaseEntity {
   public void expire() {
     this.status = OrderStatus.CANCELED;
     this.cancelReason = CancelReason.EXPIRED;
+  }
+
+  public void validatePaymentAmount(BigDecimal paymentAmount) {
+    if (orderAmount.compareTo(paymentAmount) != 0) {
+      throw new DomainException(AMOUNT_MISMATCH);
+    }
   }
 }

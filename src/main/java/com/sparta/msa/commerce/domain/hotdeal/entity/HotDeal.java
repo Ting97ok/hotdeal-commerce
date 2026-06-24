@@ -99,4 +99,8 @@ public class HotDeal extends BaseEntity {
       throw new DomainException(INVALID_DEAL_PRICE);
     }
   }
+
+  public BigDecimal calculateTotalPrice(int quantity) {
+    return dealPrice.multiply(BigDecimal.valueOf(quantity));
+  }
 }

@@ -2,6 +2,8 @@ package com.sparta.msa.commerce.domain.payment.entity;
 
 import static lombok.AccessLevel.PRIVATE;
 
+import com.sparta.msa.commerce.domain.order.entity.Order;
+import com.sparta.msa.commerce.domain.payment.gateway.PgConfirmResult;
 import com.sparta.msa.commerce.global.entity.BaseEntity;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
@@ -55,15 +57,14 @@ public class Payment extends BaseEntity {
   @Column(name = "order_id", nullable = false)
   Long orderId;
 
-  public static Payment create(Long orderId, BigDecimal amount, String pgPaymentKey,
-      String idempotencyKey, LocalDateTime approvedAt) {
+  public static Payment create(Order order, PgConfirmResult pgResult) {
     return Payment.builder()
-        .orderId(orderId)
-        .amount(amount)
+        .orderId(order.getId())
+        .amount(pgResult.amount())
         .status(PaymentStatus.DONE)
-        .pgPaymentKey(pgPaymentKey)
-        .idempotencyKey(idempotencyKey)
-        .approvedAt(approvedAt)
+        .pgPaymentKey(pgResult.pgPaymentKey())
+        .idempotencyKey(pgResult.idempotencyKey())
+        .approvedAt(pgResult.approvedAt())
         .build();
   }
 }

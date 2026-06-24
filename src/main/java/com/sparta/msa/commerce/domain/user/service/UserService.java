@@ -33,14 +33,14 @@ public class UserService {
     return userRepository.findByEmail(email);
   }
 
-  public User getById(Long id) {
+  public User getUser(Long id) {
     return userRepository.findById(id)
         .orElseThrow(() -> new DomainException(UserExceptionCode.USER_NOT_FOUND));
   }
 
   @Transactional
   public void incrementTokenVersion(Long id) {
-    User user = getById(id);
+    User user = getUser(id);
     user.incrementTokenVersion();
   }
 }

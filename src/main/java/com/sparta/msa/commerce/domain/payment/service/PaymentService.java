@@ -17,8 +17,6 @@ public class PaymentService {
 
   @Transactional
   public Payment createPayment(Order order, PgConfirmResult pgResult) {
-    return paymentRepository.save(
-        Payment.create(order.getId(), pgResult.amount(), pgResult.pgPaymentKey(),
-            pgResult.idempotencyKey(), pgResult.approvedAt()));
+    return paymentRepository.save(Payment.create(order, pgResult));
   }
 }
