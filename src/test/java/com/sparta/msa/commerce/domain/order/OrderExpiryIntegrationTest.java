@@ -8,8 +8,10 @@ import static org.assertj.core.api.Assertions.assertThat;
 import com.sparta.msa.commerce.domain.hotdeal.dto.request.CreateHotDealRequest;
 import com.sparta.msa.commerce.domain.hotdeal.entity.HotDeal;
 import com.sparta.msa.commerce.domain.hotdeal.repository.HotDealRepository;
+import com.sparta.msa.commerce.domain.order.dto.request.CreateOrderRequest;
 import com.sparta.msa.commerce.domain.order.entity.Order;
 import com.sparta.msa.commerce.domain.order.facade.OrderExpiryFacade;
+import com.sparta.msa.commerce.domain.order.facade.OrderFacade;
 import com.sparta.msa.commerce.domain.order.repository.OrderRepository;
 import com.sparta.msa.commerce.domain.product.entity.Product;
 import com.sparta.msa.commerce.domain.product.repository.ProductRepository;
@@ -21,6 +23,7 @@ import com.sparta.msa.commerce.domain.user.repository.UserRepository;
 import java.math.BigDecimal;
 import java.time.Duration;
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.Queue;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.CountDownLatch;
@@ -44,6 +47,8 @@ class OrderExpiryIntegrationTest {
 
   @Autowired
   OrderExpiryFacade orderExpiryFacade;
+  @Autowired
+  OrderFacade orderFacade;
   @Autowired
   PasswordEncoder passwordEncoder;
   @Autowired
@@ -185,6 +190,38 @@ class OrderExpiryIntegrationTest {
 
       assertThat(errors).isNotEmpty();
       assertThat(errors).allMatch(error -> error instanceof ObjectOptimisticLockingFailureException);
+    }
+  }
+
+  @Nested
+  @DisplayName("재구매")
+  class Repurchase {
+
+    @Test
+    @DisplayName("만료된 주문이 있어도 같은 회원이 같은 핫딜을 다시 구매할 수 있다")
+    void canRepurchaseAfterExpiry() {
+      User user = userRepository.save(
+          User.create("buyer@test.com", passwordEncoder.encode("password123"), "구매자", UserRole.USER));
+      Product product = productRepository.save(Product.create("맥북 프로", new BigDecimal("2000000")));
+      LocalDateTime start = LocalDateTime.now().minusHours(1);
+      LocalDateTime end = LocalDateTime.now().plusHours(1);
+      HotDeal hotDeal = hotDealRepository.save(HotDeal.create(
+          new CreateHotDealRequest(product.getId(), new BigDecimal("9900"), 100, 5, start, end), product));
+      hotDealStockRepository.save(HotDealStock.create(hotDeal.getId(), 100));
+
+      CreateOrderRequest request = new CreateOrderRequest(product.getId(), 1);
+
+      orderFacade.createOrder(user.getId(), request);
+      orderExpiryFacade.expireOverdueOrders(LocalDateTime.now().plusMinutes(11));
+      orderFacade.createOrder(user.getId(), request);
+
+      List<Order> orders = orderRepository.findAll();
+      assertThat(orders).hasSize(2);
+      assertThat(orders).filteredOn(o -> o.getStatus() == CANCELED).hasSize(1);
+      assertThat(orders).filteredOn(o -> o.getStatus() == PENDING).hasSize(1);
+
+      HotDealStock stock = hotDealStockRepository.findByHotDealId(hotDeal.getId()).orElseThrow();
+      assertThat(stock.getRemainingQuantity()).isEqualTo(99);
     }
   }
 }
