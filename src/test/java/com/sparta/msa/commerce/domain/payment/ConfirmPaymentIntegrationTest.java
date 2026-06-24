@@ -117,4 +117,48 @@ class ConfirmPaymentIntegrationTest {
       assertThat(payments.get(0).getPgPaymentKey()).isEqualTo(pgPaymentKey);
     }
   }
+
+  @Nested
+  @DisplayName("만료↔결제 경합")
+  class ExpiryRace {
+
+    @Test
+    @DisplayName("만료로 CANCELED된 주문에 결제 승인이 들어오면 409 ORDER_STATUS_CONFLICT를 반환하고 Payment 행이 생성되지 않는다")
+    void rejectsConfirmOnExpiredOrder() throws Exception {
+      User user = userRepository.save(
+          User.create("buyer@test.com", passwordEncoder.encode("pass"), "구매자", UserRole.USER));
+      Product product = productRepository.save(Product.create("맥북 프로", new BigDecimal("2000000")));
+      LocalDateTime start = LocalDateTime.now().minusHours(1);
+      LocalDateTime end = LocalDateTime.now().plusHours(1);
+      HotDeal hotDeal = hotDealRepository.save(HotDeal.create(
+          new CreateHotDealRequest(product.getId(), new BigDecimal("19800"), 100, 5, start, end),
+          product));
+      hotDealStockRepository.save(HotDealStock.create(hotDeal.getId(), 99));
+      Order order = orderRepository.save(
+          Order.create(user, hotDeal, product, 1, Duration.ofMinutes(10)));
+
+      order.expire();
+      orderRepository.save(order);
+
+      String pgPaymentKey = "toss_pk_abc123";
+      given(paymentGatewayClient.confirm(any(), any(), any()))
+          .willReturn(new PgConfirmResult(pgPaymentKey, UUID.randomUUID().toString(),
+              order.getOrderAmount(), LocalDateTime.now()));
+
+      ConfirmPaymentRequest request = new ConfirmPaymentRequest(
+          pgPaymentKey, order.getOrderNo(), order.getOrderAmount());
+
+      mockMvc.perform(post("/api/payments/confirm")
+              .contentType(APPLICATION_JSON)
+              .content(objectMapper.writeValueAsString(request)))
+          .andExpect(status().isConflict())
+          .andExpect(jsonPath("$.result").value(false))
+          .andExpect(jsonPath("$.error.code").value("ORDER_STATUS_CONFLICT"));
+
+      Order conflicted = orderRepository.findById(order.getId()).orElseThrow();
+      assertThat(conflicted.getStatus()).isEqualTo(OrderStatus.CANCELED);
+
+      assertThat(paymentRepository.findAll()).isEmpty();
+    }
+  }
 }
