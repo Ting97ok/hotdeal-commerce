@@ -77,4 +77,4 @@ COMMIT (PAID 확정)
 - **만료시각 최종값**: `PT10M` 확정(`order.payment-timeout`, application.yml). 리서치 권장대역 5~15분 내.
 - **판매 종료 ↔ 결제 허용**: 만료 sweep 판정은 `order.expiresAt`만 본다("판매 종료는 새 주문에만" — 진입 고객은 자기 결제창까지 보호). 판매종료·관리자 중단 ↔ 결제 차단은 슬라이스 3 결제 게이트가 `expiresAt`를 요청 시점에 직접 확인.
 - **만료 처리 방식**: DB sweep 스케줄러(`@Scheduled`). Redis 키 TTL은 만료 알림이 재시작 유실·전달 비보장이라 백업 sweep이 또 필요 → 제외([리서치 9.2절](../design/research-flash-sale.md)).
-- **다중 서버 중복 실행**: 잠금 없이 허용 — 결정 3(조건부 전이)이 복원 1회를 보장해 중복 sweep이 무해하다(정확성은 전이가 보장). redundant sweep 비용은 부하 측정 후 필요 시 Redis ShedLock(최적화)으로 추가 — 스케일아웃 트레이드오프 인지.
+- **다중 서버 중복 실행**: 잠금 없이 허용 — 슬라이스2 동시 sweep은 둘 다 HotDealStock을 복원하므로 **HotDealStock `@Version`(낙관락)이 복원 1회를 보장**(두 번째 복원이 version 충돌→롤백, 동시성 테스트로 증명)해 중복 sweep이 무해하다. 결정 3의 조건부 전이(주문 상태 게이트)는 **슬라이스3 sweep↔결제**(주문엔 @Version 없음)에서 필요. redundant sweep 비용은 부하 측정 후 필요 시 Redis ShedLock(최적화)으로 추가 — 스케일아웃 트레이드오프 인지.
