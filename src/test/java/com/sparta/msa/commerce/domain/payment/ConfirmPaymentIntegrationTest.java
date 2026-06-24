@@ -3,6 +3,8 @@ package com.sparta.msa.commerce.domain.payment;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.BDDMockito.given;
+import static org.mockito.BDDMockito.then;
+import static org.mockito.Mockito.never;
 import static org.springframework.http.MediaType.APPLICATION_JSON;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -202,6 +204,45 @@ class ConfirmPaymentIntegrationTest {
 
       Order conflicted = orderRepository.findById(order.getId()).orElseThrow();
       assertThat(conflicted.getStatus()).isEqualTo(OrderStatus.PAID);
+
+      assertThat(paymentRepository.findAll()).isEmpty();
+    }
+  }
+
+  @Nested
+  @DisplayName("금액 불일치")
+  class AmountMismatch {
+
+    @Test
+    @DisplayName("결제 금액이 주문 금액과 다르면 토스 호출 전에 400 AMOUNT_MISMATCH로 차단되고 Payment가 생성되지 않는다")
+    void rejectsConfirmOnAmountMismatch() throws Exception {
+      User user = userRepository.save(
+          User.create("buyer@test.com", passwordEncoder.encode("pass"), "구매자", UserRole.USER));
+      Product product = productRepository.save(Product.create("맥북 프로", new BigDecimal("2000000")));
+      LocalDateTime start = LocalDateTime.now().minusHours(1);
+      LocalDateTime end = LocalDateTime.now().plusHours(1);
+      HotDeal hotDeal = hotDealRepository.save(HotDeal.create(
+          new CreateHotDealRequest(product.getId(), new BigDecimal("19800"), 100, 5, start, end),
+          product));
+      hotDealStockRepository.save(HotDealStock.create(hotDeal.getId(), 99));
+      Order order = orderRepository.save(
+          Order.create(user, hotDeal, product, 1, Duration.ofMinutes(10)));
+
+      BigDecimal wrongAmount = order.getOrderAmount().subtract(BigDecimal.ONE);
+      ConfirmPaymentRequest request = new ConfirmPaymentRequest(
+          "toss_pk_abc123", order.getOrderNo(), wrongAmount);
+
+      mockMvc.perform(post("/api/payments/confirm")
+              .contentType(APPLICATION_JSON)
+              .content(objectMapper.writeValueAsString(request)))
+          .andExpect(status().isBadRequest())
+          .andExpect(jsonPath("$.result").value(false))
+          .andExpect(jsonPath("$.error.code").value("AMOUNT_MISMATCH"));
+
+      then(paymentGatewayClient).should(never()).confirm(any(), any(), any());
+
+      Order untouched = orderRepository.findById(order.getId()).orElseThrow();
+      assertThat(untouched.getStatus()).isEqualTo(OrderStatus.PENDING);
 
       assertThat(paymentRepository.findAll()).isEmpty();
     }
