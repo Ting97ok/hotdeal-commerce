@@ -21,6 +21,7 @@ import com.sparta.msa.commerce.domain.order.service.CommonOrderService;
 import com.sparta.msa.commerce.domain.payment.dto.request.ConfirmPaymentRequest;
 import com.sparta.msa.commerce.domain.payment.entity.Payment;
 import com.sparta.msa.commerce.domain.payment.entity.PaymentStatus;
+import com.sparta.msa.commerce.domain.payment.exception.PaymentExceptionCode;
 import com.sparta.msa.commerce.domain.payment.gateway.PaymentGatewayClient;
 import com.sparta.msa.commerce.domain.payment.gateway.PgConfirmResult;
 import com.sparta.msa.commerce.domain.payment.repository.PaymentRepository;
@@ -31,6 +32,7 @@ import com.sparta.msa.commerce.domain.stock.repository.HotDealStockRepository;
 import com.sparta.msa.commerce.domain.user.entity.User;
 import com.sparta.msa.commerce.domain.user.entity.UserRole;
 import com.sparta.msa.commerce.domain.user.repository.UserRepository;
+import com.sparta.msa.commerce.global.exception.DomainException;
 import java.math.BigDecimal;
 import java.time.Duration;
 import java.time.LocalDateTime;
@@ -240,6 +242,45 @@ class ConfirmPaymentIntegrationTest {
           .andExpect(jsonPath("$.error.code").value("AMOUNT_MISMATCH"));
 
       then(paymentGatewayClient).should(never()).confirm(any(), any(), any());
+
+      Order untouched = orderRepository.findById(order.getId()).orElseThrow();
+      assertThat(untouched.getStatus()).isEqualTo(OrderStatus.PENDING);
+
+      assertThat(paymentRepository.findAll()).isEmpty();
+    }
+  }
+
+  @Nested
+  @DisplayName("토스 결제 거부")
+  class PaymentRejected {
+
+    @Test
+    @DisplayName("토스가 결제를 거부하면 402 PAYMENT_REJECTED를 반환하고 주문은 PENDING으로 유지되며 Payment가 생성되지 않는다")
+    void rejectsConfirmWhenGatewayRejects() throws Exception {
+      User user = userRepository.save(
+          User.create("buyer@test.com", passwordEncoder.encode("pass"), "구매자", UserRole.USER));
+      Product product = productRepository.save(Product.create("맥북 프로", new BigDecimal("2000000")));
+      LocalDateTime start = LocalDateTime.now().minusHours(1);
+      LocalDateTime end = LocalDateTime.now().plusHours(1);
+      HotDeal hotDeal = hotDealRepository.save(HotDeal.create(
+          new CreateHotDealRequest(product.getId(), new BigDecimal("19800"), 100, 5, start, end),
+          product));
+      hotDealStockRepository.save(HotDealStock.create(hotDeal.getId(), 99));
+      Order order = orderRepository.save(
+          Order.create(user, hotDeal, product, 1, Duration.ofMinutes(10)));
+
+      given(paymentGatewayClient.confirm(any(), any(), any()))
+          .willThrow(new DomainException(PaymentExceptionCode.PAYMENT_REJECTED));
+
+      ConfirmPaymentRequest request = new ConfirmPaymentRequest(
+          "toss_pk_abc123", order.getOrderNo(), order.getOrderAmount());
+
+      mockMvc.perform(post("/api/payments/confirm")
+              .contentType(APPLICATION_JSON)
+              .content(objectMapper.writeValueAsString(request)))
+          .andExpect(status().isPaymentRequired())
+          .andExpect(jsonPath("$.result").value(false))
+          .andExpect(jsonPath("$.error.code").value("PAYMENT_REJECTED"));
 
       Order untouched = orderRepository.findById(order.getId()).orElseThrow();
       assertThat(untouched.getStatus()).isEqualTo(OrderStatus.PENDING);
