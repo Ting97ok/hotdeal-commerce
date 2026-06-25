@@ -28,9 +28,9 @@ public class PaymentFacade {
   public ConfirmPaymentResponse confirm(ConfirmPaymentRequest request) {
     Order order = commonOrderService.getOrderForPayment(request.orderId(), request.amount());
     commonHotDealService.validateNotCanceledIfHotDeal(order.getHotDeal());
+    commonOrderService.markPaid(order);
     PgConfirmResult pgResult = paymentGatewayClient.confirm(request.paymentKey(), request.orderId(), request.amount());
     Payment payment = paymentService.createPayment(order, pgResult);
-    commonOrderService.markPaid(order);
     return paymentMapper.toConfirmResponse(payment);
   }
 }
