@@ -160,7 +160,7 @@ Optional<Order> findByOrderNo(String orderNo);
 
 // OrderRepository — 조건부 PAID 선점 (만료 스케줄러·이중 승인과 경합 방어)
 @Modifying
-@Query("UPDATE Order o SET o.status = 'PAID' WHERE o.id = :#{#order.id} AND o.status = 'PENDING'")
+@Query("UPDATE Order o SET o.status = 'PAID' WHERE o = :order AND o.status = 'PENDING'")
 int markPaid(@Param("order") Order order);
 ```
 

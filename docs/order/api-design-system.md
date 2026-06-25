@@ -46,10 +46,10 @@
 
 | 불변식 | 방어 | 비고 |
 |--------|------|------|
-| **복원 정확히 1회** | **슬라이스2(만료끼리)**: HotDealStock `@Version` 충돌→롤백 / **슬라이스3·4(만료↔결제)**: 결제·만료 **양방향** 조건부 전이 `WHERE status='PENDING'` 영향 행 1 관문 | 슬라이스2는 동시성 테스트로 증명(`version=1`). 주문엔 @Version이 없어 만료↔결제는 양쪽 조건부 관문 필요(슬라이스4에서 만료 쪽 완성) |
+| **복원 정확히 1회** | 결제·만료 **양방향** 조건부 전이(`markPaid`/`markExpired`, `WHERE status='PENDING'`) 영향 행 1 관문 — affected==1인 1건만 복원. `@Version`은 잠재 안전망 | 슬라이스4에서 만료 쪽 `markExpired` 도입으로 만료끼리·만료↔결제 모두 조건부로 복원 1회(`version=1`, 충돌 없음). 주문엔 @Version 없어 조건부 전이가 정본 관문 |
 | 오버셀 0 + 정합 | 정합 검증식 `총 수량 = 남은 재고 + 살아있는 주문 수량 합` | 안전망 — 오버복원 탐지 ([ADR-0006](../adr/0006-correctness-invariants-defense-layers.md) · [가설 4절](../design/hotdeal-purchase-hypothesis.md)) |
 
-> **설계 노트 — 슬라이스2 복원 1회는 @Version, 양쪽 조건부 관문은 슬라이스3·4**: 슬라이스2의 동시 만료 처리(같은 주문을 여러 서버가 취소)는 둘 다 **HotDealStock을 복원**하므로, 슬라이스1의 `@Version`(낙관락)이 두 번째 복원을 충돌→롤백시켜 **복원 1회**를 보장한다 — 동시성 테스트가 `version=1` + `ObjectOptimisticLockingFailureException`으로 증명. 그래서 슬라이스2엔 주문 쪽 `affected==1` 관문이 필요 없다. **그 관문은 만료↔결제(슬라이스3·4)에서 필요**해진다: 같은 **주문**에서 취소(만료) vs 결제(PAID)가 부딪히는데 **주문엔 @Version이 없어서**, 결제·만료 **양쪽** `WHERE status='PENDING'` 조건부 전이라야 "결제됐는데 만료로 취소"를 막는다. 슬라이스3에서는 결제 쪽 `markPaid`만 조건부로 들어가고 만료 쪽 `expire`는 변경 감지(dirty checking)로 남아 **한쪽만 방어**됐다 — 결제가 먼저 PAID로 커밋해도 만료가 무조건 CANCELED로 덮어써, "돈 낸 주문이 만료 취소되고 재고가 남에게 복원"되는 경합이 운영에서만 조용히 터질 수 있었다. **슬라이스4에서 만료 쪽도 `markExpired` 조건부 전이로 바꿔 양쪽을 맞춘다**. 그 경합은 서버 1대 dev/test는 통과하는 종류라 동시성 테스트로 못 박는다.
+> **설계 노트 — 슬라이스2 복원 1회는 @Version, 양쪽 조건부 관문은 슬라이스3·4**: 슬라이스2의 동시 만료 처리(같은 주문을 여러 서버가 취소)는 둘 다 **HotDealStock을 복원**하므로, 슬라이스1의 `@Version`(낙관락)이 두 번째 복원을 충돌→롤백시켜 **복원 1회**를 보장한다 — 동시성 테스트가 `version=1` + `ObjectOptimisticLockingFailureException`으로 증명. 그래서 슬라이스2엔 주문 쪽 `affected==1` 관문이 필요 없다. **그 관문은 만료↔결제(슬라이스3·4)에서 필요**해진다: 같은 **주문**에서 취소(만료) vs 결제(PAID)가 부딪히는데 **주문엔 @Version이 없어서**, 결제·만료 **양쪽** `WHERE status='PENDING'` 조건부 전이라야 "결제됐는데 만료로 취소"를 막는다. 슬라이스3에서는 결제 쪽 `markPaid`만 조건부로 들어가고 만료 쪽 `expire`는 변경 감지(dirty checking)로 남아 **한쪽만 방어**됐다 — 결제가 먼저 PAID로 커밋해도 만료가 무조건 CANCELED로 덮어써, "돈 낸 주문이 만료 취소되고 재고가 남에게 복원"되는 경합이 운영에서만 조용히 터질 수 있었다. **슬라이스4에서 만료 쪽도 `markExpired` 조건부 전이로 바꿔 양쪽을 맞춘다**. 그 경합은 서버 1대 dev/test는 통과하는 종류라 동시성 테스트로 못 박는다. 이 변경의 부수 효과로 **만료끼리 동시 처리도 `markExpired` affected==1인 1건만 복원**하게 돼 `@Version` 충돌이 더는 발생하지 않는다 — 복원 1회 보장 주체가 `@Version`에서 조건부 전이로 이동하고, `@Version`은 잠재 안전망으로 남는다(동시성 테스트 #3도 "충돌 없음"으로 갱신).
 
 **새 ExceptionCode**
 
@@ -63,8 +63,9 @@
 |---|---------------|----------|------|--------|
 | 1 | `expireOverdueOrder` | 결제 제한시간 지난 PENDING → 만료 처리 시 CANCELED(EXPIRED) + 핫딜 재고 복원 | ✅ Pass | 2026-06-23 |
 | 2 | `notYetExpiredOrderIsPreserved` | 만료 안 된 PENDING은 만료 처리해도 PENDING 유지 + 재고 불변 | ✅ Pass | 2026-06-23 |
-| 3 | `concurrentSweepRestoresStockOnce` | 같은 만료 주문 동시 N건 만료 처리 → 재고 1회만 복원(@Version, version=1) + 낙관락 충돌 발생 | ✅ Pass | 2026-06-23 |
+| 3 | `concurrentSweepRestoresStockOnce` | 같은 만료 주문 동시 N건 만료 처리 → `markExpired` 조건부 affected==1로 재고 1회만 복원(version=1), 낙관락 충돌 없음 | ✅ Pass | 2026-06-25 |
 | 4 | `canRepurchaseAfterExpiry` | 만료(CANCELED) 후 같은 회원이 같은 핫딜 재구매 성공(`is_active` 해제) | ✅ Pass | 2026-06-24 |
+| 5 | `paidOrderIsNotOverwrittenByExpirySweep` | 결제로 PAID 전이된 주문을 만료 처리가 CANCELED로 덮지 않고 재고도 복원 안 함 — `markExpired` 조건부, 결제 미커밋 행잠금 인터리빙으로 결정론적 재현 | ✅ Pass | 2026-06-25 |
 
 **구현 로직**
 
@@ -121,14 +122,10 @@ public void restore(int quantity) {
 """)
 List<ExpiredOrderView> findExpiredPending(@Param("now") LocalDateTime now, Pageable limit);
 
-// OrderRepository — 조건부 만료 전이 (영향 행 수 반환 = 복원 1회 관문)
+// OrderRepository — 조건부 만료 전이 (영향 행 수 반환 = 복원 1회 관문, markPaid 와 같은 객체 비교)
 @Modifying
-@Query("""
-    UPDATE Order o
-    SET o.status = 'CANCELED', o.cancelReason = 'EXPIRED'
-    WHERE o.id = :orderId AND o.status = 'PENDING'
-""")
-int markExpired(@Param("orderId") Long orderId);
+@Query("UPDATE Order o SET o.status = 'CANCELED', o.cancelReason = 'EXPIRED' WHERE o = :order AND o.status = 'PENDING'")
+int markExpired(@Param("order") Order order);
 
 // HotDealStockRepository — 복원 위해 행을 로드 (낙관락 version 추적, 기존 메서드 재사용)
 Optional<HotDealStock> findByHotDealId(Long hotDealId);
