@@ -90,6 +90,7 @@ POST /api/payments/confirm
 | 2 | `만료_CANCELED_주문_결제_승인_시_409_ORDER_STATUS_CONFLICT_Payment_미생성` | 만료로 CANCELED된 주문 + 토스 승인 성공 mock → 409 ORDER_STATUS_CONFLICT, Payment 0건(@Transactional 롤백), 주문 CANCELED 유지 | ✅ Pass | 2026-06-24 |
 | 3 | `이미_PAID_주문_결제_승인_시_409_ORDER_STATUS_CONFLICT_Payment_미생성` | 이미 PAID된 주문 + 토스 승인 성공 mock → 409 ORDER_STATUS_CONFLICT, Payment 0건(@Transactional 롤백), 주문 PAID 유지 | ✅ Pass | 2026-06-24 |
 | 4 | `금액_불일치_시_토스_호출_전_400_AMOUNT_MISMATCH_차단` | request.amount ≠ order.orderAmount → 400 AMOUNT_MISMATCH, 토스 미호출(never), Payment 0건, 주문 PENDING 유지 | ✅ Pass | 2026-06-24 |
+| 5 | `토스_거부_시_402_PAYMENT_REJECTED_주문_PENDING_유지` | paymentGatewayClient 거부(DomainException) → 402 PAYMENT_REJECTED, 주문 PENDING 유지, Payment 0건(롤백) | ✅ Pass | 2026-06-24 |
 
 **구현 로직**
 
