@@ -2,6 +2,8 @@
 
 > 공통 정의(엔티티·Enum·응답 형식·ExceptionCode·제약)는 [api-design.md](api-design.md) 참조.
 > 이 문서는 **시스템 스케줄러**가 수행하는 미결제 주문 만료(슬라이스 2)를 다룬다 — HTTP 엔드포인트가 없는 백그라운드 작업이다.
+>
+> **슬라이스 4 정합화(2026-06-25)**: 이 문서의 조건부 만료 전이(`markExpired`, 아래 쿼리 설계) 설계는 처음부터 [ADR-0004 결정3](../adr/0004-stock-reservation-lifecycle.md)대로였으나, 슬라이스2 *구현*이 변경 감지(dirty checking) `Order.expire()`로 단순화돼 설계를 벗어나 있었다. 슬라이스4에서 결제 선점 순서 재배치([payment User 설계](../payment/api-design-user.md))와 함께 **구현을 이 설계에 맞춘다** — 만료 전이도 `WHERE status='PENDING'` 조건부로 바꿔, 결제 PAID를 만료가 덮어쓰는 경합(슬라이스3에서 결제 쪽만 조건부였던 비대칭)을 없앤다.
 
 ## 작업 목록 (1개)
 
@@ -44,10 +46,10 @@
 
 | 불변식 | 방어 | 비고 |
 |--------|------|------|
-| **복원 정확히 1회** | **슬라이스2(만료 처리끼리)**: HotDealStock `@Version` 충돌→롤백 / **슬라이스3(만료↔결제)**: 조건부 전이 `WHERE status='PENDING'` 영향 행 1 관문 | 슬라이스2는 동시성 테스트로 증명(`version=1`). 주문엔 @Version이 없어 만료↔결제는 관문 필요 |
+| **복원 정확히 1회** | **슬라이스2(만료끼리)**: HotDealStock `@Version` 충돌→롤백 / **슬라이스3·4(만료↔결제)**: 결제·만료 **양방향** 조건부 전이 `WHERE status='PENDING'` 영향 행 1 관문 | 슬라이스2는 동시성 테스트로 증명(`version=1`). 주문엔 @Version이 없어 만료↔결제는 양쪽 조건부 관문 필요(슬라이스4에서 만료 쪽 완성) |
 | 오버셀 0 + 정합 | 정합 검증식 `총 수량 = 남은 재고 + 살아있는 주문 수량 합` | 안전망 — 오버복원 탐지 ([ADR-0006](../adr/0006-correctness-invariants-defense-layers.md) · [가설 4절](../design/hotdeal-purchase-hypothesis.md)) |
 
-> **설계 노트 — 슬라이스2 복원 1회는 @Version, 관문은 슬라이스3**: 슬라이스2의 동시 만료 처리(같은 주문을 여러 서버가 취소)는 둘 다 **HotDealStock을 복원**하므로, 슬라이스1의 `@Version`(낙관락)이 두 번째 복원을 충돌→롤백시켜 **복원 1회**를 보장한다 — 동시성 테스트가 `version=1` + `ObjectOptimisticLockingFailureException`으로 증명. 그래서 슬라이스2엔 주문 쪽 `affected==1` 관문이 필요 없다. **그 관문은 슬라이스3 만료↔결제에서 필요**해진다: 같은 **주문**에서 취소(만료) vs 결제(PAID)가 부딪히는데 **주문엔 @Version이 없어서**, `WHERE status='PENDING'` 관문이 있어야 "결제됐는데 만료로 취소"를 막는다. 그 경합은 **서버 1대 dev/test는 통과·운영에서만 조용히 터지는** 종류라 슬라이스3에서 동시성 테스트로 못 박는다.
+> **설계 노트 — 슬라이스2 복원 1회는 @Version, 양쪽 조건부 관문은 슬라이스3·4**: 슬라이스2의 동시 만료 처리(같은 주문을 여러 서버가 취소)는 둘 다 **HotDealStock을 복원**하므로, 슬라이스1의 `@Version`(낙관락)이 두 번째 복원을 충돌→롤백시켜 **복원 1회**를 보장한다 — 동시성 테스트가 `version=1` + `ObjectOptimisticLockingFailureException`으로 증명. 그래서 슬라이스2엔 주문 쪽 `affected==1` 관문이 필요 없다. **그 관문은 만료↔결제(슬라이스3·4)에서 필요**해진다: 같은 **주문**에서 취소(만료) vs 결제(PAID)가 부딪히는데 **주문엔 @Version이 없어서**, 결제·만료 **양쪽** `WHERE status='PENDING'` 조건부 전이라야 "결제됐는데 만료로 취소"를 막는다. 슬라이스3에서는 결제 쪽 `markPaid`만 조건부로 들어가고 만료 쪽 `expire`는 변경 감지(dirty checking)로 남아 **한쪽만 방어**됐다 — 결제가 먼저 PAID로 커밋해도 만료가 무조건 CANCELED로 덮어써, "돈 낸 주문이 만료 취소되고 재고가 남에게 복원"되는 경합이 운영에서만 조용히 터질 수 있었다. **슬라이스4에서 만료 쪽도 `markExpired` 조건부 전이로 바꿔 양쪽을 맞춘다**. 그 경합은 서버 1대 dev/test는 통과하는 종류라 동시성 테스트로 못 박는다.
 
 **새 ExceptionCode**
 

@@ -4,8 +4,9 @@
 
 결제(payment)는 회원이 PENDING 주문에 대해 토스 페이먼츠 결제 승인을 확정하는 도메인이다. 클라이언트가 토스 결제창에서 받은 paymentKey를 우리 서버에 전달하면, 서버가 금액을 검증하고 토스 결제 승인 API를 호출해 주문 상태를 PENDING→PAID로 전이한다.
 
-- **현재 범위**: 토스 결제 승인 + PENDING→PAID 전이 + 만료↔결제 경합 처리 (슬라이스 3).
-- **다음 범위**: 결제 실패 시 CANCELED 처리, 실패 이력 보관, 재시도 로직 (슬라이스 4).
+- **슬라이스 3 범위**: 토스 결제 승인 + PENDING→PAID 전이 + 만료↔결제 경합 처리.
+- **슬라이스 4 범위**: 결제 승인 순서 정합화 — `markPaid` 선점을 토스 승인 앞으로 재배치(만료·이중 승인을 토스 호출 전 차단) + 만료 조건부 전이 구현 정합화([order System 설계](../order/api-design-system.md)).
+- **다음 범위**: 결제 실패 이력 보관(FAILED·CANCELED), 결제 웹훅·대사(토스 승인 성공 후 서버 다운 잔여 복구).
 - **문서 구조**: User API(결제 승인) → [api-design-user.md](api-design-user.md).
 
 ---
@@ -15,6 +16,7 @@
 | 버전 | 일자 | 내용 |
 |------|------|------|
 | v0.1 | 2026-06-24 | 결제 승인 1개 API 설계 초안 (슬라이스 3) |
+| v0.2 | 2026-06-25 | 슬라이스 4 — `confirm` 흐름 재배치(`markPaid` 선점 → 토스), 만료↔결제 양방향 조건부 전이 정합화, 토스 취소 동기 보정 철회 |
 
 ---
 
@@ -46,9 +48,10 @@
 
 | 전이 | 조건 | 처리 |
 |------|------|------|
-| PENDING → PAID | 결제 승인 성공 | `@Modifying UPDATE WHERE status='PENDING'`, affected==1 관문 |
+| PENDING → PAID | 결제 선점 (토스 승인 앞) | `@Modifying UPDATE WHERE status='PENDING'`, affected==1 관문 |
+| PENDING → CANCELED | 만료 스케줄러 | `@Modifying UPDATE WHERE status='PENDING'`, affected==1일 때만 재고 복원 |
 
-> **조건부 전이**: Order에 `@Version`이 없으므로 `UPDATE orders SET status='PAID' WHERE id=:id AND status='PENDING'`로 경합을 처리한다. affected==1이면 성공, affected==0이면 만료 스케줄러가 이미 CANCELED로 전이했거나 중복 승인 시도 → `ORDER_STATUS_CONFLICT`(409).
+> **양방향 조건부 전이**: Order에 `@Version`이 없으므로 결제(PAID)·만료(CANCELED) **둘 다** `UPDATE ... WHERE status='PENDING'` 조건부 전이로 경합을 처리한다([ADR-0004 결정3](../adr/0004-stock-reservation-lifecycle.md)). 확인(WHERE)과 쓰기(SET)가 한 문장이라 어느 쪽이 먼저 커밋하든 진 쪽이 affected==0으로 그 사실을 안다. 결제 선점이 affected==0이면 만료로 CANCELED됐거나 중복 승인 → `ORDER_STATUS_CONFLICT`(409). 슬라이스4에서 **만료 쪽도 조건부 전이로 정합화**한다 — 슬라이스2 구현이 변경 감지(dirty checking)로 단순화돼 만료 쪽이 무조건 덮어쓰던 것을 바로잡아, 결제 PAID를 만료가 덮는 경합을 막는다([order System 설계](../order/api-design-system.md)).
 
 ---
 
@@ -108,10 +111,10 @@
 |------|------|------|
 | 승인 흐름 | 클라이언트 confirm 방식 — 프론트가 토스 successUrl에서 paymentKey·orderId·amount를 받아 우리 서버에 전달, 서버가 토스 confirm API 호출 | 토스 공식 권장 |
 | PG 어댑터 | PaymentFacade(트랜잭션 밖) → PaymentGatewayClient → TossPaymentClient → TossHttpClient | [ADR-0008](../adr/0008-payment-model-pg-boundary.md) 결정3 |
-| 트랜잭션 경계 | PaymentFacade `confirm`에 `@Transactional` 단일 선언 — 조회·검증·토스 호출·상태 전이·Payment 생성이 한 TX. 토스 호출 전 CUD 없으므로 토스 실패 롤백 시 무결성 손상 없음 | [ADR-0008](../adr/0008-payment-model-pg-boundary.md) 결정3 |
-| 경합 처리 | @Modifying JPQL UPDATE WHERE status='PENDING', affected==1 관문 — 만료 스케줄러와 결제 승인이 동시에 처리할 때 정확히 하나만 성공 | 슬라이스2 설계 결정 |
+| 트랜잭션 경계 | PaymentFacade `confirm`에 `@Transactional` 단일 선언 — 조회·검증·**선점**·토스 호출·Payment 생성이 한 TX. 선점이 토스 앞이라 토스 실패 시 롤백으로 선점한 PAID가 PENDING 복귀(우리 DB만 되돌림) | [ADR-0008](../adr/0008-payment-model-pg-boundary.md) 결정3 |
+| 경합 처리 | 결제(PAID)·만료(CANCELED) **양방향** 조건부 전이(`WHERE status='PENDING'`, affected==1)로 직렬화 — 선점이 토스 앞이라 만료·이중 승인을 **토스 호출 전** 차단 | [ADR-0004 결정3](../adr/0004-stock-reservation-lifecycle.md) |
 | 금액 검증 | 서버가 order.orderAmount와 request.amount를 비교 — 토스 호출 전 400 AMOUNT_MISMATCH | [ADR-0008](../adr/0008-payment-model-pg-boundary.md) "서버가 주문 시점 저장 금액으로" |
 | 핫딜 취소 차단 | 승인 시점 핫딜 status==CANCELED이면 돈 움직이기 전 HOTDEAL_CANCELED(409) | [ADR-0007 결정2](../adr/0007-hotdeal-state-operations.md) |
-| 슬라이스3 범위 | 승인+PAID 전이만. 결제 실패 시 CANCELED(PAYMENT_FAILED), 실패 이력 보관, 재시도, 보정 취소는 슬라이스4 | — |
+| 슬라이스 범위 | 슬라이스3=승인+PAID 전이. 슬라이스4=선점 순서 재배치 + 만료 조건부 정합화. 결제 실패 이력(FAILED·CANCELED)·웹훅·대사는 다음 범위 | — |
 | 마이그레이션 | payments 테이블 status 칼럼: String → VARCHAR(20) + PaymentStatus enum 매핑 | TODO(slice-3) 해소 |
-| 이중 승인 보정 | 토스 승인 성공 후 ORDER_STATUS_CONFLICT 발생 시(돈 나간 채 DB 전이 실패) 즉시 토스 취소 보정이 필요하나 슬라이스4 범위 | [ADR-0008](../adr/0008-payment-model-pg-boundary.md) 결정4 |
+| 이중 승인 차단 | 슬라이스4에서 **선점 순서 재배치**로 만료·이중 승인을 토스 호출 전 차단(돈이 나가지 않음). 토스 취소 동기 보정은 철회 — 서버 다운 잔여(토스 성공 후 커밋 실패)는 동기로 불가해 비동기 후속(웹훅·대사) | [ADR-0008](../adr/0008-payment-model-pg-boundary.md) "함께 묶이는 방어" 갱신 |
