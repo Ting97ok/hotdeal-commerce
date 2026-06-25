@@ -22,6 +22,7 @@ import com.sparta.msa.commerce.domain.payment.dto.request.ConfirmPaymentRequest;
 import com.sparta.msa.commerce.domain.payment.entity.Payment;
 import com.sparta.msa.commerce.domain.payment.entity.PaymentStatus;
 import com.sparta.msa.commerce.domain.payment.exception.PaymentExceptionCode;
+import com.sparta.msa.commerce.domain.payment.facade.PaymentFacade;
 import com.sparta.msa.commerce.domain.payment.gateway.PaymentGatewayClient;
 import com.sparta.msa.commerce.domain.payment.gateway.PgConfirmResult;
 import com.sparta.msa.commerce.domain.payment.repository.PaymentRepository;
@@ -37,7 +38,14 @@ import java.math.BigDecimal;
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Queue;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -68,6 +76,7 @@ class ConfirmPaymentIntegrationTest {
   @Autowired OrderRepository orderRepository;
   @Autowired PaymentRepository paymentRepository;
   @Autowired CommonOrderService commonOrderService;
+  @Autowired PaymentFacade paymentFacade;
   @MockitoBean PaymentGatewayClient paymentGatewayClient;
 
   @BeforeEach
@@ -286,6 +295,76 @@ class ConfirmPaymentIntegrationTest {
       assertThat(untouched.getStatus()).isEqualTo(OrderStatus.PENDING);
 
       assertThat(paymentRepository.findAll()).isEmpty();
+    }
+  }
+
+  @Nested
+  @DisplayName("동시성")
+  class Concurrency {
+
+    @Test
+    @DisplayName("같은 PENDING 주문에 여러 결제 승인이 동시에 들어와도 정확히 1건만 PAID로 성공하고 나머지는 ORDER_STATUS_CONFLICT, Payment는 1건만 생성된다")
+    void onlyOneConfirmWinsUnderConcurrency() throws Exception {
+      int confirmerCount = 8;
+
+      User user = userRepository.save(
+          User.create("buyer@test.com", passwordEncoder.encode("pass"), "구매자", UserRole.USER));
+      Product product = productRepository.save(Product.create("맥북 프로", new BigDecimal("2000000")));
+      LocalDateTime start = LocalDateTime.now().minusHours(1);
+      LocalDateTime end = LocalDateTime.now().plusHours(1);
+      HotDeal hotDeal = hotDealRepository.save(HotDeal.create(
+          new CreateHotDealRequest(product.getId(), new BigDecimal("19800"), 100, 5, start, end),
+          product));
+      hotDealStockRepository.save(HotDealStock.create(hotDeal.getId(), 99));
+      Order order = orderRepository.save(
+          Order.create(user, hotDeal, product, 1, Duration.ofMinutes(10)));
+
+      given(paymentGatewayClient.confirm(any(), any(), any()))
+          .willAnswer(invocation -> new PgConfirmResult(
+              "toss_pk_" + UUID.randomUUID(), UUID.randomUUID().toString(),
+              order.getOrderAmount(), LocalDateTime.now()));
+
+      ConfirmPaymentRequest request = new ConfirmPaymentRequest(
+          "toss_pk_abc123", order.getOrderNo(), order.getOrderAmount());
+
+      ExecutorService pool = Executors.newFixedThreadPool(confirmerCount);
+      CountDownLatch ready = new CountDownLatch(confirmerCount);
+      CountDownLatch startSignal = new CountDownLatch(1);
+      AtomicInteger successCount = new AtomicInteger();
+      Queue<Throwable> errors = new ConcurrentLinkedQueue<>();
+
+      for (int i = 0; i < confirmerCount; i++) {
+        pool.submit(() -> {
+          ready.countDown();
+          try {
+            startSignal.await();
+          } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return;
+          }
+          try {
+            paymentFacade.confirm(request);
+            successCount.incrementAndGet();
+          } catch (Throwable t) {
+            errors.add(t);
+          }
+        });
+      }
+
+      ready.await();
+      startSignal.countDown();
+      pool.shutdown();
+      pool.awaitTermination(30, TimeUnit.SECONDS);
+
+      assertThat(successCount.get()).isEqualTo(1);
+      assertThat(errors).hasSize(confirmerCount - 1);
+      assertThat(errors).allMatch(t -> t instanceof DomainException
+          && ((DomainException) t).getCode().equals("ORDER_STATUS_CONFLICT"));
+
+      Order paid = orderRepository.findById(order.getId()).orElseThrow();
+      assertThat(paid.getStatus()).isEqualTo(OrderStatus.PAID);
+
+      assertThat(paymentRepository.findAll()).hasSize(1);
     }
   }
 }
