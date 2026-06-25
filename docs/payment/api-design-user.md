@@ -89,11 +89,11 @@ POST /api/payments/confirm
 | # | 테스트 케이스 | 시나리오 | 상태 | 작성일 |
 |---|---------------|----------|------|--------|
 | 1 | `결제_승인_성공_시_Payment_DONE_생성_주문_PAID_전이` | PENDING 주문 + 토스 승인 성공 mock → 200, Payment DONE 생성, Order PAID 전이 | ✅ Pass | 2026-06-24 |
-| 2 | `만료_CANCELED_주문_결제_승인_시_409_ORDER_STATUS_CONFLICT_Payment_미생성` | 만료로 CANCELED된 주문 → 409 ORDER_STATUS_CONFLICT, Payment 0건, 주문 CANCELED 유지 | ✅ Pass | 2026-06-24 |
-| 3 | `이미_PAID_주문_결제_승인_시_409_ORDER_STATUS_CONFLICT_Payment_미생성` | 이미 PAID된 주문 → 409 ORDER_STATUS_CONFLICT, Payment 0건, 주문 PAID 유지 | ✅ Pass | 2026-06-24 |
+| 2 | `만료_CANCELED_주문_결제_승인_시_409_ORDER_STATUS_CONFLICT_Payment_미생성` | 만료로 CANCELED된 주문 → 선점 affected==0 → **토스 미호출**(verify never), 409 ORDER_STATUS_CONFLICT, Payment 0건, 주문 CANCELED 유지 | ✅ Pass | 2026-06-25 |
+| 3 | `이미_PAID_주문_결제_승인_시_409_ORDER_STATUS_CONFLICT_Payment_미생성` | 이미 PAID된 주문 → 선점 affected==0 → **토스 미호출**(verify never), 409 ORDER_STATUS_CONFLICT, Payment 0건, 주문 PAID 유지 | ✅ Pass | 2026-06-25 |
 | 4 | `금액_불일치_시_토스_호출_전_400_AMOUNT_MISMATCH_차단` | request.amount ≠ order.orderAmount → 400 AMOUNT_MISMATCH, 토스 미호출(never), Payment 0건, 주문 PENDING 유지 | ✅ Pass | 2026-06-24 |
 | 5 | `토스_거부_시_402_PAYMENT_REJECTED_주문_PENDING_유지` | paymentGatewayClient 거부(DomainException) → 402 PAYMENT_REJECTED, 주문 PENDING 유지, Payment 0건(롤백) | ✅ Pass | 2026-06-24 |
-| 6 | `동시_결제_승인_시_1건만_PAID_나머지_ORDER_STATUS_CONFLICT_Payment_1건` | PENDING 주문 1건에 8스레드 동시 승인 → 정확히 1건 PAID 성공, 7건 ORDER_STATUS_CONFLICT, Payment 1건 (조건부 UPDATE 직렬화) | ✅ Pass | 2026-06-25 |
+| 6 | `동시_결제_승인_시_1건만_PAID_나머지_ORDER_STATUS_CONFLICT_Payment_1건` | PENDING 주문 1건에 8스레드 동시 승인 → 선점 직렬화로 1건만 PAID(**토스 1회**), 7건 ORDER_STATUS_CONFLICT(토스 미호출), Payment 1건 | ✅ Pass | 2026-06-25 |
 
 > **설계 노트 — 슬라이스4 재배치가 기존 테스트에 주는 영향**: 흐름이 "선점 먼저"로 바뀌면 #2(만료 CANCELED)·#3(이미 PAID)·#6(동시 7건 충돌)은 **토스를 호출하지 않고** affected==0으로 걸러진다(슬라이스3에서는 토스 승인 mock을 거친 뒤 markPaid 0건이었다). 단언의 핵심(409·Payment 0건/1건·주문 상태)은 동일하나, 검증 포인트가 "토스 승인 성공 후 충돌"에서 "**선점 단계에서 토스 호출 자체를 차단(verify never)**"으로 강해진다. Phase 2 TDD에서 해당 테스트의 토스 호출 단언(`verify(...).never()`)을 보강한다.
 
