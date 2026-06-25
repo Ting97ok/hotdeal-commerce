@@ -5,6 +5,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.BDDMockito.then;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.springframework.http.MediaType.APPLICATION_JSON;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -138,7 +139,7 @@ class ConfirmPaymentIntegrationTest {
   class ExpiryRace {
 
     @Test
-    @DisplayName("만료로 CANCELED된 주문에 결제 승인이 들어오면 409 ORDER_STATUS_CONFLICT를 반환하고 Payment 행이 생성되지 않는다")
+    @DisplayName("만료로 CANCELED된 주문에 결제 승인이 들어오면 토스 호출 없이 409 ORDER_STATUS_CONFLICT를 반환하고 Payment 행이 생성되지 않는다")
     void rejectsConfirmOnExpiredOrder() throws Exception {
       User user = userRepository.save(
           User.create("buyer@test.com", passwordEncoder.encode("pass"), "구매자", UserRole.USER));
@@ -155,13 +156,8 @@ class ConfirmPaymentIntegrationTest {
       order.expire();
       orderRepository.save(order);
 
-      String pgPaymentKey = "toss_pk_abc123";
-      given(paymentGatewayClient.confirm(any(), any(), any()))
-          .willReturn(new PgConfirmResult(pgPaymentKey, UUID.randomUUID().toString(),
-              order.getOrderAmount(), LocalDateTime.now()));
-
       ConfirmPaymentRequest request = new ConfirmPaymentRequest(
-          pgPaymentKey, order.getOrderNo(), order.getOrderAmount());
+          "toss_pk_abc123", order.getOrderNo(), order.getOrderAmount());
 
       mockMvc.perform(post("/api/payments/confirm")
               .contentType(APPLICATION_JSON)
@@ -169,6 +165,8 @@ class ConfirmPaymentIntegrationTest {
           .andExpect(status().isConflict())
           .andExpect(jsonPath("$.result").value(false))
           .andExpect(jsonPath("$.error.code").value("ORDER_STATUS_CONFLICT"));
+
+      then(paymentGatewayClient).should(never()).confirm(any(), any(), any());
 
       Order conflicted = orderRepository.findById(order.getId()).orElseThrow();
       assertThat(conflicted.getStatus()).isEqualTo(OrderStatus.CANCELED);
@@ -182,7 +180,7 @@ class ConfirmPaymentIntegrationTest {
   class DuplicateConfirm {
 
     @Test
-    @DisplayName("이미 PAID된 주문에 결제 승인이 들어오면 409 ORDER_STATUS_CONFLICT를 반환하고 Payment 행이 생성되지 않는다")
+    @DisplayName("이미 PAID된 주문에 결제 승인이 들어오면 토스 호출 없이 409 ORDER_STATUS_CONFLICT를 반환하고 Payment 행이 생성되지 않는다")
     void rejectsConfirmOnPaidOrder() throws Exception {
       User user = userRepository.save(
           User.create("buyer@test.com", passwordEncoder.encode("pass"), "구매자", UserRole.USER));
@@ -198,13 +196,8 @@ class ConfirmPaymentIntegrationTest {
 
       commonOrderService.markPaid(order);
 
-      String pgPaymentKey = "toss_pk_abc123";
-      given(paymentGatewayClient.confirm(any(), any(), any()))
-          .willReturn(new PgConfirmResult(pgPaymentKey, UUID.randomUUID().toString(),
-              order.getOrderAmount(), LocalDateTime.now()));
-
       ConfirmPaymentRequest request = new ConfirmPaymentRequest(
-          pgPaymentKey, order.getOrderNo(), order.getOrderAmount());
+          "toss_pk_abc123", order.getOrderNo(), order.getOrderAmount());
 
       mockMvc.perform(post("/api/payments/confirm")
               .contentType(APPLICATION_JSON)
@@ -212,6 +205,8 @@ class ConfirmPaymentIntegrationTest {
           .andExpect(status().isConflict())
           .andExpect(jsonPath("$.result").value(false))
           .andExpect(jsonPath("$.error.code").value("ORDER_STATUS_CONFLICT"));
+
+      then(paymentGatewayClient).should(never()).confirm(any(), any(), any());
 
       Order conflicted = orderRepository.findById(order.getId()).orElseThrow();
       assertThat(conflicted.getStatus()).isEqualTo(OrderStatus.PAID);
@@ -365,6 +360,8 @@ class ConfirmPaymentIntegrationTest {
       assertThat(paid.getStatus()).isEqualTo(OrderStatus.PAID);
 
       assertThat(paymentRepository.findAll()).hasSize(1);
+
+      then(paymentGatewayClient).should(times(1)).confirm(any(), any(), any());
     }
   }
 }
