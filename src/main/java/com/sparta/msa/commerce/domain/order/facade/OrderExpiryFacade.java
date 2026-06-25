@@ -20,8 +20,9 @@ public class OrderExpiryFacade {
   public void expireOverdueOrders(LocalDateTime now) {
     List<Order> overdueOrders = orderRepository.findExpiredPending(now);
     for (Order order : overdueOrders) {
-      order.expire();
-      hotDealStockService.restore(order.getHotDeal().getId(), order.getQuantity());
+      if (orderRepository.markExpired(order) == 1) {
+        hotDealStockService.restore(order.getHotDeal().getId(), order.getQuantity());
+      }
     }
   }
 }

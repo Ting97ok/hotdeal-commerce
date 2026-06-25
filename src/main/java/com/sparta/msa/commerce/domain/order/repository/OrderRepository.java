@@ -16,8 +16,12 @@ public interface OrderRepository extends JpaRepository<Order, Long> {
   Optional<Order> findByOrderNo(String orderNo);
 
   @Modifying
-  @Query("UPDATE Order o SET o.status = 'PAID' WHERE o.id = :#{#order.id} AND o.status = 'PENDING'")
+  @Query("UPDATE Order o SET o.status = 'PAID' WHERE o = :order AND o.status = 'PENDING'")
   int markPaid(@Param("order") Order order);
+
+  @Modifying
+  @Query("UPDATE Order o SET o.status = 'CANCELED', o.cancelReason = 'EXPIRED' WHERE o = :order AND o.status = 'PENDING'")
+  int markExpired(@Param("order") Order order);
 
   @Query("""
       SELECT COUNT(o) > 0 FROM Order o
