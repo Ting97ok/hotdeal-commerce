@@ -49,7 +49,8 @@ POST /api/payments/confirm
 | 금액 일치 | 비즈니스 검증 (order.validatePaymentAmount) | AMOUNT_MISMATCH |
 | 핫딜 취소 여부 | 비즈니스 검증 (validateNotCanceledIfHotDeal) | HOTDEAL_CANCELED |
 | **조건부 상태 선점** | @Modifying UPDATE WHERE status='PENDING', affected==1 **(토스 호출 전)** | ORDER_STATUS_CONFLICT |
-| 토스 승인 API 호출 | 토스 응답 처리 (TossPaymentClient, **선점 성공 후**) | PAYMENT_GATEWAY_ERROR / PAYMENT_REJECTED |
+| **재고 차감 선점** | @Modifying UPDATE WHERE reserved≥qty AND on_hand≥qty, affected==1 **(토스 호출 전, 선점 직후)** | PRODUCT_STOCK_INCONSISTENT |
+| 토스 승인 API 호출 | 토스 응답 처리 (TossPaymentClient, **선점·차감 성공 후**) | PAYMENT_GATEWAY_ERROR / PAYMENT_REJECTED |
 
 > **설계 노트 — 금액 검증 위치**: 토스 호출 전에 `order.orderAmount.compareTo(request.amount) == 0`을 서버가 비교한다. 토스도 금액 불일치 시 거부하지만, 우리가 먼저 잡으면 왕복 비용을 줄이고 400으로 명확한 에러를 반환할 수 있다.
 
@@ -113,7 +114,10 @@ flowchart TD
     I -- ACTIVE --> K[조건부 상태 선점\nUPDATE SET PAID WHERE status='PENDING']:::process
     K --> L{affected == 1?}:::decision
     L -- 0 이미 만료·중복 --> M[/ORDER_STATUS_CONFLICT\n토스 미호출·돈 안 나감/]:::error
-    L -- 1 선점 성공 --> N[토스 결제 승인 API 호출\nPaymentGatewayClient.confirm]:::process
+    L -- 1 선점 성공 --> T[재고 차감 선점\nUPDATE on_hand-=q, reserved-=q\nWHERE reserved>=q AND on_hand>=q]:::process
+    T --> U{affected == 1?}:::decision
+    U -- 0 장부 불일치 --> V[/PRODUCT_STOCK_INCONSISTENT\n토스 미호출·롤백/]:::error
+    U -- 1 차감 성공 --> N[토스 결제 승인 API 호출\nPaymentGatewayClient.confirm]:::process
     N --> O{토스 응답}:::decision
     O -- 통신 오류 --> P[/PAYMENT_GATEWAY_ERROR\n롤백 → PENDING 복귀/]:::error
     O -- 승인 거부 --> Q[/PAYMENT_REJECTED\n롤백 → PENDING 복귀/]:::error
@@ -126,7 +130,9 @@ flowchart TD
     classDef decision fill:#fff3cd,stroke:#ffc107,color:#856404
 ```
 
-> **설계 노트 — 트랜잭션 경계**: PaymentFacade `confirm` 메서드에 `@Transactional`을 선언해 조회·검증·선점·토스 호출·Payment 생성을 하나의 TX로 묶는다. **선점(markPaid)이 토스 호출 앞**에 오므로, 토스 승인이 거부·오류이면 TX 롤백으로 선점한 PAID가 PENDING으로 자동 복귀한다(우리 DB만 되돌리면 됨 — 토스는 돈이 안 나갔다). 결제 승인은 구매 폭발(슬라이스1)과 달리 사용자가 결제창에서 카드 정보 입력·인증을 거쳐 순차적으로 들어오므로 동시 요청이 자연 분산된다 — TX 안에 토스 응답 대기가 포함되는 커넥션 점유 비용이 실제 문제가 될 규모가 아니다. TX를 분리하면 detached 처리·TransactionTemplate 등 복잡도만 늘어난다.
+> **설계 노트 — 트랜잭션 경계**: PaymentFacade `confirm` 메서드에 `@Transactional`을 선언해 조회·검증·선점·재고 차감·토스 호출·Payment 생성을 하나의 TX로 묶는다. **선점(markPaid)이 토스 호출 앞**에 오므로, 토스 승인이 거부·오류이면 TX 롤백으로 선점한 PAID가 PENDING으로 자동 복귀한다(우리 DB만 되돌리면 됨 — 토스는 돈이 안 나갔다). 결제 승인은 구매 폭발(슬라이스1)과 달리 사용자가 결제창에서 카드 정보 입력·인증을 거쳐 순차적으로 들어오므로 동시 요청이 자연 분산된다 — TX 안에 토스 응답 대기가 포함되는 커넥션 점유 비용이 실제 문제가 될 규모가 아니다. TX를 분리하면 detached 처리·TransactionTemplate 등 복잡도만 늘어난다.
+
+> **설계 노트 — 재고 차감도 토스 앞 선점**: 결제가 확정되면 그 1개가 실제로 팔린 것이므로 상품 창고의 실물·예약을 1씩 줄인다([ADR-0011 결정3](../adr/0011-product-inventory-reservation.md)). `markPaid` 선점 직후·**토스 앞**에 두고(주문→재고 잠금 순서 — [ADR-0009 결정4](../adr/0009-stock-concurrency-design.md)), `reserve`와 대칭인 조건부 UPDATE로 `affected==1`일 때만 토스를 호출한다. **차감 실패(affected==0)는 "재고 부족"이 아니다** — 품절은 구매(주문) 단계에서 `HotDealStock`으로 이미 막히고, 결제까지 온 주문은 핫딜 등록 때 잡아둔 예약분 안에 있어 정상이면 항상 차감된다. `affected==0`은 예약/실물 장부가 어긋난 **정합성 깨짐**(정상이면 안 남)이라 `PRODUCT_STOCK_INCONSISTENT`로 막는데, 토스 앞이라 그 즉시 롤백돼 돈이 나가지 않는다. 정상이면 안 나는 시스템 불일치라 HttpStatus는 500을 제안한다(운영 알림 대상 — 사용자에게 보이는 "재고 부족"이 아님).
 
 > **설계 노트 — 선점이 잡는 행 잠금과 토스 대기**: 선점 `UPDATE ... WHERE status='PENDING'`은 해당 주문 **한 행**에 잠금을 잡고 그 잠금을 토스 응답까지 유지한다. 행 단위라 다른 주문 결제엔 영향이 없고, 같은 주문에 동시 결제가 몰리는 경우(이중 승인)는 드물며 오히려 이 잠금이 **둘째 요청을 직렬화로 막아**(첫째 커밋 후 둘째는 affected==0) 토스 이중 호출을 차단한다. 만료 스케줄러가 같은 주문을 동시에 만료시키려 해도 같은 행 잠금에서 직렬화된다 — 결제가 선점 PAID로 커밋하면 만료 쪽 조건부 전이가 affected==0으로 비켜간다([order System 설계 — 조건부 만료 전이](../order/api-design-system.md)).
 
@@ -162,10 +168,22 @@ Optional<Order> findByOrderNo(String orderNo);
 @Modifying
 @Query("UPDATE Order o SET o.status = 'PAID' WHERE o = :order AND o.status = 'PENDING'")
 int markPaid(@Param("order") Order order);
+
+// ProductStockRepository — 결제 확정 시 실물·예약 동시 차감 (reserve 대칭, 음수 방지 + affected==0 불일치 감지)
+@Modifying
+@Query("""
+    UPDATE ProductStock ps
+       SET ps.onHandQuantity = ps.onHandQuantity - :quantity,
+           ps.reservedQuantity = ps.reservedQuantity - :quantity
+     WHERE ps.productId = :productId
+       AND ps.reservedQuantity >= :quantity
+       AND ps.onHandQuantity >= :quantity
+""")
+int confirmSale(@Param("productId") Long productId, @Param("quantity") int quantity);
 ```
 
 > **설계 노트 — markPaid 반환 int**: `@Modifying @Query`의 반환 타입을 `int`로 받는다. `== 1`이면 선점 성공(이어서 토스 호출), `== 0`이면 `ORDER_STATUS_CONFLICT`를 던져 토스를 호출하지 않는다. 선점이 토스 앞에 오므로, 슬라이스3에서 "토스 성공 후 markPaid"였던 순서가 "markPaid 성공 후 토스"로 바뀐다.
 
 > **설계 노트 — CommonOrderService**: `getOrderForPayment(orderNo, amount)`(조회+금액 검증)와 `markPaid(Order): int`를 `CommonOrderService`에 둔다 — "모든 결제 승인 요청이 동일하게 수행해야 하는 정규 연산"([service.md](../../.claude/rules/service.md)). Facade `@Transactional` TX 안에서 호출되므로 hotDeal LAZY 로드도 같은 TX 안에서 처리된다. `markPaid`는 `@Transactional`(REQUIRED 기본값)으로 Facade TX에 합류한다.
 
-> **설계 노트 — 계층 경계**: PaymentFacade가 `CommonOrderService`(order 도메인), `CommonHotDealService`(hotdeal 도메인), `PaymentGatewayClient`, `PaymentService`를 조합한다. Facade `@Transactional` 안에서 조회+금액검증 → 핫딜 취소 가드 → `commonOrderService.markPaid`(선점) → `paymentGatewayClient.confirm`(토스) → `paymentService.createPayment` 순으로 실행된다. `Payment.create`에 `Order` 객체 대신 `Long orderId`를 저장하는 이유는 entity.md 규칙("객체 탐색이 불필요한 참조는 FK 값 칼럼 허용") 적용이다. PaymentService는 자기 도메인 `PaymentRepository`만 의존한다.
+> **설계 노트 — 계층 경계**: PaymentFacade가 `CommonOrderService`(order 도메인), `CommonHotDealService`(hotdeal 도메인), `ProductStockService`(stock 도메인), `PaymentGatewayClient`, `PaymentService`를 조합한다. Facade `@Transactional` 안에서 조회+금액검증 → 핫딜 취소 가드 → `commonOrderService.markPaid`(선점) → `productStockService.confirmSale`(재고 차감 선점, `order.getProduct().getId()`·`order.getQuantity()`) → `paymentGatewayClient.confirm`(토스) → `paymentService.createPayment` 순으로 실행된다. `Payment.create`에 `Order` 객체 대신 `Long orderId`를 저장하는 이유는 entity.md 규칙("객체 탐색이 불필요한 참조는 FK 값 칼럼 허용") 적용이다. PaymentService는 자기 도메인 `PaymentRepository`만 의존한다.

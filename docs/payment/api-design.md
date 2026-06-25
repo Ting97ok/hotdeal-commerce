@@ -6,6 +6,7 @@
 
 - **슬라이스 3 범위**: 토스 결제 승인 + PENDING→PAID 전이 + 만료↔결제 경합 처리.
 - **슬라이스 4 범위**: 결제 승인 순서 정합화 — `markPaid` 선점을 토스 승인 앞으로 재배치(만료·이중 승인을 토스 호출 전 차단) + 만료 조건부 전이 구현 정합화([order System 설계](../order/api-design-system.md)).
+- **슬라이스 5 범위**: 결제 확정 시 ProductStock 실물·예약 차감(`confirmSale`) — `markPaid` 선점 직후·토스 앞에 재고 차감 선점 ([ADR-0011 결정3](../adr/0011-product-inventory-reservation.md) 누락 정합화).
 - **다음 범위**: 결제 실패 이력 보관(FAILED·CANCELED), 결제 웹훅·대사(토스 승인 성공 후 서버 다운 잔여 복구).
 - **문서 구조**: User API(결제 승인) → [api-design-user.md](api-design-user.md).
 
@@ -17,6 +18,7 @@
 |------|------|------|
 | v0.1 | 2026-06-24 | 결제 승인 1개 API 설계 초안 (슬라이스 3) |
 | v0.2 | 2026-06-25 | 슬라이스 4 — `confirm` 흐름 재배치(`markPaid` 선점 → 토스), 만료↔결제 양방향 조건부 전이 정합화, 토스 취소 동기 보정 철회 |
+| v0.3 | 2026-06-25 | 슬라이스 5 — 결제 확정 시 ProductStock 실물·예약 차감(`confirmSale`) 추가, 토스 앞 재고 차감 선점 ([ADR-0011](../adr/0011-product-inventory-reservation.md) 결정3 정합화) |
 
 ---
 
@@ -90,7 +92,7 @@
 
 ### ExceptionCode
 
-결제 승인 흐름의 에러는 order(주문 상태), payment(PG 결과), hotdeal(딜 상태)에 걸쳐 발생한다.
+결제 승인 흐름의 에러는 order(주문 상태), payment(PG 결과), hotdeal(딜 상태), stock(재고 장부)에 걸쳐 발생한다.
 
 | ExceptionCode | 소속 enum | HttpStatus | 발생 |
 |---------------|-----------|:----------:|------|
@@ -98,6 +100,7 @@
 | AMOUNT_MISMATCH | OrderExceptionCode | 400 | 요청 amount ≠ order.orderAmount (금액 위변조 방어) |
 | ORDER_STATUS_CONFLICT | OrderExceptionCode | 409 | 조건부 UPDATE affected==0 — 만료로 CANCELED됐거나 이미 PAID |
 | HOTDEAL_CANCELED | HotDealExceptionCode | 409 | 핫딜이 관리자 취소(CANCELED) 상태 — 승인 차단 |
+| PRODUCT_STOCK_INCONSISTENT | StockExceptionCode | 500 | 결제 확정 재고 차감 affected==0 — 예약/실물 장부 불일치(정상이면 안 남, 운영 알림) |
 | PAYMENT_GATEWAY_ERROR | PaymentExceptionCode | 502 | 토스 통신 오류·타임아웃 |
 | PAYMENT_REJECTED | PaymentExceptionCode | 402 | 토스가 승인 거부 (잔액 부족·한도 초과 등) |
 
@@ -115,6 +118,7 @@
 | 경합 처리 | 결제(PAID)·만료(CANCELED) **양방향** 조건부 전이(`WHERE status='PENDING'`, affected==1)로 직렬화 — 선점이 토스 앞이라 만료·이중 승인을 **토스 호출 전** 차단 | [ADR-0004 결정3](../adr/0004-stock-reservation-lifecycle.md) |
 | 금액 검증 | 서버가 order.orderAmount와 request.amount를 비교 — 토스 호출 전 400 AMOUNT_MISMATCH | [ADR-0008](../adr/0008-payment-model-pg-boundary.md) "서버가 주문 시점 저장 금액으로" |
 | 핫딜 취소 차단 | 승인 시점 핫딜 status==CANCELED이면 돈 움직이기 전 HOTDEAL_CANCELED(409) | [ADR-0007 결정2](../adr/0007-hotdeal-state-operations.md) |
-| 슬라이스 범위 | 슬라이스3=승인+PAID 전이. 슬라이스4=선점 순서 재배치 + 만료 조건부 정합화. 결제 실패 이력(FAILED·CANCELED)·웹훅·대사는 다음 범위 | — |
+| 슬라이스 범위 | 슬라이스3=승인+PAID 전이. 슬라이스4=선점 순서 재배치 + 만료 조건부 정합화. 슬라이스5=결제 확정 ProductStock 차감. 결제 실패 이력(FAILED·CANCELED)·웹훅·대사는 다음 범위 | — |
 | 마이그레이션 | payments 테이블 status 칼럼: String → VARCHAR(20) + PaymentStatus enum 매핑 | TODO(slice-3) 해소 |
 | 이중 승인 차단 | 슬라이스4에서 **선점 순서 재배치**로 만료·이중 승인을 토스 호출 전 차단(돈이 나가지 않음). 토스 취소 동기 보정은 철회 — 서버 다운 잔여(토스 성공 후 커밋 실패)는 동기로 불가해 비동기 후속(웹훅·대사) | [ADR-0008](../adr/0008-payment-model-pg-boundary.md) "함께 묶이는 방어" 갱신 |
+| 재고 차감(슬라이스5) | 결제 확정 시 ProductStock 실물·예약 1씩↓(`confirmSale`, reserve 대칭 조건부 UPDATE). `markPaid` 선점 직후·토스 앞이라 차감 실패(장부 불일치) 시 토스 미호출·롤백. 품절은 주문 단계(HotDealStock)가 막아 결제 차감은 정상이면 항상 성공 | [ADR-0011 결정3](../adr/0011-product-inventory-reservation.md) |
