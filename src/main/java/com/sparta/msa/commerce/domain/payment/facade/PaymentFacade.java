@@ -10,6 +10,7 @@ import com.sparta.msa.commerce.domain.payment.gateway.PaymentGatewayClient;
 import com.sparta.msa.commerce.domain.payment.gateway.PgConfirmResult;
 import com.sparta.msa.commerce.domain.payment.mapper.PaymentMapper;
 import com.sparta.msa.commerce.domain.payment.service.PaymentService;
+import com.sparta.msa.commerce.domain.stock.service.ProductStockService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -20,6 +21,7 @@ public class PaymentFacade {
 
   private final CommonOrderService commonOrderService;
   private final CommonHotDealService commonHotDealService;
+  private final ProductStockService productStockService;
   private final PaymentGatewayClient paymentGatewayClient;
   private final PaymentService paymentService;
   private final PaymentMapper paymentMapper;
@@ -29,6 +31,7 @@ public class PaymentFacade {
     Order order = commonOrderService.getOrderForPayment(request.orderId(), request.amount());
     commonHotDealService.validateNotCanceledIfHotDeal(order.getHotDeal());
     commonOrderService.markPaid(order);
+    productStockService.confirmSale(order.getProduct().getId(), order.getQuantity());
     PgConfirmResult pgResult = paymentGatewayClient.confirm(request.paymentKey(), request.orderId(), request.amount());
     Payment payment = paymentService.createPayment(order, pgResult);
     return paymentMapper.toConfirmResponse(payment);

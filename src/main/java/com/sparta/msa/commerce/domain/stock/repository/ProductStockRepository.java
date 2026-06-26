@@ -21,4 +21,15 @@ public interface ProductStockRepository extends JpaRepository<ProductStock, Long
          AND ps.onHandQuantity - ps.reservedQuantity >= :quantity
   """)
   int reserve(@Param("productId") Long productId, @Param("quantity") int quantity);
+
+  @Modifying
+  @Query("""
+      UPDATE ProductStock ps
+         SET ps.onHandQuantity = ps.onHandQuantity - :quantity,
+             ps.reservedQuantity = ps.reservedQuantity - :quantity
+       WHERE ps.productId = :productId
+         AND ps.reservedQuantity >= :quantity
+         AND ps.onHandQuantity >= :quantity
+  """)
+  int confirmSale(@Param("productId") Long productId, @Param("quantity") int quantity);
 }

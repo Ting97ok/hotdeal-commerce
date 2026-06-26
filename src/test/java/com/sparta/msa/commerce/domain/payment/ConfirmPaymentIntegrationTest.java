@@ -30,7 +30,10 @@ import com.sparta.msa.commerce.domain.payment.repository.PaymentRepository;
 import com.sparta.msa.commerce.domain.product.entity.Product;
 import com.sparta.msa.commerce.domain.product.repository.ProductRepository;
 import com.sparta.msa.commerce.domain.stock.entity.HotDealStock;
+import com.sparta.msa.commerce.domain.stock.entity.ProductStock;
 import com.sparta.msa.commerce.domain.stock.repository.HotDealStockRepository;
+import com.sparta.msa.commerce.domain.stock.repository.ProductStockRepository;
+import com.sparta.msa.commerce.domain.stock.service.ProductStockService;
 import com.sparta.msa.commerce.domain.user.entity.User;
 import com.sparta.msa.commerce.domain.user.entity.UserRole;
 import com.sparta.msa.commerce.domain.user.repository.UserRepository;
@@ -74,6 +77,8 @@ class ConfirmPaymentIntegrationTest {
   @Autowired ProductRepository productRepository;
   @Autowired HotDealRepository hotDealRepository;
   @Autowired HotDealStockRepository hotDealStockRepository;
+  @Autowired ProductStockRepository productStockRepository;
+  @Autowired ProductStockService productStockService;
   @Autowired OrderRepository orderRepository;
   @Autowired PaymentRepository paymentRepository;
   @Autowired CommonOrderService commonOrderService;
@@ -85,9 +90,17 @@ class ConfirmPaymentIntegrationTest {
     paymentRepository.deleteAll();
     orderRepository.deleteAll();
     hotDealStockRepository.deleteAll();
+    productStockRepository.deleteAll();
     hotDealRepository.deleteAll();
     productRepository.deleteAll();
     userRepository.deleteAll();
+  }
+
+  private Product createProductWithStock() {
+    Product saved = productRepository.save(Product.create("맥북 프로", new BigDecimal("2000000")));
+    productStockRepository.save(ProductStock.create(saved.getId(), 100));
+    productStockService.reserve(saved.getId(), 100);
+    return saved;
   }
 
   @Nested
@@ -99,7 +112,7 @@ class ConfirmPaymentIntegrationTest {
     void confirmPayment() throws Exception {
       User user = userRepository.save(
           User.create("buyer@test.com", passwordEncoder.encode("pass"), "구매자", UserRole.USER));
-      Product product = productRepository.save(Product.create("맥북 프로", new BigDecimal("2000000")));
+      Product product = createProductWithStock();
       LocalDateTime start = LocalDateTime.now().minusHours(1);
       LocalDateTime end = LocalDateTime.now().plusHours(1);
       HotDeal hotDeal = hotDealRepository.save(HotDeal.create(
@@ -143,7 +156,7 @@ class ConfirmPaymentIntegrationTest {
     void rejectsConfirmOnExpiredOrder() throws Exception {
       User user = userRepository.save(
           User.create("buyer@test.com", passwordEncoder.encode("pass"), "구매자", UserRole.USER));
-      Product product = productRepository.save(Product.create("맥북 프로", new BigDecimal("2000000")));
+      Product product = createProductWithStock();
       LocalDateTime start = LocalDateTime.now().minusHours(1);
       LocalDateTime end = LocalDateTime.now().plusHours(1);
       HotDeal hotDeal = hotDealRepository.save(HotDeal.create(
@@ -184,7 +197,7 @@ class ConfirmPaymentIntegrationTest {
     void rejectsConfirmOnPaidOrder() throws Exception {
       User user = userRepository.save(
           User.create("buyer@test.com", passwordEncoder.encode("pass"), "구매자", UserRole.USER));
-      Product product = productRepository.save(Product.create("맥북 프로", new BigDecimal("2000000")));
+      Product product = createProductWithStock();
       LocalDateTime start = LocalDateTime.now().minusHours(1);
       LocalDateTime end = LocalDateTime.now().plusHours(1);
       HotDeal hotDeal = hotDealRepository.save(HotDeal.create(
@@ -224,7 +237,7 @@ class ConfirmPaymentIntegrationTest {
     void rejectsConfirmOnAmountMismatch() throws Exception {
       User user = userRepository.save(
           User.create("buyer@test.com", passwordEncoder.encode("pass"), "구매자", UserRole.USER));
-      Product product = productRepository.save(Product.create("맥북 프로", new BigDecimal("2000000")));
+      Product product = createProductWithStock();
       LocalDateTime start = LocalDateTime.now().minusHours(1);
       LocalDateTime end = LocalDateTime.now().plusHours(1);
       HotDeal hotDeal = hotDealRepository.save(HotDeal.create(
@@ -263,7 +276,7 @@ class ConfirmPaymentIntegrationTest {
     void rejectsConfirmWhenGatewayRejects() throws Exception {
       User user = userRepository.save(
           User.create("buyer@test.com", passwordEncoder.encode("pass"), "구매자", UserRole.USER));
-      Product product = productRepository.save(Product.create("맥북 프로", new BigDecimal("2000000")));
+      Product product = createProductWithStock();
       LocalDateTime start = LocalDateTime.now().minusHours(1);
       LocalDateTime end = LocalDateTime.now().plusHours(1);
       HotDeal hotDeal = hotDealRepository.save(HotDeal.create(
@@ -304,7 +317,7 @@ class ConfirmPaymentIntegrationTest {
 
       User user = userRepository.save(
           User.create("buyer@test.com", passwordEncoder.encode("pass"), "구매자", UserRole.USER));
-      Product product = productRepository.save(Product.create("맥북 프로", new BigDecimal("2000000")));
+      Product product = createProductWithStock();
       LocalDateTime start = LocalDateTime.now().minusHours(1);
       LocalDateTime end = LocalDateTime.now().plusHours(1);
       HotDeal hotDeal = hotDealRepository.save(HotDeal.create(
@@ -362,6 +375,44 @@ class ConfirmPaymentIntegrationTest {
       assertThat(paymentRepository.findAll()).hasSize(1);
 
       then(paymentGatewayClient).should(times(1)).confirm(any(), any(), any());
+    }
+  }
+
+  @Nested
+  @DisplayName("재고 차감")
+  class StockDeduction {
+
+    @Test
+    @DisplayName("결제 확정 시 ProductStock 실물·예약이 주문 수량만큼 차감된다")
+    void confirmDeductsProductStock() throws Exception {
+      User user = userRepository.save(
+          User.create("buyer@test.com", passwordEncoder.encode("pass"), "구매자", UserRole.USER));
+      Product product = createProductWithStock();
+      LocalDateTime start = LocalDateTime.now().minusHours(1);
+      LocalDateTime end = LocalDateTime.now().plusHours(1);
+      HotDeal hotDeal = hotDealRepository.save(HotDeal.create(
+          new CreateHotDealRequest(product.getId(), new BigDecimal("19800"), 100, 5, start, end),
+          product));
+      hotDealStockRepository.save(HotDealStock.create(hotDeal.getId(), 99));
+      Order order = orderRepository.save(
+          Order.create(user, hotDeal, product, 1, Duration.ofMinutes(10)));
+
+      String pgPaymentKey = "toss_pk_abc123";
+      given(paymentGatewayClient.confirm(any(), any(), any()))
+          .willReturn(new PgConfirmResult(pgPaymentKey, UUID.randomUUID().toString(),
+              order.getOrderAmount(), LocalDateTime.now()));
+
+      ConfirmPaymentRequest request = new ConfirmPaymentRequest(
+          pgPaymentKey, order.getOrderNo(), order.getOrderAmount());
+
+      mockMvc.perform(post("/api/payments/confirm")
+              .contentType(APPLICATION_JSON)
+              .content(objectMapper.writeValueAsString(request)))
+          .andExpect(status().isOk());
+
+      ProductStock stock = productStockRepository.findByProductId(product.getId()).orElseThrow();
+      assertThat(stock.getOnHandQuantity()).isEqualTo(99);
+      assertThat(stock.getReservedQuantity()).isEqualTo(99);
     }
   }
 }
