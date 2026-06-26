@@ -35,7 +35,7 @@ commerce 도메인 엔티티는 `domain/{도메인}/entity/` 에 위치한다. �
 ## 연관 관계
 
 - `@ManyToOne(fetch = LAZY) @JoinColumn(name = "category_id", foreignKey = @ForeignKey(ConstraintMode.NO_CONSTRAINT))` — JPA 연관 매핑은 유지하되 **DB FK 제약은 걸지 않는다**. `@ForeignKey(NO_CONSTRAINT)` 로 (혹시 모를 Hibernate 스키마 생성에서도) FK 가 생기지 않도록 명시하고, Flyway DDL 에도 제약을 선언하지 않는다 — FK 칼럼 + 보조 인덱스만. 참조 무결성은 서비스 가드(존재 검증) + 정합 검증 테스트가 책임. 근거: 고트래픽 쓰기 경로의 부모 행 잠금 제거 · DDL/운영 유연성 · MSA 분리 대비 — [docs/design/erd.md](../../docs/design/erd.md) · [ADR-0003](../../docs/adr/0003-no-db-fk-constraints.md).
-- 객체 탐색이 필요 없는 참조(예: 핫딜 재고처럼 잠금·교체 단위가 독립인 행)는 연관 매핑 없이 FK 값 칼럼(Long) + 전용 repository 조회를 허용 — `@OneToOne` 반대편 lazy 불가 함정 회피.
+- 재고처럼 상위 엔티티와 독립적으로 차감·교체되는 행(HotDealStock·ProductStock)은 연관 매핑 없이 FK 값 칼럼(Long) + 전용 repository 조회로 둘 수 있다 — 단순 구현 선택이며 성능 결정이 아니다(차감은 조건부 UPDATE라 연관 매핑 유무와 무관하므로 `@OneToOne` 단건 조회 회피 같은 건 근거로 들지 않는다). 객체 탐색이 실제로 필요하면(예: `Order`→`Product`) 평범하게 `@ManyToOne`으로 매핑한다.
 - `@OneToMany(mappedBy = "...", cascade = ..., orphanRemoval = ...)` + `@Builder.Default ... = new ArrayList<>()`.
 - enum 필드: `@Enumerated(STRING) @Column(length = 20)`.
 
