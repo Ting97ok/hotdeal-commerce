@@ -150,6 +150,15 @@ commonHotDealService.validateNotCanceledIfHotDeal(hotDeal);
 
 Spring Data JPA `saveAll(빈 리스트)` 는 에러 없이 통과한다(null 만 거부). 따라서 호출부에 `if (list.isEmpty()) skip` 분기가 불필요하도록, 호출되는 메서드들도 빈 입력을 안전 처리한다(빈 입력 시 빈 리스트 반환, 또는 검증/외부 호출 skip).
 
+## 연관 탐색 — 2-hop 체이닝 금지 → 엔티티 위임
+
+Facade/Service 는 연관 객체를 2-hop 으로 타고 들어가지 않는다(디미터 법칙 — 객체는 직접 이웃하고만 대화한다). 연관의 id·단순 값이 필요하면 엔티티가 위임 메서드로 노출한다.
+
+- ❌ `order.getProduct().getId()` (Order 가 Product 내부로 들어감) → ✅ `order.getProductId()` (Order 가 `product.getId()` 를 위임).
+- **1-hop 객체 전달은 정당** — `validateNotCanceledIfHotDeal(order.getHotDeal())` 처럼 직접 이웃을 협력 객체에 넘기는 건 디미터 위반이 아니다(getter 를 닫지 않는다).
+- **응답 DTO 조립은 예외** — MapStruct 중첩 매핑(`@Mapping(source = "user.name", ...)`)을 허용한다. 위임은 도메인 로직의 의미 있는 값에 한정하고, 단순 데이터 추출까지 위임으로 만들지 않는다(위임 메서드 폭발 방지).
+- 막는 기준은 애그리거트 경계가 아니라 **체이닝(캡슐화 깨기)** 이다 — 같은 애그리거트 안(`order.getOrderItem().getName()`)에도 동일 적용. 강제는 코드 리뷰(의존 경계와 동일 — ArchUnit 미도입 노선).
+
 ## 기존 코드(3계층) 처리
 
 - 기존 도메인은 Service 가 타 도메인 Service 를 직접 호출하는 3계층 — **유지**(전환 강제하지 않음).

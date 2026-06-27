@@ -66,7 +66,7 @@ commerce 도메인 엔티티는 `domain/{도메인}/entity/` 에 위치한다. �
   import static ...product.exception.ProductExceptionCode.DUPLICATE_OPTION_NAME;
   if (names.size() != Set.copyOf(names).size()) throw new DomainException(DUPLICATE_OPTION_NAME);
   ```
-- 파생 계산도 도메인 메서드로 노출(`getAncestorIds`, `getCategoryAncestorIds`) — 외부가 연관 엔티티에 직접 접근하지 않도록 대리.
+- 파생 계산도 도메인 메서드로 노출(`getAncestorIds`, `getCategoryAncestorIds`) — 외부가 연관 엔티티에 직접 접근하지 않도록 대리. 연관의 id·값도 위임 메서드로 노출해(`getProductId()` → `product.getId()`) 호출부의 2-hop 체이닝을 막는다 — 상세 [service.md](service.md).
 
 ## 논리 삭제
 
