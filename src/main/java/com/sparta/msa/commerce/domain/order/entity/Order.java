@@ -115,4 +115,12 @@ public class Order extends BaseEntity {
       throw new DomainException(AMOUNT_MISMATCH);
     }
   }
+
+  public Long getHotDealId() {
+    return hotDeal.getId();
+  }
+
+  public Long getProductId() {
+    return product.getId();
+  }
 }

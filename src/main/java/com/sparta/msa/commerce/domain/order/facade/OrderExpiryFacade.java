@@ -21,7 +21,7 @@ public class OrderExpiryFacade {
     List<Order> overdueOrders = orderRepository.findExpiredPending(now);
     for (Order order : overdueOrders) {
       if (orderRepository.markExpired(order) == 1) {
-        hotDealStockService.restore(order.getHotDeal().getId(), order.getQuantity());
+        hotDealStockService.restore(order.getHotDealId(), order.getQuantity());
       }
     }
   }
