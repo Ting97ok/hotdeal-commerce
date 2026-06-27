@@ -5,10 +5,12 @@ import static com.sparta.msa.commerce.domain.stock.exception.StockExceptionCode.
 import com.sparta.msa.commerce.domain.stock.entity.HotDealStock;
 import com.sparta.msa.commerce.domain.stock.repository.HotDealStockRepository;
 import com.sparta.msa.commerce.global.exception.DomainException;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 @Service
+@ConditionalOnProperty(name = "stock.deduct.strategy", havingValue = "optimistic", matchIfMissing = true)
 public class OptimisticHotDealStockService extends AbstractHotDealStockService {
 
   public OptimisticHotDealStockService(HotDealStockRepository hotDealStockRepository) {
