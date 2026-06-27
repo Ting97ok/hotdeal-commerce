@@ -44,7 +44,7 @@
 
 - **측정 스택**: k6(부하 생성) + Micrometer→Prometheus(앱 메트릭 수집) + Grafana(통합 대시보드). k6 결과 메트릭도 Prometheus 로 내보내 한 대시보드에서 부하와 서버 지표를 겹쳐 본다.
 - **부하 모델**: 개방형 도착률(arrival rate — 응답을 기다리지 않고 정해진 도착률로 쏨)로 선착순 순간 폭주를 재현한다. 동시 사용자(VU, virtual user — 부하 도구가 흉내 내는 가상 사용자) 수를 고정하는 폐쇄형이 아니라 도착률을 고정해, 3방식 비교 조건이 처리 속도와 무관하게 동일하다.
-- **워크로드·측정 지표 상세**: 벤치마크 설계 문서에서 정의([ADR-0009](0009-stock-concurrency-design.md) 측정 지표와 연계).
+- **워크로드·측정 지표 상세**: [벤치마크 설계 문서](../design/concurrency-benchmark.md)에서 정의([ADR-0009](0009-stock-concurrency-design.md) 측정 지표와 연계).
 
 ### 범위 — 부하 대상이 아닌 것
 
