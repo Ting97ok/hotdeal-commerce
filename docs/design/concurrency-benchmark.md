@@ -81,3 +81,11 @@ k6(부하 생성) ──→ 앱(/actuator/prometheus 노출) ──→ Prometheu
 | A-3 | Redis(+Lua) 구현 | `RedisLuaDeductor` + Lua 스크립트 + DB 정합 보정 |
 | A-4 | k6 스크립트 + Prometheus/Grafana 배선 | 워크로드 스크립트, 대시보드 |
 | A-5 | 측정 실행 → 결과 문서 | ADR-0010 |
+
+## 7. 전략 구현 테스트 리스트 (누적)
+
+낙관락(A-1)은 기존 동시성 통합 테스트(`CreateOrderConcurrencyIntegrationTest` 등)가 차감 경합을 명세한다. 아래는 신규 전략 구현이 자라며 누적하는 단건 행위 테스트다(전략 간 성능 차이는 테스트가 아니라 A-4·A-5 k6 벤치마크의 몫).
+
+| # | 테스트 | 전략 | 시나리오 | 상태 |
+|---|---|---|---|---|
+| 1 | `conditionalDeductReducesRemaining` | 조건부 UPDATE | conditional 전략에서 차감 → 잔여 감소 | ✅ |
