@@ -77,7 +77,7 @@
 
 ## 8. 동시성 — 5방식 벤치마크 + 잠금 규율 ([ADR-0009](../adr/0009-stock-concurrency-design.md))
 
-- 후보 5방식: **낙관락**(@Version — 잠그지 않고 진행, 저장 순간 버전 비교로 충돌 검출) · **비관락**(SELECT … FOR UPDATE — 먼저 잠그고 뒤는 대기) · **Redis 원자 연산** · **분산락**(Redisson) · **원자적 조건부 UPDATE**(`WHERE remaining >= qty` 조건부 차감 한 문장 — ProductStock 운영 채택 [ADR-0011](../adr/0011-product-inventory-reservation.md) 결정 4). **운영 선택은 1개, 나머지는 그 선택의 근거** — README/ADR-0010 에 그렇게 표기. `synchronized` 같은 JVM 잠금은 **후보가 아니다** — 서버 1대 안에서만 직렬화돼 다중 서버 경합을 못 막는다(3장 전제 · 상세 [ADR-0009](../adr/0009-stock-concurrency-design.md), 별도 시연 없이 문서로 확정).
+- 후보 5방식: **낙관락**(@Version — 잠그지 않고 진행, 저장 순간 버전 비교로 충돌 검출) · **비관락**(SELECT … FOR UPDATE — 먼저 잠그고 뒤는 대기) · **Redis 원자 연산** · **분산락**(Redisson) · **원자적 조건부 UPDATE**(`WHERE remaining >= qty` 조건부 차감 한 문장 — ProductStock 운영 채택 [ADR-0011](../adr/0011-product-inventory-reservation.md) 결정 4). **운영 선택은 1개, 나머지는 그 선택의 근거** — k6 실측은 **3방식**(낙관락·조건부 UPDATE·Redis), 비관락·Redisson 은 이론 예상으로 배제([ADR-0009](../adr/0009-stock-concurrency-design.md) 결정 2). README/ADR-0010 에 표기. `synchronized` 같은 JVM 잠금은 **후보가 아니다** — 서버 1대 안에서만 직렬화돼 다중 서버 경합을 못 막는다(3장 전제 · 상세 [ADR-0009](../adr/0009-stock-concurrency-design.md), 별도 시연 없이 문서로 확정).
 - 비관락 대기는 **즉시 실패(NOWAIT)가 출발값** (비교군 1초 — 3주차 실측).
 - **잠금 순서**: 주문·재고 두 테이블을 건드리는 모든 경로는 "주문 → 재고" 순서로 통일. 만료 일괄 처리는 주문 1건 = 트랜잭션 1개. 교착(deadlock — 서로의 잠금을 기다리는 고리, DB 가 즉시 한쪽을 강제 취소) 시: 구매 = `CONCURRENT_UPDATE_CONFLICT` / 만료 = 다음 주기 재시도. 비관락 벤치마크는 교착 허용 + 횟수 측정.
 - 방식별 "성공 수"는 비교 지표(낙관락 < 10, 비관락/Redis = 10 — 같은 동시 100·재고 10 기준).
