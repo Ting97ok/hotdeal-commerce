@@ -51,3 +51,12 @@ order:
   payment-timeout: PT10M
   expiry-scheduler:
     enabled: true
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health, prometheus
+  metrics:
+    tags:
+      application: commerce
