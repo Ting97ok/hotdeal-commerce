@@ -8,6 +8,10 @@ import com.sparta.msa.commerce.RedisTestcontainerConfig;
 import com.sparta.msa.commerce.domain.stock.repository.HotDealStockRepository;
 import com.sparta.msa.commerce.domain.stock.service.HotDealStockService;
 import com.sparta.msa.commerce.global.exception.DomainException;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -64,5 +68,49 @@ class RedisStockServiceIntegrationTest {
 
     String remaining = redisTemplate.opsForValue().get("hotdeal:stock:" + hotDealId);
     assertThat(remaining).isEqualTo("5");
+  }
+
+  @Test
+  @DisplayName("Redis 전략으로 복원하면 Redis 잔여가 늘어난다")
+  void redisRestoreIncreasesRemaining() {
+    Long hotDealId = 1L;
+    hotDealStockService.createForHotDeal(hotDealId, 10);
+    hotDealStockService.deduct(hotDealId, 3);
+
+    hotDealStockService.restore(hotDealId, 3);
+
+    String remaining = redisTemplate.opsForValue().get("hotdeal:stock:" + hotDealId);
+    assertThat(remaining).isEqualTo("10");
+  }
+
+  @Test
+  @DisplayName("동시 차감에도 오버셀 없이 재고만큼만 성공한다")
+  void redisDeductNoOversellUnderConcurrency() throws InterruptedException {
+    Long hotDealId = 1L;
+    int stock = 10;
+    int threads = 100;
+    hotDealStockService.createForHotDeal(hotDealId, stock);
+
+    ExecutorService executor = Executors.newFixedThreadPool(32);
+    CountDownLatch latch = new CountDownLatch(threads);
+    AtomicInteger success = new AtomicInteger();
+
+    for (int i = 0; i < threads; i++) {
+      executor.submit(() -> {
+        try {
+          hotDealStockService.deduct(hotDealId, 1);
+          success.incrementAndGet();
+        } catch (DomainException ignored) {
+        } finally {
+          latch.countDown();
+        }
+      });
+    }
+    latch.await();
+    executor.shutdown();
+
+    String remaining = redisTemplate.opsForValue().get("hotdeal:stock:" + hotDealId);
+    assertThat(success.get()).isEqualTo(stock);
+    assertThat(remaining).isEqualTo("0");
   }
 }
