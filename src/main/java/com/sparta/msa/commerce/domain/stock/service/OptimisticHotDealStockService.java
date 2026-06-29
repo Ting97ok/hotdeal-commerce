@@ -9,8 +9,9 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+// 동시성 차감 전략 비교용(ADR-0010) — 운영 기본은 조건부 차감, 낙관락은 고경합서 충돌 대량 거절로 배제.
 @Service
-@ConditionalOnProperty(name = "stock.deduct.strategy", havingValue = "optimistic", matchIfMissing = true)
+@ConditionalOnProperty(name = "stock.deduct.strategy", havingValue = "optimistic")
 public class OptimisticHotDealStockService extends AbstractHotDealStockService {
 
   public OptimisticHotDealStockService(HotDealStockRepository hotDealStockRepository) {

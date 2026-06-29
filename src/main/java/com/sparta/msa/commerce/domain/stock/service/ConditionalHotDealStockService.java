@@ -9,7 +9,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 @Service
-@ConditionalOnProperty(name = "stock.deduct.strategy", havingValue = "conditional")
+@ConditionalOnProperty(name = "stock.deduct.strategy", havingValue = "conditional", matchIfMissing = true)
 public class ConditionalHotDealStockService extends AbstractHotDealStockService {
 
   public ConditionalHotDealStockService(HotDealStockRepository hotDealStockRepository) {

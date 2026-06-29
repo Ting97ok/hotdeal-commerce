@@ -193,7 +193,6 @@ class OrderExpiryIntegrationTest {
 
       HotDealStock stock = hotDealStockRepository.findByHotDealId(hotDeal.getId()).orElseThrow();
       assertThat(stock.getRemainingQuantity()).isEqualTo(100);
-      assertThat(stock.getVersion()).isEqualTo(1L);
 
       assertThat(errors).isEmpty();
     }

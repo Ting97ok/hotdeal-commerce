@@ -37,6 +37,7 @@ public class HotDealStock extends BaseEntity {
   @Column(name = "remaining_quantity", nullable = false)
   int remainingQuantity;
 
+  // 낙관락 전략(OptimisticHotDealStockService) 전용 — 조건부/Redis 운영에선 미사용(벤치마크 비교 대상).
   @Comment("낙관락 버전")
   @Version
   @Column(nullable = false)

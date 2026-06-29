@@ -47,6 +47,10 @@ jwt:
     refresh-exp-minute-time: 20160
     issuer: commerce
 
+stock:
+  deduct:
+    strategy: conditional
+
 order:
   payment-timeout: PT10M
   expiry-scheduler:
