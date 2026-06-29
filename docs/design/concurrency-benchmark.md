@@ -93,3 +93,4 @@ k6(부하 생성) ──→ 앱(/actuator/prometheus 노출) ──→ Prometheu
 | 3 | `conditionalRestoreIncreasesRemaining` | 조건부 UPDATE | 복원 → 잔여 증가 | ✅ |
 | 4 | `conditionalDeductNoOversellUnderConcurrency` | 조건부 UPDATE | 동시 100·재고 10 → 정확히 10 성공, 오버셀 0 | ✅ |
 | 5 | `redisDeductReducesRemaining` | Redis(+Lua) | redis 전략 차감 → Redis 잔여 감소 | ✅ |
+| 6 | `redisDeductRejectsWhenInsufficient` | Redis(+Lua) | 잔여 부족 시 Lua 0/-1 반환 → SOLD_OUT | ✅ |
