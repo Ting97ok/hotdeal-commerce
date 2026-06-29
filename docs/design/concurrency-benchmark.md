@@ -89,3 +89,4 @@ k6(부하 생성) ──→ 앱(/actuator/prometheus 노출) ──→ Prometheu
 | # | 테스트 | 전략 | 시나리오 | 상태 |
 |---|---|---|---|---|
 | 1 | `conditionalDeductReducesRemaining` | 조건부 UPDATE | conditional 전략에서 차감 → 잔여 감소 | ✅ |
+| 2 | `conditionalDeductRejectsWhenInsufficient` | 조건부 UPDATE | 잔여 부족 시 영향 행 0 → SOLD_OUT (잔여 불변) | ✅ |
