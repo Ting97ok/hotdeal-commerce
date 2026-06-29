@@ -46,7 +46,7 @@ docker compose build app >/dev/null
 
 declare -a ROWS
 SEEDED=0
-for STRATEGY in optimistic conditional redis; do
+for STRATEGY in conditional redis; do
   echo "=== [$STRATEGY] 앱 기동 ==="
   STRATEGY=$STRATEGY docker compose up -d --force-recreate app >/dev/null
   wait_app

@@ -8,7 +8,6 @@ import com.sparta.msa.commerce.global.exception.DomainException;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Table;
-import jakarta.persistence.Version;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Getter;
@@ -36,12 +35,6 @@ public class HotDealStock extends BaseEntity {
   @Comment("잔여 수량 (경합 대상)")
   @Column(name = "remaining_quantity", nullable = false)
   int remainingQuantity;
-
-  // 낙관락 전략(OptimisticHotDealStockService) 전용 — 조건부/Redis 운영에선 미사용(벤치마크 비교 대상).
-  @Comment("낙관락 버전")
-  @Version
-  @Column(nullable = false)
-  Long version;
 
   public static HotDealStock create(Long hotDealId, int totalQuantity) {
     return HotDealStock.builder()
