@@ -1,6 +1,6 @@
 import http from 'k6/http';
 import { check } from 'k6';
-import { Counter } from 'k6/metrics';
+import { Counter, Trend } from 'k6/metrics';
 
 // 동시성 벤치마크 — 핫딜 선착순 구매 폭주 (POST /api/orders 경합)
 // 설계: docs/design/concurrency-benchmark.md (2장 워크로드)
@@ -17,12 +17,14 @@ http.setResponseCallback(http.expectedStatuses(200, 409));
 
 const orderSuccess = new Counter('order_success');
 const orderRejected = new Counter('order_rejected');
+const orderDuration = new Trend('order_duration', true);   // 주문 차감만의 지연 (setup 로그인 지연과 분리)
 
 const BASE = __ENV.BASE_URL || 'http://localhost:8080';
 const PRODUCT_ID = Number(__ENV.PRODUCT_ID || 1);
 const ACCOUNTS = Number(__ENV.ACCOUNTS || 100);
 
 export const options = {
+  setupTimeout: '300s',
   scenarios: {
     flashSale: {
       executor: 'shared-iterations',
@@ -59,6 +61,7 @@ export default function (data) {
       JSON.stringify({ productId: PRODUCT_ID, quantity: 1 }),
       { headers: { ...JSON_HEADERS, Authorization: `Bearer ${token}` } });
 
+  orderDuration.add(res.timings.duration);
   if (res.status === 200) {
     orderSuccess.add(1);
   } else {

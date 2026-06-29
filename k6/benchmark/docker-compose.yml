@@ -1,0 +1,55 @@
+# 일회용 동시성 벤치마크 스택 — 기존 호스트 컨테이너(spring-mysql 등)와 격리.
+# run.sh 가 오케스트레이션: up -> 전략별 app 재기동 + k6 -> down -v.
+name: commerce-bench
+
+services:
+  mysql:
+    image: mysql:8.4
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_DATABASE: commerce
+      MYSQL_USER: commerce
+      MYSQL_PASSWORD: commerce
+    ports:
+      - "13306:3306"
+    tmpfs:
+      - /var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-uroot", "-proot"]
+      interval: 3s
+      timeout: 5s
+      retries: 30
+
+  redis:
+    image: redis:7
+    ports:
+      - "16379:6379"
+    tmpfs:
+      - /data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 3s
+      timeout: 5s
+      retries: 30
+
+  app:
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+    image: commerce-bench-app:latest
+    environment:
+      SPRING_DATASOURCE_URL: "jdbc:mysql://mysql:3306/commerce?serverTimezone=Asia/Seoul&characterEncoding=UTF-8"
+      SPRING_DATASOURCE_USERNAME: commerce
+      SPRING_DATASOURCE_PASSWORD: commerce
+      SPRING_DATA_REDIS_HOST: redis
+      SPRING_DATA_REDIS_PORT: "6379"
+      STOCK_DEDUCT_STRATEGY: "${STRATEGY:-conditional}"
+      ORDER_EXPIRY_SCHEDULER_ENABLED: "false"
+      LOGGING_LEVEL_ORG_HIBERNATE_SQL: "WARN"
+    ports:
+      - "18080:8080"
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy

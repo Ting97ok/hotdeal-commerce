@@ -1,0 +1,8 @@
+build/
+.gradle/
+.git/
+_workspace/
+.playwright-mcp/
+k6/
+docs/
+*.md
