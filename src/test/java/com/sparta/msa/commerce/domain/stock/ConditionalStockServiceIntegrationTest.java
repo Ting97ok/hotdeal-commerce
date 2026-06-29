@@ -8,6 +8,10 @@ import com.sparta.msa.commerce.domain.stock.entity.HotDealStock;
 import com.sparta.msa.commerce.domain.stock.repository.HotDealStockRepository;
 import com.sparta.msa.commerce.domain.stock.service.HotDealStockService;
 import com.sparta.msa.commerce.global.exception.DomainException;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -19,8 +23,8 @@ import org.springframework.test.context.TestPropertySource;
 @SpringBootTest
 @ActiveProfiles("test")
 @TestPropertySource(properties = "stock.deduct.strategy=conditional")
-@DisplayName("조건부 UPDATE 재고 차감")
-class ConditionalDeductIntegrationTest {
+@DisplayName("조건부 UPDATE 재고 전략")
+class ConditionalStockServiceIntegrationTest {
 
   @Autowired
   HotDealStockService hotDealStockService;
@@ -70,5 +74,36 @@ class ConditionalDeductIntegrationTest {
 
     HotDealStock stock = hotDealStockRepository.findByHotDealId(hotDealId).orElseThrow();
     assertThat(stock.getRemainingQuantity()).isEqualTo(10);
+  }
+
+  @Test
+  @DisplayName("동시 차감에도 오버셀 없이 재고만큼만 성공한다")
+  void conditionalDeductNoOversellUnderConcurrency() throws InterruptedException {
+    Long hotDealId = 1L;
+    int stock = 10;
+    int threads = 100;
+    hotDealStockService.createForHotDeal(hotDealId, stock);
+
+    ExecutorService executor = Executors.newFixedThreadPool(32);
+    CountDownLatch latch = new CountDownLatch(threads);
+    AtomicInteger success = new AtomicInteger();
+
+    for (int i = 0; i < threads; i++) {
+      executor.submit(() -> {
+        try {
+          hotDealStockService.deduct(hotDealId, 1);
+          success.incrementAndGet();
+        } catch (DomainException ignored) {
+        } finally {
+          latch.countDown();
+        }
+      });
+    }
+    latch.await();
+    executor.shutdown();
+
+    HotDealStock result = hotDealStockRepository.findByHotDealId(hotDealId).orElseThrow();
+    assertThat(success.get()).isEqualTo(stock);
+    assertThat(result.getRemainingQuantity()).isZero();
   }
 }
