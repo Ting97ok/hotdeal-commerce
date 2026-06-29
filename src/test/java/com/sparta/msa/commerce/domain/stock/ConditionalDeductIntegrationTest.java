@@ -58,4 +58,17 @@ class ConditionalDeductIntegrationTest {
     HotDealStock stock = hotDealStockRepository.findByHotDealId(hotDealId).orElseThrow();
     assertThat(stock.getRemainingQuantity()).isEqualTo(5);
   }
+
+  @Test
+  @DisplayName("조건부 UPDATE 로 복원하면 잔여가 늘어난다")
+  void conditionalRestoreIncreasesRemaining() {
+    Long hotDealId = 1L;
+    hotDealStockService.createForHotDeal(hotDealId, 10);
+    hotDealStockService.deduct(hotDealId, 3);
+
+    hotDealStockService.restore(hotDealId, 3);
+
+    HotDealStock stock = hotDealStockRepository.findByHotDealId(hotDealId).orElseThrow();
+    assertThat(stock.getRemainingQuantity()).isEqualTo(10);
+  }
 }
