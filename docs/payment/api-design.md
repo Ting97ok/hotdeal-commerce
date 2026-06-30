@@ -7,7 +7,8 @@
 - **슬라이스 3 범위**: 토스 결제 승인 + PENDING→PAID 전이 + 만료↔결제 경합 처리.
 - **슬라이스 4 범위**: 결제 승인 순서 정합화 — `markPaid` 선점을 토스 승인 앞으로 재배치(만료·이중 승인을 토스 호출 전 차단) + 만료 조건부 전이 구현 정합화([order System 설계](../order/api-design-system.md)).
 - **슬라이스 5 범위**: 결제 확정 시 ProductStock 실물·예약 차감(`confirmSale`) — `markPaid` 선점 직후·토스 앞에 재고 차감 선점 ([ADR-0011 결정3](../adr/0011-product-inventory-reservation.md) 누락 정합화).
-- **다음 범위**: 결제 실패 이력 보관(FAILED·CANCELED), 결제 웹훅·대사(토스 승인 성공 후 서버 다운 잔여 복구).
+- **Phase B1 범위**: 토스 결제 승인 **실연동** — `TossPaymentClient` 실HTTP 호출(stub 제거) + `TossHttpClient`(전송층) 신설. 외부 토스 호출을 DB 트랜잭션 **밖**으로 분리(TX 경계 교정), `PgConfirmResult`를 성공/거절/미확정(in-doubt) 세 결과로 확장, 미확정 결제를 `PaymentStatus.IN_DOUBT`로 보존, 토스 멱등키 헤더 전송 + `pgPaymentKey` UNIQUE 충돌 멱등 처리. (아래 "Phase B1 — 토스 결제 실연동" 절)
+- **후속 범위(B2)**: 결제 웹훅 수신(서명 검증)·IN_DOUBT 대사(토스 조회로 미확정 결제 확정/실패 확정)·`payment_event` 수신 원문 테이블·실패 이력 보관(FAILED·CANCELED). **이번 Phase B1 범위 밖** — IN_DOUBT 행은 B1에서 *생성·보존*까지만 하고, 그 *해소*(DONE/FAILED 확정)는 B2에서 다룬다.
 - **문서 구조**: User API(결제 승인) → [api-design-user.md](api-design-user.md).
 
 ---
@@ -19,6 +20,7 @@
 | v0.1 | 2026-06-24 | 결제 승인 1개 API 설계 초안 (슬라이스 3) |
 | v0.2 | 2026-06-25 | 슬라이스 4 — `confirm` 흐름 재배치(`markPaid` 선점 → 토스), 만료↔결제 양방향 조건부 전이 정합화, 토스 취소 동기 보정 철회 |
 | v0.3 | 2026-06-25 | 슬라이스 5 — 결제 확정 시 ProductStock 실물·예약 차감(`confirmSale`) 추가, 토스 앞 재고 차감 선점 ([ADR-0011](../adr/0011-product-inventory-reservation.md) 결정3 정합화) |
+| v0.4 | 2026-06-29 | Phase B1 — 토스 실연동: TX 경계 교정(토스 호출을 DB TX 밖으로), `PgConfirmResult` 3결과(승인/거절/미확정) 확장, `PaymentStatus.IN_DOUBT` 신설, 멱등키 헤더 + `pgPaymentKey` UNIQUE 충돌 멱등, `TossHttpClient` 신설 규약 |
 
 ---
 
@@ -63,12 +65,15 @@
 
 | 값 | 설명 |
 |----|------|
-| PENDING | 승인 전 (슬라이스4 — 실패 이력 보관 시 활용) |
+| PENDING | 승인 전 (FAILED·CANCELED 이력 보관 시 활용 — B2) |
 | DONE | 승인 성공 |
-| FAILED | 승인 실패 (슬라이스4) |
-| CANCELED | 취소 (슬라이스4) |
+| **IN_DOUBT** | **결과 미확정 — 토스 호출이 타임아웃·응답 유실로 끝나 "승인됐는지 알 수 없음". 돈이 나갔을 수 있으므로 PENDING 복귀(롤백) 금지. B2 대사(토스 조회·웹훅)가 DONE 또는 FAILED로 확정** (Phase B1 신설) |
+| FAILED | 승인 실패 (B2 — 이력 보관) |
+| CANCELED | 취소 (B2) |
 
-> 슬라이스3에서는 승인 성공 시 DONE 상태로만 Payment 행을 생성한다. FAILED·CANCELED 행 보관은 슬라이스4.
+> 슬라이스3~5에서는 승인 성공 시 DONE 상태로만 Payment 행을 생성했다. Phase B1에서 **IN_DOUBT**(결과 미확정)를 추가한다 — 실HTTP 호출이 타임아웃되거나 응답이 유실되면 "성공도 실패도 아닌" 행을 남겨 나중에 대사로 확정한다. FAILED·CANCELED 이력 보관은 후속(B2).
+>
+> **PENDING 과 IN_DOUBT 의 구분**: PENDING="아직 토스를 호출하지 않은(승인 전)" / IN_DOUBT="토스를 호출했으나 결과를 모름(돈 나갔을 수 있음)". 의미가 다르므로 PENDING 재활용 대신 별도 값이 정직하다 — IN_DOUBT 를 PENDING 으로 처리하면 "승인 전"과 "결과 미확정"이 섞여 대사 대상 식별이 불가능해진다.
 
 ---
 
@@ -101,10 +106,12 @@
 | ORDER_STATUS_CONFLICT | OrderExceptionCode | 409 | 조건부 UPDATE affected==0 — 만료로 CANCELED됐거나 이미 PAID |
 | HOTDEAL_CANCELED | HotDealExceptionCode | 409 | 핫딜이 관리자 취소(CANCELED) 상태 — 승인 차단 |
 | PRODUCT_STOCK_INCONSISTENT | StockExceptionCode | 500 | 결제 확정 재고 차감 affected==0 — 예약/실물 장부 불일치(정상이면 안 남, 운영 알림) |
-| PAYMENT_GATEWAY_ERROR | PaymentExceptionCode | 502 | 토스 통신 오류·타임아웃 |
-| PAYMENT_REJECTED | PaymentExceptionCode | 402 | 토스가 승인 거부 (잔액 부족·한도 초과 등) |
+| PAYMENT_GATEWAY_ERROR | PaymentExceptionCode | 502 | 토스 통신 오류 — **결과 확정**(요청이 토스에 닿지 못함, 돈 안 나감)인 재시도 가능 실패 |
+| PAYMENT_REJECTED | PaymentExceptionCode | 402 | 토스가 승인 거부 (잔액 부족·한도 초과 등) — 결과 확정된 비즈니스 거절 |
 
-> 에러 분류 세부: `TossPaymentClient`(어댑터)가 토스 에러코드를 `PAYMENT_GATEWAY_ERROR`(재시도 불가 오류)·`PAYMENT_REJECTED`(결제 수단 거부) 두 종류로 접는다. 재시도 가능·무의미 세분화는 슬라이스4 범위([ADR-0008](../adr/0008-payment-model-pg-boundary.md) 결정3·4).
+> **Phase B1 — 미확정(in-doubt)은 예외가 아니라 결과값**: 타임아웃·응답 유실 등 "성공도 실패도 아닌" 경우는 `DomainException`을 던지지 않는다. 던지면 Facade TX가 무조건 롤백→PENDING 복귀하는데, 토스에선 돈이 실제로 나갔을 수 있어 롤백이 위험하다. 대신 `PgConfirmResult`가 **미확정 결과값**으로 돌려받아 Payment를 `IN_DOUBT`로 저장한다(롤백 없음). 따라서 미확정 전용 ExceptionCode는 두지 않는다 — 아래 "결과 분류" 표 참조.
+>
+> 에러 분류 세부: `TossPaymentClient`(어댑터)가 토스 에러코드·예외를 **확정 실패(throw)** 와 **미확정(result)** 로 나눈다. 확정 실패는 `PAYMENT_GATEWAY_ERROR`(통신 오류, 돈 안 나감)·`PAYMENT_REJECTED`(결제 수단 거부) 두 throw로 접고, 미확정은 throw하지 않고 in-doubt 결과로 돌려준다([ADR-0008](../adr/0008-payment-model-pg-boundary.md) 결정3 — "재시도 가능/재시도 무의미/상태 불명"의 "상태 불명"이 미확정).
 
 ---
 
@@ -113,8 +120,8 @@
 | 항목 | 내용 | 근거 |
 |------|------|------|
 | 승인 흐름 | 클라이언트 confirm 방식 — 프론트가 토스 successUrl에서 paymentKey·orderId·amount를 받아 우리 서버에 전달, 서버가 토스 confirm API 호출 | 토스 공식 권장 |
-| PG 어댑터 | PaymentFacade(트랜잭션 밖) → PaymentGatewayClient → TossPaymentClient → TossHttpClient | [ADR-0008](../adr/0008-payment-model-pg-boundary.md) 결정3 |
-| 트랜잭션 경계 | PaymentFacade `confirm`에 `@Transactional` 단일 선언 — 조회·검증·**선점**·토스 호출·Payment 생성이 한 TX. 선점이 토스 앞이라 토스 실패 시 롤백으로 선점한 PAID가 PENDING 복귀(우리 DB만 되돌림) | [ADR-0008](../adr/0008-payment-model-pg-boundary.md) 결정3 |
+| PG 어댑터 | PaymentFacade → PaymentGatewayClient(계약) → TossPaymentClient(어댑터·분류) → TossHttpClient(전송) | [ADR-0008](../adr/0008-payment-model-pg-boundary.md) 결정3 |
+| 트랜잭션 경계 | **Phase B1 교정** — 단일 TX 폐기. 토스 호출(외부 I/O)은 DB TX **밖**에서 수행, 그 앞뒤만 짧은 TX로 닫는다: TX1(선점+재고차감 커밋) → 토스 호출(TX 밖) → TX2(결과 반영). 아래 "Phase B1 — 토스 결제 실연동" 절 | [ADR-0008](../adr/0008-payment-model-pg-boundary.md) 결정3 + Phase B1 교정 |
 | 경합 처리 | 결제(PAID)·만료(CANCELED) **양방향** 조건부 전이(`WHERE status='PENDING'`, affected==1)로 직렬화 — 선점이 토스 앞이라 만료·이중 승인을 **토스 호출 전** 차단 | [ADR-0004 결정3](../adr/0004-stock-reservation-lifecycle.md) |
 | 금액 검증 | 서버가 order.orderAmount와 request.amount를 비교 — 토스 호출 전 400 AMOUNT_MISMATCH | [ADR-0008](../adr/0008-payment-model-pg-boundary.md) "서버가 주문 시점 저장 금액으로" |
 | 핫딜 취소 차단 | 승인 시점 핫딜 status==CANCELED이면 돈 움직이기 전 HOTDEAL_CANCELED(409) | [ADR-0007 결정2](../adr/0007-hotdeal-state-operations.md) |
@@ -122,3 +129,102 @@
 | 마이그레이션 | payments 테이블 status 칼럼: String → VARCHAR(20) + PaymentStatus enum 매핑 | TODO(slice-3) 해소 |
 | 이중 승인 차단 | 슬라이스4에서 **선점 순서 재배치**로 만료·이중 승인을 토스 호출 전 차단(돈이 나가지 않음). 토스 취소 동기 보정은 철회 — 서버 다운 잔여(토스 성공 후 커밋 실패)는 동기로 불가해 비동기 후속(웹훅·대사) | [ADR-0008](../adr/0008-payment-model-pg-boundary.md) "함께 묶이는 방어" 갱신 |
 | 재고 차감(슬라이스5) | 결제 확정 시 ProductStock 실물·예약 1씩↓(`confirmSale`, reserve 대칭 조건부 UPDATE). `markPaid` 선점 직후·토스 앞이라 차감 실패(장부 불일치) 시 토스 미호출·롤백. 품절은 주문 단계(HotDealStock)가 막아 결제 차감은 정상이면 항상 성공 | [ADR-0011 결정3](../adr/0011-product-inventory-reservation.md) |
+| **외부 HTTP 연동(B1)** | `TossHttpClient`가 프로젝트 **첫 외부 HTTP 클라이언트** — `RestClient` 빈을 `global/config/TossHttpClientConfig`가 구성, connect/read 타임아웃·시크릿 인증·멱등키 헤더를 여기서 정립(이후 외부 연동의 참조 패턴) | 선례 0건 — B1이 1호 |
+| **TX 경계 교정(B1)** | 토스 호출은 DB TX 밖. TX1(선점·차감) → 토스 → TX2(결과 반영). 거절/통신오류 확정 시 TX1을 **보상 롤백**(주문 PENDING 복귀·재고 복원), 미확정은 보상 없이 IN_DOUBT 보존 | 아래 B1 절 |
+| **부하 테스트 제외(B1 유지)** | 통합 테스트·부하 테스트는 토스 실API를 호출하지 않는다 — `PaymentGatewayClient` 대역 유지. 실HTTP는 `TossHttpClient` 단위 테스트(MockWebServer)로 격리 | [ADR-0001](../adr/0001-payment-gateway-toss.md) 테스트 모드 한계 |
+
+---
+
+## Phase B1 — 토스 결제 실연동
+
+> 슬라이스3~5에서 `TossPaymentClient.confirm`은 `UnsupportedOperationException` stub이었고 통합 테스트는 `PaymentGatewayClient` 대역으로 그린 상태다. Phase B1은 그 **단 한 곳의 seam**을 실HTTP 호출로 채우고, 동기 confirm으로 못 막는 잔여(응답 유실·중복 수신)를 **TX 경계 분리 + 미확정 결과 모델 + 멱등**으로 보강한다. 설계 결정은 [ADR-0008](../adr/0008-payment-model-pg-boundary.md)·[ADR-0001](../adr/0001-payment-gateway-toss.md)에 근거하며 새 결정(TX 경계 교정·IN_DOUBT·in-doubt 결과 모델)은 ADR 갱신 권고 대상이다(아래 "ADR 권고").
+
+### B1-1. 트랜잭션 경계 교정 — 토스 호출을 DB TX 밖으로
+
+기존 설계(슬라이스4·5)는 "조회·검증·선점·재고차감·토스 호출·Payment 생성을 **하나의 `@Transactional`**"로 묶고, "결제는 사용자가 순차 유입하므로 TX 안에 토스 응답 대기를 둬도 규모 문제 없음"으로 정당화했다. **Phase B1에서 이 의도를 교정한다.**
+
+- **교정 이유**: 외부 I/O(토스 왕복)가 DB 트랜잭션 안에 들어가면, 그 왕복 내내 **선점한 주문 행 잠금 + DB 커넥션**을 잡은 채 대기한다. 토스가 느려지거나(테스트 샌드박스·네트워크 지연) 타임아웃이 길면 커넥션 풀이 외부 대기로 고갈돼 **결제와 무관한 다른 요청까지 막힌다**(외부 장애가 우리 DB 가용성으로 전파). "순차 유입이라 규모 문제 없음"은 정상 응답 속도를 전제했을 뿐, 외부 지연·타임아웃·미확정 처리가 들어오는 실연동에선 성립하지 않는다.
+- **교정 후 경계** — 세 구간:
+
+```
+[TX1: 선점·차감 — 짧은 @Transactional]
+  조회+금액검증(getOrderForPayment) → 핫딜취소가드 → markPaid(조건부 선점) → confirmSale(재고차감)
+  ↓ 커밋 (주문 PAID·재고 차감 확정)
+[외부 호출 — TX 밖]
+  paymentGatewayClient.confirm(...) → PgConfirmResult (승인 | 거절 | 미확정)
+  ↓
+[TX2: 결과 반영 — 짧은 @Transactional, 결과별 분기]
+  승인   → Payment(DONE) 저장
+  거절   → 보상: 주문 PENDING 복귀 + 재고 복원, Payment 미생성 → PAYMENT_REJECTED(402)
+  통신오류 → 보상: 주문 PENDING 복귀 + 재고 복원, Payment 미생성 → PAYMENT_GATEWAY_ERROR(502)
+  미확정 → Payment(IN_DOUBT) 저장, 보상 안 함(주문 PAID 유지·재고 차감 유지) → 200 또는 202
+```
+
+> **설계 노트 — 보상이 새로 필요한 이유(자동 롤백 상실)**: 기존 단일 TX에서는 토스 거부 시 같은 TX 롤백으로 선점한 PAID·재고차감이 **자동 복귀**했다. TX를 쪼개 TX1을 먼저 커밋하면 그 자동 복귀가 사라지므로, 거절·통신오류(=확정 실패)에는 TX2에서 **명시적 보상**(주문 PENDING 복귀 = `markPending` 조건부 UPDATE, 재고 복원 = `confirmSale` 역연산)이 필요하다. 이는 단일 TX가 공짜로 주던 원자성을 손으로 되살리는 비용이며, TX 경계 분리의 트레이드오프다.
+
+> **설계 노트 — 만료↔결제 동시성 정합이 새 경계 위에서 유지되는 방식**: 핵심 방어인 `markPaid` 조건부 전이(`UPDATE ... WHERE status='PENDING'`, affected==1)는 **여전히 TX1 안에서·토스 앞에** 있다. 따라서 ① 만료로 CANCELED된 주문·② 이미 PAID된 주문(이중 승인)은 TX1의 선점 단계에서 affected==0으로 걸러져 **토스를 호출하지 않는다** — 슬라이스4가 세운 "토스 호출 전 차단"이 그대로 성립한다. 바뀐 것은 토스 *이후*뿐이다: 슬라이스4에선 토스 거부가 단일 TX 롤백으로 PAID를 되돌렸으나, B1에선 TX1이 이미 커밋됐으므로 **보상**으로 되돌린다. 만료 스케줄러와의 경합도 동일하게 행 잠금·조건부 전이로 직렬화되며(보상의 `markPending`도 `WHERE status='PAID'` 조건부 전이라 만료가 끼어들어도 affected로 사실을 안다), 미확정(IN_DOUBT) 시에는 주문을 PAID로 **유지**해 "돈 나갔는데 주문 PENDING"을 원천 차단한다([ADR-0004 결정4](../adr/0004-stock-reservation-lifecycle.md) "성공한 결제는 되살린다"와 정합).
+
+### B1-2. `PgConfirmResult` 결과 모델 확장 — 성공/거절/미확정 3결과
+
+현재 `PgConfirmResult`는 **성공값만 담는 record**(`pgPaymentKey·idempotencyKey·amount·approvedAt`)이고, 실패는 `TossPaymentClient`가 **예외를 던져** 갈렸다. 미확정(타임아웃·응답유실)은 표현할 자리가 없어 예외로 던지면 무조건 롤백→돈 나감 위험이 생긴다. B1에서 **세 결과를 표현하는 형태**로 재설계한다.
+
+- **권장 형태 — sealed 결과 타입**: `PgConfirmResult`를 sealed interface로 두고 `Approved`(승인값 보유) / `Rejected`(거절 사유·토스 status) / `InDoubt`(원인·부분 식별자)로 가른다. 호출부(Facade)는 `switch` 패턴 매칭으로 분기한다. 거절을 throw가 아니라 result로 옮기면 "롤백이 보상"이라는 B1 흐름과 일관된다(throw는 미확정에서 위험).
+  - 대안(분류 enum 필드): record 한 개에 `PgResultType` enum 필드를 더하는 방식도 가능하나, 결과별로 채워지는 값이 달라 nullable 필드가 늘어 sealed가 더 정직.
+- **거절(비즈니스 4xx)과 재시도 분류 기준**:
+
+| 토스 응답 | 우리 결과 | Payment 처리 | 주문/재고 | 재시도 의미 | 사용자 응답 |
+|---|---|---|---|---|---|
+| 승인 성공(2xx) | `Approved` | DONE 생성 | PAID 유지·차감 유지 | — | 200 성공 |
+| 승인 거부(잔액부족·한도초과 등 비즈니스 4xx) | `Rejected` | 미생성(보상 롤백) | PENDING 복귀·재고 복원 | **재시도 무의미**(같은 수단 재시도해도 거부) | 402 `PAYMENT_REJECTED` |
+| 통신 오류 — **요청이 토스에 닿지 못함**(connect 실패·DNS·5xx 즉답) | throw → `PAYMENT_GATEWAY_ERROR` | 미생성(보상 롤백) | PENDING 복귀·재고 복원 | **재시도 가능**(돈 안 나감, 같은 멱등키로 안전 재시도) | 502 |
+| **미확정** — read 타임아웃·응답 유실·소켓 끊김(요청은 갔는데 결과 모름) | `InDoubt` | **IN_DOUBT 생성** | **PAID·차감 유지(보상 ❌)** | **결과 미확정**(섣불리 재시도·롤백 금지 → B2 대사) | 200/202(보류) |
+
+> **설계 노트 — "통신 오류 재시도 가능" vs "미확정"의 갈림**: 둘 다 토스 응답을 정상 수신 못 한 경우지만 **요청이 토스에 닿았는지**로 갈린다. connect 단계 실패·DNS·즉시 5xx는 **요청 자체가 전달 안 됨**(돈 안 나감)이라 확정 실패로 보고 보상 롤백 후 재시도 가능. 반대로 **read 타임아웃·응답 바디 유실·소켓 중단**은 토스가 요청을 받아 처리했을 수 있어(돈 나갔을 수 있어) **미확정**이다 — 이때 롤백하면 "돈 나감+주문 PENDING"이 되므로 보상하지 않고 IN_DOUBT로 보존한다. 이 분류 책임은 어댑터(`TossPaymentClient`)에 격리된다([ADR-0008](../adr/0008-payment-model-pg-boundary.md) 결정3 — "상태 불명"이 미확정).
+
+> **설계 노트 — 토스 원문 보관**: 대사·CS 증빙용 토스 응답 원문/토스 status는 B1 범위에서 **결과 타입에 최소 식별자(toss status·errorCode)만** 담는다. 수신 원문 누적 테이블(`payment_event`)은 B2 — IN_DOUBT 행에 `pgPaymentKey`(있으면)·`idempotencyKey`만 남겨 B2 대사가 토스 조회로 확정할 수 있게 한다.
+
+### B1-3. 멱등 — 토스 멱등키 헤더 + `pgPaymentKey` UNIQUE 충돌
+
+| 멱등 겹 | 위치 | 현재 | B1 |
+|---|---|---|---|
+| 내부 — 주문당 PAID 1회 | `markPaid` 조건부 전이 | ✅ 동작(affected==0 → 409) | 유지 |
+| 외부 — 토스 멱등키 헤더 | `TossHttpClient` 요청 헤더 `Idempotency-Key` | ❌ 미구현 | **신설** |
+| 저장 — paymentKey 1건=1행 | `payments.pg_payment_key` UNIQUE | ✅ 제약 존재 | 충돌 처리 추가 |
+
+- **멱등키 생성·전송 주체**: **서버**가 생성한다(`UUID`). 멱등키는 "같은 결제 시도"를 토스에 식별시키는 키이므로 **주문 단위로 안정적**이어야 한다 — 같은 주문의 confirm 재시도(미확정 후 사용자·B2 대사가 다시 호출)에 **같은 멱등키를 재사용**해야 토스가 중복 승인 대신 첫 결과를 그대로 반환한다. 생성 시점은 TX1(선점) 직후, 토스 호출 직전. 재사용을 위해 멱등키를 어디 보관할지는 B1에서 결정한다(권고: 선점 시 주문/결제 행에 1회 발급·저장, 재호출 시 조회).
+- **충돌 시 동작 규약**:
+  - 같은 멱등키로 재호출 → 토스가 **같은 paymentKey로 같은 결과**를 반환(토스 멱등 보장) → 우리는 그 결과로 정상 분기. 중복 승인·이중 출금이 토스 단에서 막힌다.
+  - `pgPaymentKey` UNIQUE 충돌(같은 paymentKey로 Payment 저장 시도) → `DataIntegrityViolationException`을 **"같은 시도의 멱등 재시도"로 해석**해 500으로 흘리지 않고, 기존 행을 조회해 그 결과를 반환한다([ADR-0008](../adr/0008-payment-model-pg-boundary.md) 결정1 — "유니크 충돌 = 같은 시도의 멱등 재시도"). 현재는 이 충돌이 그대로 500으로 나가므로 B1에서 핸들링을 추가한다.
+
+> **설계 노트 — 멱등키 칼럼 UNIQUE 여부**: `idempotency_key` 칼럼은 현재 인덱스·UNIQUE가 없다. B1에서 멱등키 재사용 흐름을 도입하면 "같은 멱등키 = 같은 시도"를 DB로도 강제할지 검토 대상이나, 토스 멱등키 자체가 중복 승인을 막으므로 **UNIQUE 강제는 B1 필수는 아니다**(조회 선행으로 재사용). 1:N(주문당 여러 paymentKey)에서 멱등키는 "시도 단위"라 UNIQUE를 걸면 모델이 꼬일 수 있어, B1은 **인덱스만**(재사용 조회용) 권고하고 UNIQUE는 B2 대사 모델 확정 시 재검토.
+
+### B1-4. `TossHttpClient` 신설 규약 (외부 HTTP 1호)
+
+프로젝트에 외부 HTTP 클라이언트 선례가 0건이라 B1이 패턴을 정립한다. 계층은 [ADR-0008](../adr/0008-payment-model-pg-boundary.md) 결정3·4의 3층을 그대로 따른다.
+
+| 층 | 클래스 | 책임 |
+|---|---|---|
+| 계약 | `PaymentGatewayClient`(인터페이스) | 도메인 언어 — `confirm(paymentKey, orderId, amount) → PgConfirmResult`. 토스 DTO 노출 0(시그니처 불변, 반환 타입만 sealed로 확장) |
+| 어댑터 | `TossPaymentClient` | 토스 요청 DTO 조립 → `TossHttpClient` 호출 → 토스 응답/예외를 `Approved`/`Rejected`/`InDoubt`로 **분류·매핑**. 토스 지식 전부 격리 |
+| 전송 | `TossHttpClient`(신설) | `RestClient`로 HTTP 호출만 — 시크릿 Basic 인증 헤더·`Idempotency-Key` 헤더·타임아웃. 판단 로직 0, 얇게 |
+
+- **RestClient 빈 구성 위치**: `global/config/TossHttpClientConfig`(신규) — `RestClient.Builder`에 baseUrl·타임아웃·기본 헤더를 박아 토스 전용 빈으로 노출. (`build.gradle`에 `spring-boot-starter-web`(Undertow) 있어 동기 `RestClient` 사용 가능, webflux 불필요.)
+- **타임아웃 값·근거**: connect **2초**(연결은 빨리 실패해 커넥션 풀 보호 — 못 닿으면 재시도 가능 확정 실패), read **10초**(토스 승인은 카드사 왕복이 있어 connect보다 길게, 단 무한 대기 금지 — 초과 시 **미확정**으로 분류). 값은 토스 권장·운영 관측으로 조정 가능하게 yaml 외부화.
+- **인증 방식**: 토스 시크릿키를 **HTTP Basic**으로 인코딩 — `Authorization: Basic base64(secretKey + ":")` (토스 규격: 시크릿키를 username, 비밀번호는 빈 문자열). 어댑터/전송층이 시크릿을 코드에 박지 않고 설정에서 주입받는다.
+- **설정 배치** — `application.yaml`(신규 `toss` 블록):
+
+```yaml
+toss:
+  base-url: https://api.tosspayments.com
+  secret-key: ${TOSS_SECRET_KEY:test_sk_local-placeholder}   # 환경변수 주입, 기본은 테스트 placeholder
+  connect-timeout: PT2S
+  read-timeout: PT10S
+```
+
+  - `application-test.yaml`: 통합 테스트는 토스 실API를 호출하지 않으므로(대역 유지) `secret-key`에 더미만 둔다. 실HTTP 검증은 `TossHttpClient` 단위 테스트에서 MockWebServer base-url로 덮어쓴다.
+  - 시크릿은 환경변수(`${TOSS_SECRET_KEY}`)로 주입 — 코드·git에 평문 시크릿 금지(JWT 시크릿과 동일 패턴).
+
+### B1 ADR 권고
+
+- **[ADR-0008](../adr/0008-payment-model-pg-boundary.md) 갱신 권고**: "트랜잭션 경계 — 단일 TX(토스 호출 포함)" 의도를 **TX 경계 분리(토스 TX 밖 + 거절/오류 보상 + 미확정 IN_DOUBT 보존)**로 교정. 결정3 어댑터 3층의 "상태 불명"이 `PgConfirmResult.InDoubt`로 구체화됨을 반영. (살아 있는 문서 정책상 새 번호 대신 0008 직접 최신화 — [ADR README](../adr/README.md).)
+- **신규 ADR 검토(권고만, 작성은 별도)**: IN_DOUBT 상태 도입 + in-doubt 결과 모델은 "외부 결제 미확정을 어떻게 다루나"라는 독립 결정이라 0008 갱신으로 충분한지, 별도 ADR(예: "결제 미확정·대사 모델")이 나은지 backend-architect 판단 권고.

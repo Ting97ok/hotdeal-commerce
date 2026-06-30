@@ -19,6 +19,8 @@ POST /api/payments/confirm
 > 회원이 토스 결제창에서 완료한 결제를 서버에서 최종 확정한다. 프론트엔드가 토스 successUrl에서 받은 paymentKey·orderId(=orderNo)·amount를 전달하면, 서버가 금액을 검증하고 **주문을 PENDING→PAID로 먼저 선점한 뒤**(조건부 전이) 토스 결제 승인 API를 호출하고, 성공하면 Payment 행을 생성한다.
 >
 > 인증: 회원 전용 (USER/ADMIN 무관, 비회원 401).
+>
+> **Phase B1(실연동) 변경 요약**: 아래 슬라이스3~5 본문은 stub 대역 기준의 단일 TX 흐름이다. Phase B1에서 ① 토스 호출을 **DB 트랜잭션 밖**으로 분리(선점·차감은 TX1, 결과 반영은 TX2), ② 거절·통신오류는 **보상 롤백**(주문 PENDING 복귀·재고 복원), ③ **미확정(타임아웃·응답유실)**은 롤백 대신 `IN_DOUBT`로 보존한다. 상세는 본 절 끝 "Phase B1 — 실연동 변경" + [공통 정의 "Phase B1 — 토스 결제 실연동"](api-design.md).
 
 **Request**
 
@@ -188,3 +190,102 @@ int confirmSale(@Param("productId") Long productId, @Param("quantity") int quant
 > **설계 노트 — CommonOrderService**: `getOrderForPayment(orderNo, amount)`(조회+금액 검증)와 `markPaid(Order): int`를 `CommonOrderService`에 둔다 — "모든 결제 승인 요청이 동일하게 수행해야 하는 정규 연산"([service.md](../../.claude/rules/service.md)). Facade `@Transactional` TX 안에서 호출되므로 hotDeal LAZY 로드도 같은 TX 안에서 처리된다. `markPaid`는 `@Transactional`(REQUIRED 기본값)으로 Facade TX에 합류한다.
 
 > **설계 노트 — 계층 경계**: PaymentFacade가 `CommonOrderService`(order 도메인), `CommonHotDealService`(hotdeal 도메인), `ProductStockService`(stock 도메인), `PaymentGatewayClient`, `PaymentService`를 조합한다. Facade `@Transactional` 안에서 조회+금액검증 → 핫딜 취소 가드 → `commonOrderService.markPaid`(선점) → `productStockService.confirmSale`(재고 차감 선점, `order.getProduct().getId()`·`order.getQuantity()`) → `paymentGatewayClient.confirm`(토스) → `paymentService.createPayment` 순으로 실행된다. `Payment.create`에 `Order` 객체 대신 `Long orderId`를 저장하는 이유는 entity.md 규칙("객체 탐색이 불필요한 참조는 FK 값 칼럼 허용") 적용이다. PaymentService는 자기 도메인 `PaymentRepository`만 의존한다.
+
+---
+
+## Phase B1 — 실연동 변경 (POST /api/payments/confirm)
+
+> 위 슬라이스3~5 본문(단일 TX·stub 대역)을 Phase B1에서 교정한다. 공통 결정·근거는 [공통 정의 "Phase B1 — 토스 결제 실연동"](api-design.md)에, 여기엔 confirm API에 직접 닿는 흐름·검증·테스트만 둔다.
+
+**검증 (Phase B1 추가/변경)**
+
+| 검증 항목 | 방식 | 결과 |
+|-----------|------|------|
+| 토스 승인 거부(비즈니스 4xx) | `TossPaymentClient`가 `Rejected` 결과 분류 | **보상 롤백** 후 402 `PAYMENT_REJECTED`(주문 PENDING 복귀·재고 복원) |
+| 토스 통신 오류(요청 미도달 — connect 실패·DNS·즉시 5xx) | `TossPaymentClient`가 확정 실패로 throw | **보상 롤백** 후 502 `PAYMENT_GATEWAY_ERROR` |
+| 토스 미확정(read 타임아웃·응답 유실 — 요청은 도달, 결과 모름) | `TossPaymentClient`가 `InDoubt` 결과 분류 | **보상 안 함** — Payment `IN_DOUBT` 생성, 주문 PAID·재고 차감 유지(돈 나감 가능 → B2 대사로 확정) |
+| confirm 재시도 멱등(같은 주문·같은 멱등키 재호출) | 서버 생성 멱등키 재사용 + 토스 멱등 보장 + `pgPaymentKey` UNIQUE 충돌 핸들링 | 첫 결과 그대로 반환(중복 승인·이중 출금 방지) |
+
+> **설계 노트 — 보상 vs 미확정 보존**: 거절·통신오류는 "결과가 확정된 실패"라 TX1에서 한 선점·차감을 되돌려도 안전하다(돈 안 나감/거부 확정). 미확정은 "돈이 나갔을 수 있음"이라 되돌리면 "돈 나감+주문 PENDING+재고 복원"이라는 더 나쁜 불일치가 된다 — 그래서 보상하지 않고 주문 PAID·재고 차감을 **유지**한 채 IN_DOUBT로 보존한다([ADR-0004 결정4](../adr/0004-stock-reservation-lifecycle.md) "성공한(또는 성공했을 수 있는) 결제는 되살린다").
+
+**구현 로직 (Phase B1 — TX 경계 분리)**
+
+```mermaid
+flowchart TD
+    A([시작]):::success --> TX1[["TX1 시작 @Transactional"]]:::process
+    TX1 --> B{입력 검증·주문 조회·금액 일치·핫딜 취소}:::decision
+    B -- 위반 --> C[/검증 에러\nVALIDATION/NOT_FOUND/MISMATCH/HOTDEAL_CANCELED\nTX1 롤백/]:::error
+    B -- 통과 --> D[조건부 상태 선점\nmarkPaid: UPDATE SET PAID WHERE status='PENDING']:::process
+    D --> E{affected == 1?}:::decision
+    E -- 0 만료·중복 --> F[/ORDER_STATUS_CONFLICT\n토스 미호출·TX1 롤백/]:::error
+    E -- 1 선점 성공 --> G[재고 차감 선점\nconfirmSale]:::process
+    G --> H{affected == 1?}:::decision
+    H -- 0 장부 불일치 --> I[/PRODUCT_STOCK_INCONSISTENT\n토스 미호출·TX1 롤백/]:::error
+    H -- 1 차감 성공 --> J[멱등키 발급·보관]:::process
+    J --> TX1C[["TX1 커밋 — 주문 PAID·재고 차감 확정"]]:::process
+    TX1C --> K[토스 결제 승인 API 호출\nPaymentGatewayClient.confirm\n★ TX 밖 — 커넥션 점유 없음 ★]:::process
+    K --> L{PgConfirmResult 결과}:::decision
+    L -- 승인 Approved --> TX2D[["TX2: Payment DONE 저장"]]:::process
+    TX2D --> M([결제 정보 반환 200]):::success
+    L -- 거절 Rejected --> TX2R[["TX2: 보상 — 주문 PENDING 복귀·재고 복원"]]:::process
+    TX2R --> N[/PAYMENT_REJECTED 402/]:::error
+    L -- 통신오류 throw --> TX2E[["TX2: 보상 — 주문 PENDING 복귀·재고 복원"]]:::process
+    TX2E --> O[/PAYMENT_GATEWAY_ERROR 502/]:::error
+    L -- 미확정 InDoubt --> TX2I[["TX2: Payment IN_DOUBT 저장\n보상 ❌·주문 PAID 유지"]]:::process
+    TX2I --> P([보류 응답 — B2 대사가 확정]):::success
+
+    classDef error fill:#f8d7da,stroke:#dc3545,color:#dc3545,font-weight:bold
+    classDef success fill:#d4edda,stroke:#28a745,color:#155724
+    classDef process fill:#d1ecf1,stroke:#17a2b8,color:#0c5460
+    classDef decision fill:#fff3cd,stroke:#ffc107,color:#856404
+```
+
+> **설계 노트 — 보상도 조건부 전이**: 보상의 주문 PENDING 복귀는 `UPDATE ... WHERE status='PAID' AND order=:order`(affected 관문) 조건부 전이로 한다. TX1 커밋과 보상 사이에 만료 스케줄러가 끼어들 수 없다(주문은 이미 PAID라 만료 조건부 전이가 affected==0으로 비켜감). 재고 복원은 `confirmSale`의 역연산(`onHand+=q, reserved+=q`)이다. 보상은 "확정 실패(거절·통신오류)"에만 실행하며, 미확정엔 절대 실행하지 않는다.
+
+> **설계 노트 — 멱등키 발급 시점**: 멱등키(서버 UUID)는 TX1 선점 직후 발급해 보관하고 토스 호출 직전 헤더(`Idempotency-Key`)로 전송한다. 같은 주문의 confirm 재호출(미확정 후 재시도·B2 대사)은 보관된 같은 키를 재사용해 토스가 첫 결과를 그대로 반환하게 한다. 생성·재사용·`pgPaymentKey` UNIQUE 충돌 규약은 [공통 정의 B1-3](api-design.md).
+
+**엔티티 메서드 설계 (Phase B1 추가)**
+
+> `Payment.create`(항상 DONE) 가정이 깨진다 — 미확정 행 생성 경로가 생긴다. 아래는 구현 가이드용 의사 코드다.
+
+```java
+// Payment — 미확정 결과 행 생성 (B1 신설). create(승인)와 별도 팩토리
+public static Payment createInDoubt(Order order, BigDecimal amount, String pgPaymentKey, String idempotencyKey) {
+    return Payment.builder()
+        .orderId(order.getId())
+        .amount(amount)
+        .status(PaymentStatus.IN_DOUBT)
+        .pgPaymentKey(pgPaymentKey)        // 토스가 식별자를 줬으면 보관(없을 수도)
+        .idempotencyKey(idempotencyKey)    // B2 대사가 토스 조회에 사용
+        .build();                          // approvedAt 없음 — 아직 미확정
+}
+```
+
+**쿼리 설계 (Phase B1 추가)**
+
+```java
+// OrderRepository — 보상: PAID → PENDING 복귀 (거절·통신오류 확정 시, 조건부 전이)
+@Modifying
+@Query("UPDATE Order o SET o.status = 'PENDING' WHERE o = :order AND o.status = 'PAID'")
+int markPending(@Param("order") Order order);
+
+// ProductStockRepository — 보상: 재고 복원 (confirmSale 역연산)
+@Modifying
+@Query("""
+    UPDATE ProductStock ps
+       SET ps.onHandQuantity = ps.onHandQuantity + :quantity,
+           ps.reservedQuantity = ps.reservedQuantity + :quantity
+     WHERE ps.productId = :productId
+""")
+int restoreSale(@Param("productId") Long productId, @Param("quantity") int quantity);
+```
+
+> **설계 노트 — Repository/메서드/ExceptionCode 신규는 TDD GREEN에서**: `markPending`·`restoreSale`·`createInDoubt`·`PaymentStatus.IN_DOUBT`·sealed `PgConfirmResult` 타입은 위 의사 코드일 뿐 미리 구현하지 않는다 — 각각을 정당화하는 실패 테스트(아래 테스트 리스트)가 생길 때 함께 추가한다([commit-checkpoint.md](../../.claude/rules/commit-checkpoint.md) vertical TDD).
+
+**테스트 리스트 (Phase B1)**
+
+> 위 슬라이스3~5 테스트(#1~7, ✅)는 그대로 유지된다(단일 TX 대역 기준 — TX 분리 후에도 단언의 핵심은 보존). Phase B1 신규 행위는 아래 표에 vertical TDD 사이클마다 한 줄씩 누적한다. 설계 단계는 헤더만 둔다(placeholder 행 금지). 통합 테스트는 `PaymentGatewayClient` 대역으로 결과(승인/거절/미확정)를 제어하고, 실HTTP는 `TossHttpClient` 단위 테스트(MockWebServer)로 격리한다([ADR-0001](../adr/0001-payment-gateway-toss.md) 토스 실API 호출 금지).
+
+| # | 테스트 케이스 | 시나리오 | 상태 | 작성일 |
+|---|---------------|----------|------|--------|
+
