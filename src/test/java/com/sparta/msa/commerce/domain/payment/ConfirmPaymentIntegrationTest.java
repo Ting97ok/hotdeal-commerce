@@ -22,7 +22,6 @@ import com.sparta.msa.commerce.domain.order.service.CommonOrderService;
 import com.sparta.msa.commerce.domain.payment.dto.request.ConfirmPaymentRequest;
 import com.sparta.msa.commerce.domain.payment.entity.Payment;
 import com.sparta.msa.commerce.domain.payment.entity.PaymentStatus;
-import com.sparta.msa.commerce.domain.payment.exception.PaymentExceptionCode;
 import com.sparta.msa.commerce.domain.payment.facade.PaymentFacade;
 import com.sparta.msa.commerce.domain.payment.gateway.PaymentGatewayClient;
 import com.sparta.msa.commerce.domain.payment.gateway.PgConfirmResult;
@@ -124,7 +123,7 @@ class ConfirmPaymentIntegrationTest {
 
       String pgPaymentKey = "toss_pk_abc123";
       given(paymentGatewayClient.confirm(any(), any(), any()))
-          .willReturn(new PgConfirmResult(pgPaymentKey, UUID.randomUUID().toString(),
+          .willReturn(new PgConfirmResult.Approved(pgPaymentKey, UUID.randomUUID().toString(),
               order.getOrderAmount(), LocalDateTime.now()));
 
       ConfirmPaymentRequest request = new ConfirmPaymentRequest(
@@ -287,7 +286,7 @@ class ConfirmPaymentIntegrationTest {
           Order.create(user, hotDeal, product, 1, Duration.ofMinutes(10)));
 
       given(paymentGatewayClient.confirm(any(), any(), any()))
-          .willThrow(new DomainException(PaymentExceptionCode.PAYMENT_REJECTED));
+          .willReturn(new PgConfirmResult.Rejected());
 
       ConfirmPaymentRequest request = new ConfirmPaymentRequest(
           "toss_pk_abc123", order.getOrderNo(), order.getOrderAmount());
@@ -328,7 +327,7 @@ class ConfirmPaymentIntegrationTest {
           Order.create(user, hotDeal, product, 1, Duration.ofMinutes(10)));
 
       given(paymentGatewayClient.confirm(any(), any(), any()))
-          .willAnswer(invocation -> new PgConfirmResult(
+          .willAnswer(invocation -> new PgConfirmResult.Approved(
               "toss_pk_" + UUID.randomUUID(), UUID.randomUUID().toString(),
               order.getOrderAmount(), LocalDateTime.now()));
 
@@ -399,7 +398,7 @@ class ConfirmPaymentIntegrationTest {
 
       String pgPaymentKey = "toss_pk_abc123";
       given(paymentGatewayClient.confirm(any(), any(), any()))
-          .willReturn(new PgConfirmResult(pgPaymentKey, UUID.randomUUID().toString(),
+          .willReturn(new PgConfirmResult.Approved(pgPaymentKey, UUID.randomUUID().toString(),
               order.getOrderAmount(), LocalDateTime.now()));
 
       ConfirmPaymentRequest request = new ConfirmPaymentRequest(

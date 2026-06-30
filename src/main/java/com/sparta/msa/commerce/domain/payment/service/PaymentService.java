@@ -16,7 +16,7 @@ public class PaymentService {
   private final PaymentRepository paymentRepository;
 
   @Transactional
-  public Payment createPayment(Order order, PgConfirmResult pgResult) {
-    return paymentRepository.save(Payment.create(order, pgResult));
+  public Payment createPayment(Order order, PgConfirmResult.Approved approved) {
+    return paymentRepository.save(Payment.create(order, approved));
   }
 }

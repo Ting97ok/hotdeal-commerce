@@ -57,14 +57,14 @@ public class Payment extends BaseEntity {
   @Column(name = "order_id", nullable = false)
   Long orderId;
 
-  public static Payment create(Order order, PgConfirmResult pgResult) {
+  public static Payment create(Order order, PgConfirmResult.Approved approved) {
     return Payment.builder()
         .orderId(order.getId())
-        .amount(pgResult.amount())
+        .amount(approved.amount())
         .status(PaymentStatus.DONE)
-        .pgPaymentKey(pgResult.pgPaymentKey())
-        .idempotencyKey(pgResult.idempotencyKey())
-        .approvedAt(pgResult.approvedAt())
+        .pgPaymentKey(approved.pgPaymentKey())
+        .idempotencyKey(approved.idempotencyKey())
+        .approvedAt(approved.approvedAt())
         .build();
   }
 }

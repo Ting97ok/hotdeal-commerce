@@ -6,11 +6,13 @@ import com.sparta.msa.commerce.domain.order.service.CommonOrderService;
 import com.sparta.msa.commerce.domain.payment.dto.request.ConfirmPaymentRequest;
 import com.sparta.msa.commerce.domain.payment.dto.response.ConfirmPaymentResponse;
 import com.sparta.msa.commerce.domain.payment.entity.Payment;
+import com.sparta.msa.commerce.domain.payment.exception.PaymentExceptionCode;
 import com.sparta.msa.commerce.domain.payment.gateway.PaymentGatewayClient;
 import com.sparta.msa.commerce.domain.payment.gateway.PgConfirmResult;
 import com.sparta.msa.commerce.domain.payment.mapper.PaymentMapper;
 import com.sparta.msa.commerce.domain.payment.service.PaymentService;
 import com.sparta.msa.commerce.domain.stock.service.ProductStockService;
+import com.sparta.msa.commerce.global.exception.DomainException;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -32,8 +34,14 @@ public class PaymentFacade {
     commonHotDealService.validateNotCanceledIfHotDeal(order.getHotDeal());
     commonOrderService.markPaid(order);
     productStockService.confirmSale(order.getProductId(), order.getQuantity());
-    PgConfirmResult pgResult = paymentGatewayClient.confirm(request.paymentKey(), request.orderId(), request.amount());
-    Payment payment = paymentService.createPayment(order, pgResult);
-    return paymentMapper.toConfirmResponse(payment);
+    PgConfirmResult result = paymentGatewayClient.confirm(request.paymentKey(), request.orderId(), request.amount());
+    return switch (result) {
+      case PgConfirmResult.Approved approved -> {
+        Payment payment = paymentService.createPayment(order, approved);
+        yield paymentMapper.toConfirmResponse(payment);
+      }
+      case PgConfirmResult.Rejected rejected ->
+          throw new DomainException(PaymentExceptionCode.PAYMENT_REJECTED);
+    };
   }
 }
