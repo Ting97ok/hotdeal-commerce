@@ -206,10 +206,10 @@
 |---|---|---|
 | 계약 | `PaymentGatewayClient`(인터페이스) | 도메인 언어 — `confirm(paymentKey, orderId, amount) → PgConfirmResult`. 토스 DTO 노출 0(시그니처 불변, 반환 타입만 sealed로 확장) |
 | 어댑터 | `TossPaymentClient` | 토스 요청 DTO 조립 → `TossHttpClient` 호출 → 토스 응답/예외를 `Approved`/`Rejected`/`GatewayError`/`InDoubt`로 **분류·매핑**(예상 못한 예외는 전파). 토스 지식 전부 격리 |
-| 전송 | `TossHttpClient`(신설) | `RestClient`로 HTTP 호출만 — 시크릿 Basic 인증 헤더·`Idempotency-Key` 헤더·타임아웃. 판단 로직 0, 얇게 |
+| 전송 | `TossHttpClient`(신설, `@HttpExchange` 인터페이스) | 선언적 HTTP — `@PostExchange`로 confirm 호출. Basic 인증·타임아웃은 프록시 빈에, `Idempotency-Key` 헤더는 파라미터로(B2). 판단 로직 0, 얇게 |
 
-- **RestClient 빈 구성 위치**: `global/config/TossHttpClientConfig`(신규) — `RestClient.Builder`에 baseUrl·타임아웃·기본 헤더를 박아 토스 전용 빈으로 노출. (`build.gradle`에 `spring-boot-starter-web`(Undertow) 있어 동기 `RestClient` 사용 가능, webflux 불필요.)
-- **타임아웃 값·근거**: connect **2초**(연결은 빨리 실패해 커넥션 풀 보호 — 못 닿으면 재시도 가능 확정 실패), read **10초**(토스 승인은 카드사 왕복이 있어 connect보다 길게, 단 무한 대기 금지 — 초과 시 **미확정**으로 분류). 값은 토스 권장·운영 관측으로 조정 가능하게 yaml 외부화.
+- **빈 구성 위치**: `global/config/TossHttpClientConfig`(신규) — `RestClient`(baseUrl·타임아웃·Basic 인증)를 `RestClientAdapter`로 감싸 `HttpServiceProxyFactory`가 `TossHttpClient` 프록시 빈을 생성한다. 전송 엔진은 동기 `RestClient`(starter-web/Undertow, webflux 불필요), 인터페이스는 `@HttpExchange` 선언형.
+- **타임아웃 값·근거**: connect **2초**(연결은 빨리 실패해 커넥션 풀 보호 — 못 닿으면 재시도 가능 확정 실패; 토스 미명시라 일반 권장 1~5초 중 채택), read **60초**([토스 공식 타임아웃 가이드](https://docs.tosspayments.com/resources/glossary/timeout) — 결제 처리 API read 60초 권장. 대부분 5초 내 처리되나 카드사·PG 장애 시 지연, 초과 시 **미확정**으로 분류). **TX 분리로 토스 호출이 DB TX 밖**이라 60초 대기해도 커넥션 점유 없음(묶이는 건 Undertow 스레드뿐 — 방식 A였다면 60초 커넥션 점유가 치명적). yaml 외부화로 운영 조정.
 - **인증 방식**: 토스 시크릿키를 **HTTP Basic**으로 인코딩 — `Authorization: Basic base64(secretKey + ":")` (토스 규격: 시크릿키를 username, 비밀번호는 빈 문자열). 어댑터/전송층이 시크릿을 코드에 박지 않고 설정에서 주입받는다.
 - **설정 배치** — `application.yaml`(신규 `toss` 블록):
 
