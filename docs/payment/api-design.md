@@ -111,7 +111,7 @@
 
 > **Phase B1 — 미확정(in-doubt)은 예외가 아니라 결과값**: 타임아웃·응답 유실 등 "성공도 실패도 아닌" 경우는 `DomainException`을 던지지 않는다. 던지면 Facade TX가 무조건 롤백→PENDING 복귀하는데, 토스에선 돈이 실제로 나갔을 수 있어 롤백이 위험하다. 대신 `PgConfirmResult`가 **미확정 결과값**으로 돌려받아 Payment를 `IN_DOUBT`로 저장한다(롤백 없음). 따라서 미확정 전용 ExceptionCode는 두지 않는다 — 아래 "결과 분류" 표 참조.
 >
-> 에러 분류 세부: `TossPaymentClient`(어댑터)가 토스 응답/예외를 **4가지 결과값**으로 접는다 — 승인 `Approved`·거절 `Rejected`·통신오류 `GatewayError`·미확정 `InDoubt`. Facade는 결과를 `switch`(try-catch 없이)로 받아 거절→402 `PAYMENT_REJECTED`·통신오류→502 `PAYMENT_GATEWAY_ERROR`로 throw하고, 미확정은 IN_DOUBT로 보존한다. **예상 못한 예외(버그)만** 결과로 담지 않고 그대로 전파(500)([ADR-0008](../adr/0008-payment-model-pg-boundary.md) 결정3 — "재시도 가능/재시도 무의미/상태 불명").
+> 에러 분류 세부: `TossPaymentClient`(어댑터)가 토스 응답/예외를 **4가지 결과값**으로 접는다 — 승인 `Approved`·거절 `Rejected`·통신오류 `GatewayError`·미확정 `InDoubt`. Facade는 결과를 `switch`(try-catch 없이)로 받아 거절→402 `PAYMENT_REJECTED`·통신오류→502 `PAYMENT_GATEWAY_ERROR`로 throw하고, 미확정은 IN_DOUBT로 보존한다. **예상 못한 예외**(코드 버그·응답 매핑 실패 등)는 결과값으로 접지 않고 그대로 **전파(500)** — catch-all로 삼키면 버그가 미확정으로 위장되기 때문(예외 삼키기 안티패턴). 그로 인한 잔여(주문 PAID + Payment 없음)는 **B2 대사가 "주문 PAID + 결제미완" 기준으로 스캔**해 정리한다([ADR-0008](../adr/0008-payment-model-pg-boundary.md) 결정3 — "재시도 가능/재시도 무의미/상태 불명").
 
 ---
 
@@ -168,7 +168,7 @@
 
 현재 `PgConfirmResult`는 **성공값만 담는 record**(`pgPaymentKey·idempotencyKey·amount·approvedAt`)이고, 실패는 `TossPaymentClient`가 **예외를 던져** 갈렸다. 미확정(타임아웃·응답유실)은 표현할 자리가 없어 예외로 던지면 무조건 롤백→돈 나감 위험이 생긴다. B1에서 **네 결과(승인·거절·통신오류·미확정)를 표현하는 형태**로 재설계한다.
 
-- **권장 형태 — sealed 결과 타입**: `PgConfirmResult`를 sealed interface로 두고 `Approved`(승인값 보유) / `Rejected`(거절 사유·토스 status) / `GatewayError`(통신 실패) / `InDoubt`(원인·부분 식별자)로 가른다. 호출부(Facade)는 `switch` 패턴 매칭으로 분기한다. 거절·통신오류를 throw가 아니라 result로 옮기면 "롤백이 보상"이라는 B1 흐름과 일관되고, Facade의 try-catch 없이 `switch` 한 곳에서 4결과를 처리한다(throw는 미확정에서 위험). 단 **예상 못한 예외(버그)는 결과로 담지 않고 그대로 전파(500)** — 어댑터가 접는 것은 "토스 호출의 알려진 결과"뿐이다.
+- **권장 형태 — sealed 결과 타입**: `PgConfirmResult`를 sealed interface로 두고 `Approved`(승인값 보유) / `Rejected`(거절 사유·토스 status) / `GatewayError`(통신 실패) / `InDoubt`(원인·부분 식별자)로 가른다. 호출부(Facade)는 `switch` 패턴 매칭으로 분기한다. 거절·통신오류를 throw가 아니라 result로 옮기면 "롤백이 보상"이라는 B1 흐름과 일관되고, Facade의 try-catch 없이 `switch` 한 곳에서 4결과를 처리한다(throw는 미확정에서 위험). **예상 못한 예외**(코드 버그 등)는 결과값으로 접지 않고 **전파(500)** — 어댑터가 접는 건 "토스 호출의 알려진 결과"뿐이고, catch-all 삼키기는 버그를 미확정으로 위장하는 안티패턴이다. 잔여 일관성은 삼키기가 아니라 **B2 대사가 "주문 PAID 기준"으로 스캔**(IN_DOUBT든 Payment 없음이든 다 잡음)해서 확보한다.
   - 대안(분류 enum 필드): record 한 개에 `PgResultType` enum 필드를 더하는 방식도 가능하나, 결과별로 채워지는 값이 달라 nullable 필드가 늘어 sealed가 더 정직.
 - **거절(비즈니스 4xx)과 재시도 분류 기준**:
 
@@ -205,7 +205,7 @@
 | 층 | 클래스 | 책임 |
 |---|---|---|
 | 계약 | `PaymentGatewayClient`(인터페이스) | 도메인 언어 — `confirm(paymentKey, orderId, amount) → PgConfirmResult`. 토스 DTO 노출 0(시그니처 불변, 반환 타입만 sealed로 확장) |
-| 어댑터 | `TossPaymentClient` | 토스 요청 DTO 조립 → `TossHttpClient` 호출 → 토스 응답/예외를 `Approved`/`Rejected`/`GatewayError`/`InDoubt`로 **분류·매핑**(예상 못한 예외는 전파). 토스 지식 전부 격리 |
+| 어댑터 | `TossPaymentClient` | 토스 요청 DTO 조립 → `TossHttpClient` 호출 → 토스 응답/예외를 `Approved`/`Rejected`/`GatewayError`/`InDoubt`로 **분류·매핑**(알려진 결과만 접고 예상 못한 예외는 전파 — 삼키지 않음). 토스 지식 전부 격리 |
 | 전송 | `TossHttpClient`(신설, `@HttpExchange` 인터페이스) | 선언적 HTTP — `@PostExchange`로 confirm 호출. Basic 인증·타임아웃은 프록시 빈에, `Idempotency-Key` 헤더는 파라미터로(B2). 판단 로직 0, 얇게 |
 
 - **빈 구성 위치**: `global/config/TossHttpClientConfig`(신규) — `RestClient`(baseUrl·타임아웃·Basic 인증)를 `RestClientAdapter`로 감싸 `HttpServiceProxyFactory`가 `TossHttpClient` 프록시 빈을 생성한다. 전송 엔진은 동기 `RestClient`(starter-web/Undertow, webflux 불필요), 인터페이스는 `@HttpExchange` 선언형.
