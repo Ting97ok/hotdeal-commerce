@@ -175,11 +175,17 @@
 | 토스 응답 | 우리 결과 | Payment 처리 | 주문/재고 | 재시도 의미 | 사용자 응답 |
 |---|---|---|---|---|---|
 | 승인 성공(2xx) | `Approved` | DONE 생성 | PAID 유지·차감 유지 | — | 200 성공 |
-| 승인 거부(잔액부족·한도초과 등 비즈니스 4xx) | `Rejected` | 미생성(보상 롤백) | PENDING 복귀·재고 복원 | **재시도 무의미**(같은 수단 재시도해도 거부) | 402 `PAYMENT_REJECTED` |
-| 통신 오류 — **요청이 토스에 닿지 못함**(connect 실패·DNS·5xx 즉답) | `GatewayError` result → (Facade가) `PAYMENT_GATEWAY_ERROR` | 미생성(보상 롤백) | PENDING 복귀·재고 복원 | **재시도 가능**(돈 안 나감, 같은 멱등키로 안전 재시도) | 502 |
-| **미확정** — read 타임아웃·응답 유실·소켓 끊김(요청은 갔는데 결과 모름) | `InDoubt` | **IN_DOUBT 생성** | **PAID·차감 유지(보상 ❌)** | **결과 미확정**(섣불리 재시도·롤백 금지 → B2 대사) | 200/202(보류) |
+| 승인 거부 — **거절 코드 목록(`REJECT_CODES`)에 있는 code** (카드사 거절·잔액부족·한도초과·FDS 차단 등) | `Rejected` | 미생성(보상 롤백) | PENDING 복귀·재고 복원 | **재시도 무의미**(같은 수단 재시도해도 거부) | 402 `PAYMENT_REJECTED` |
+| 통신 오류 — **응답을 못 받음**: connect 실패·DNS(요청 미도달) | `GatewayError` → (Facade가) `PAYMENT_GATEWAY_ERROR` | 미생성(보상 롤백) | PENDING 복귀·재고 복원 | **재시도 가능**(돈 안 나감) | 502 |
+| **미확정** — 거절 코드가 아닌 응답 전부(처리오류·모르는 code·5xx 포함) + read 타임아웃·소켓 끊김 | `InDoubt` | **IN_DOUBT 생성** | **PAID·차감 유지(보상 ❌)** | **결과 미확정**(섣불리 재시도·롤백 금지 → B2 대사) | 200/202(보류) |
 
-> **설계 노트 — "통신 오류 재시도 가능" vs "미확정"의 갈림**: 둘 다 토스 응답을 정상 수신 못 한 경우지만 **요청이 토스에 닿았는지**로 갈린다. connect 단계 실패·DNS·즉시 5xx는 **요청 자체가 전달 안 됨**(돈 안 나감)이라 확정 실패로 보고 보상 롤백 후 재시도 가능. 반대로 **read 타임아웃·응답 바디 유실·소켓 중단**은 토스가 요청을 받아 처리했을 수 있어(돈 나갔을 수 있어) **미확정**이다 — 이때 롤백하면 "돈 나감+주문 PENDING"이 되므로 보상하지 않고 IN_DOUBT로 보존한다. 이 분류 책임은 어댑터(`TossPaymentClient`)에 격리된다([ADR-0008](../adr/0008-payment-model-pg-boundary.md) 결정3 — "상태 불명"이 미확정).
+> **설계 노트 — 분류 규칙(HTTP 상태 안 봄)**: 기준은 하나, **"돈이 확실히 안 빠졌나?"** ① **응답을 받은 경우**는 토스 error `code`만 본다 — **`REJECT_CODES`에 있으면 `Rejected`(돈 안 나감 확정), 그 외 전부(처리오류·모르는 code·5xx 포함)는 `InDoubt`**(안전 기본값, 애매하면 안 되돌림). ② **응답을 못 받은 경우**는 요청이 닿았는지로 — connect 실패·DNS는 `GatewayError`(안 닿음=돈 안 나감), read 타임아웃·소켓 중단은 `InDoubt`(닿았을 수 있음). 분류는 어댑터(`TossPaymentClient`)에 격리된다([ADR-0008](../adr/0008-payment-model-pg-boundary.md) 결정3).
+
+> **왜 in-doubt가 아니라 "거절"을 목록화하나**: 성공한 결제를 되돌리면 "돈 나감+주문 취소"(파국)이고, 실패를 IN_DOUBT로 남기면 대사가 정리(낭비일 뿐 안전) — 이 비대칭 때문에 **모르는 code의 안전 기본값은 `InDoubt`**다. 그래서 명시 목록은 "확실히 돈 안 나가는 거절 code"가 되고, 토스가 새 code를 추가해도 자동으로 안전측(InDoubt)에 떨어진다(allowlist drift 안전).
+
+> **`REJECT_CODES`는 "모든 4xx"가 아니라 엄선한다 — 넣으면 안 되는 함정**: ① **`ALREADY_PROCESSED_PAYMENT`**("이미 처리된 결제"=**돈 빠짐**)를 거절로 넣으면 **성공 결제를 되돌리는** 바로 그 파국 → 제외(InDoubt). ② 처리오류(`PROVIDER_ERROR`·`CARD_PROCESSING_ERROR`·`FAILED_*`)는 상태 불명 → 제외(InDoubt). ③ 설정 버그(`INVALID_API_KEY`·`UNAUTHORIZED_KEY`·`INVALID_REQUEST` 등)는 사용자 거절이 아니라 우리 버그 → "결제 거절"로 위장하지 않도록 제외(InDoubt로 두고 조사). 즉 목록엔 **"돈 안 빠진 사용자 거절"(카드 거절·한도·잘못된 카드·FDS 차단 등)만** 담는다.
+
+> **실토스 실측(2026-07-01, `TossPayments-Test-Code` 헤더로 코드별 확인)** — 아래는 거절이 아니라 처리오류/상태불명이라 `REJECT_CODES`에 없어 자동 `InDoubt`: `PROVIDER_ERROR`(**400**)·`FAILED_PAYMENT_INTERNAL_SYSTEM_PROCESSING`·`FAILED_INTERNAL_SYSTEM_PROCESSING`·`UNKNOWN_PAYMENT_ERROR`(500). `PROVIDER_ERROR`가 **400**인데 상태불명인 게 "상태값으로는 못 가른다"는 결정적 근거. `FDS_ERROR`(403, 위험거래 차단)는 돈 안 빠진 차단이라 `REJECT_CODES`에 포함.
 
 > **설계 노트 — 토스 원문 보관**: 대사·CS 증빙용 토스 응답 원문/토스 status는 B1 범위에서 **결과 타입에 최소 식별자(toss status·errorCode)만** 담는다. 수신 원문 누적 테이블(`payment_event`)은 B2 — IN_DOUBT 행에 `pgPaymentKey`(있으면)·`idempotencyKey`만 남겨 B2 대사가 토스 조회로 확정할 수 있게 한다.
 
@@ -191,12 +197,12 @@
 | 외부 — 토스 멱등키 헤더 | `TossHttpClient` 요청 헤더 `Idempotency-Key` | ❌ 미구현 | **신설** |
 | 저장 — paymentKey 1건=1행 | `payments.pg_payment_key` UNIQUE | ✅ 제약 존재 | 충돌 처리 추가 |
 
-- **멱등키 생성·전송 주체**: **서버**가 생성한다(`UUID`). 멱등키는 "같은 결제 시도"를 토스에 식별시키는 키이므로 **주문 단위로 안정적**이어야 한다 — 같은 주문의 confirm 재시도(미확정 후 사용자·B2 대사가 다시 호출)에 **같은 멱등키를 재사용**해야 토스가 중복 승인 대신 첫 결과를 그대로 반환한다. 생성 시점은 TX1(선점) 직후, 토스 호출 직전. 재사용을 위해 멱등키를 어디 보관할지는 B1에서 결정한다(권고: 선점 시 주문/결제 행에 1회 발급·저장, 재호출 시 조회).
+- **멱등키 = paymentKey**: 별도 UUID를 생성·보관하지 않고 **토스가 발급한 `paymentKey`를 그대로 멱등키로 쓴다**. paymentKey가 "이 결제 시도"의 고유 식별자라 — 같은 결제 재시도(네트워크 재전송)엔 같은 paymentKey → 같은 멱등키 → 토스가 첫 결과 반환(중복 승인 방지), 카드 바꿔 새 결제엔 새 paymentKey → 새 멱등키 → 새 승인 허용. 서버 UUID 발급·주문 행 보관이 **불필요**(Order 변경·마이그레이션 없음). 헤더 `Idempotency-Key: {paymentKey}`로 전송(`@HttpExchange`의 `@RequestHeader`).
 - **충돌 시 동작 규약**:
-  - 같은 멱등키로 재호출 → 토스가 **같은 paymentKey로 같은 결과**를 반환(토스 멱등 보장) → 우리는 그 결과로 정상 분기. 중복 승인·이중 출금이 토스 단에서 막힌다.
-  - `pgPaymentKey` UNIQUE 충돌(같은 paymentKey로 Payment 저장 시도) → `DataIntegrityViolationException`을 **"같은 시도의 멱등 재시도"로 해석**해 500으로 흘리지 않고, 기존 행을 조회해 그 결과를 반환한다([ADR-0008](../adr/0008-payment-model-pg-boundary.md) 결정1 — "유니크 충돌 = 같은 시도의 멱등 재시도"). 현재는 이 충돌이 그대로 500으로 나가므로 B1에서 핸들링을 추가한다.
+  - 같은 멱등키(paymentKey)로 confirm이 토스에 두 번 도달(네트워크 재전송) → 토스가 **같은 결과**를 반환(토스 멱등 보장) → 이중 출금이 토스 단에서 막힌다.
+  - `pgPaymentKey` UNIQUE 충돌(같은 paymentKey로 Payment 이중 저장)은 **`markPaid` 방어(주문당 1회 조건부 전이)로 도달 불가능(unreachable)**하다 — 모든 재시도·동시 경로가 markPaid에서 먼저 409 CONFLICT로 걸려 Payment 저장까지 두 번 가지 않는다. 따라서 충돌 핸들링(catch→기존 반환)은 **죽은 코드 + 삼키기(방어를 뚫은 이상을 숨김)**라 넣지 않는다. UNIQUE 제약은 **최후 정합 안전망**으로 유지하고, 만에 하나 충돌하면 500으로 드러낸다.
 
-> **설계 노트 — 멱등키 칼럼 UNIQUE 여부**: `idempotency_key` 칼럼은 현재 인덱스·UNIQUE가 없다. B1에서 멱등키 재사용 흐름을 도입하면 "같은 멱등키 = 같은 시도"를 DB로도 강제할지 검토 대상이나, 토스 멱등키 자체가 중복 승인을 막으므로 **UNIQUE 강제는 B1 필수는 아니다**(조회 선행으로 재사용). 1:N(주문당 여러 paymentKey)에서 멱등키는 "시도 단위"라 UNIQUE를 걸면 모델이 꼬일 수 있어, B1은 **인덱스만**(재사용 조회용) 권고하고 UNIQUE는 B2 대사 모델 확정 시 재검토.
+> **설계 노트 — idempotency_key 칼럼**: 멱등키로 paymentKey를 재사용하므로 별도 `idempotency_key` 칼럼·인덱스는 B1에서 쓰지 않는다(`Payment.idempotencyKey`는 null로 남김 — 향후 별도 멱등키 정책이 필요해지면 B2에서 재검토). 토스 멱등은 `Idempotency-Key: paymentKey` 헤더로, 내부 이중 저장 방지는 `markPaid` 조건부 전이로 각각 담당한다.
 
 ### B1-4. `TossHttpClient` 신설 규약 (외부 HTTP 1호)
 

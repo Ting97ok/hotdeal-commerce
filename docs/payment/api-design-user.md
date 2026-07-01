@@ -201,9 +201,9 @@ int confirmSale(@Param("productId") Long productId, @Param("quantity") int quant
 
 | 검증 항목 | 방식 | 결과 |
 |-----------|------|------|
-| 토스 승인 거부(비즈니스 4xx) | `TossPaymentClient`가 `Rejected` 결과 분류 | **보상 롤백** 후 402 `PAYMENT_REJECTED`(주문 PENDING 복귀·재고 복원) |
-| 토스 통신 오류(요청 미도달 — connect 실패·DNS·즉시 5xx) | `TossPaymentClient`가 `GatewayError` 결과 분류(예상 못한 예외는 그대로 전파=500) | **보상 롤백** 후 502 `PAYMENT_GATEWAY_ERROR` |
-| 토스 미확정(read 타임아웃·응답 유실 — 요청은 도달, 결과 모름) | `TossPaymentClient`가 `InDoubt` 결과 분류 | **보상 안 함** — Payment `IN_DOUBT` 생성, 주문 PAID·재고 차감 유지(돈 나감 가능 → B2 대사로 확정) |
+| 토스 승인 거부 — **거절 코드 목록(`REJECT_CODES`)** (카드 거절·잔액부족·한도초과·FDS 차단 등) | `TossPaymentClient`가 `Rejected` 분류 | **보상 롤백** 후 402 `PAYMENT_REJECTED`(주문 PENDING 복귀·재고 복원) |
+| 토스 통신 오류 — **응답을 못 받음**(connect 실패·DNS, 요청 미도달) | `TossPaymentClient`가 `GatewayError` 분류(예상 못한 예외는 그대로 전파=500) | **보상 롤백** 후 502 `PAYMENT_GATEWAY_ERROR` |
+| 토스 미확정 — **거절 코드가 아닌 응답 전부**(처리오류·모르는 code·5xx 포함) 또는 read 타임아웃·소켓 끊김 | `TossPaymentClient`가 `REJECT_CODES` 외는 전부 `InDoubt` 분류(상태값 안 봄) | **보상 안 함** — Payment `IN_DOUBT` 생성, 주문 PAID·재고 차감 유지(돈 나감 가능 → B2 대사로 확정) |
 | confirm 재시도 멱등(같은 주문·같은 멱등키 재호출) | 서버 생성 멱등키 재사용 + 토스 멱등 보장 + `pgPaymentKey` UNIQUE 충돌 핸들링 | 첫 결과 그대로 반환(중복 승인·이중 출금 방지) |
 
 > **설계 노트 — 보상 vs 미확정 보존**: 거절·통신오류는 "결과가 확정된 실패"라 TX1에서 한 선점·차감을 되돌려도 안전하다(돈 안 나감/거부 확정). 미확정은 "돈이 나갔을 수 있음"이라 되돌리면 "돈 나감+주문 PENDING+재고 복원"이라는 더 나쁜 불일치가 된다 — 그래서 보상하지 않고 주문 PAID·재고 차감을 **유지**한 채 IN_DOUBT로 보존한다([ADR-0004 결정4](../adr/0004-stock-reservation-lifecycle.md) "성공한(또는 성공했을 수 있는) 결제는 되살린다").
@@ -294,5 +294,11 @@ int restoreSale(@Param("productId") Long productId, @Param("quantity") int quant
 | 4 | `토스_승인_2xx_Approved_매핑` | (단위·MockWebServer) 토스 승인 응답(status DONE, approvedAt) → TossPaymentClient가 `Approved` 결과로 매핑(@HttpExchange 실HTTP) | ✅ Pass | 2026-07-01 |
 | 5 | `토스_4xx_거부_Rejected_매핑` | (단위) 토스 400 응답 → `Rejected` 결과 | ✅ Pass | 2026-07-01 |
 | 6 | `토스_read타임아웃_InDoubt_매핑` | (단위) 응답 유실(NO_RESPONSE) → `InDoubt`(요청 도달, 결과 모름) | ✅ Pass | 2026-07-01 |
-| 7 | `토스_통신오류_GatewayError_매핑` | (단위) 5xx 즉답·connect 실패(요청 미도달, cause 분류) → `GatewayError` | ✅ Pass | 2026-07-01 |
+| 7 | `토스_연결실패_GatewayError_매핑` | (단위) connect 실패·DNS(응답 못 받음, 요청 미도달 — cause 분류) → `GatewayError`(되돌려도 안전) | ✅ Pass | 2026-07-01 |
+| 8 | `토스_Idempotency_Key_헤더_paymentKey_전송` | (단위) confirm 요청 헤더에 `Idempotency-Key: paymentKey` 전송 — 재전송 시 이중 출금 방지 | ✅ Pass | 2026-07-01 |
+| 9 | `토스_상태불명_에러코드_InDoubt_매핑` | (단위·실토스 실측 근거) error `code`가 `PROVIDER_ERROR`(400)·`FAILED_PAYMENT_INTERNAL_SYSTEM_PROCESSING`/`FAILED_INTERNAL_SYSTEM_PROCESSING`/`UNKNOWN_PAYMENT_ERROR`(500)면 HTTP 상태 무관 `InDoubt` — 상태값 분류로는 못 가름 | ✅ Pass | 2026-07-01 |
+| 10 | `토스_FDS_ERROR_Rejected_매핑` | (단위) `FDS_ERROR`(403, 위험거래 차단 — 돈 안 빠짐)는 `REJECT_CODES`에 있어 `Rejected` | ✅ Pass | 2026-07-01 |
+| 11 | `토스_알수없는_code_InDoubt_안전기본값` | (단위) `REJECT_CODES`에 없는 처음 보는 code → `InDoubt`(모르면 안 되돌림 — 성공 결제 취소 방지) | ✅ Pass | 2026-07-01 |
+| 12 | `토스_거절코드_아닌_5xx_InDoubt_매핑` | (단위) code 없는 순수 502 → `InDoubt`(응답 받음=토스 닿음, 상태 불명 — GatewayError 아님) | ✅ Pass | 2026-07-01 |
+| 13 | `토스_ALREADY_PROCESSED_InDoubt_매핑` | (단위·함정 방어) `ALREADY_PROCESSED_PAYMENT`(이미 결제됨=돈 빠짐)는 `REJECT_CODES`에서 제외 → `InDoubt`(성공 결제 되돌림 방지) | ✅ Pass | 2026-07-01 |
 
