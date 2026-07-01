@@ -35,4 +35,9 @@ public class CommonOrderService {
       throw new DomainException(ORDER_STATUS_CONFLICT);
     }
   }
+
+  @Transactional
+  public void markPending(Order order) {
+    orderRepository.markPending(order);
+  }
 }

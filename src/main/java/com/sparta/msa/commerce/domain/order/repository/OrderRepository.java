@@ -20,6 +20,10 @@ public interface OrderRepository extends JpaRepository<Order, Long> {
   int markPaid(@Param("order") Order order);
 
   @Modifying
+  @Query("UPDATE Order o SET o.status = 'PENDING' WHERE o = :order AND o.status = 'PAID'")
+  int markPending(@Param("order") Order order);
+
+  @Modifying
   @Query("UPDATE Order o SET o.status = 'CANCELED', o.cancelReason = 'EXPIRED' WHERE o = :order AND o.status = 'PENDING'")
   int markExpired(@Param("order") Order order);
 

@@ -35,4 +35,9 @@ public class ProductStockService {
       throw new DomainException(PRODUCT_STOCK_INCONSISTENT);
     }
   }
+
+  @Transactional
+  public void restoreSale(Long productId, int quantity) {
+    productStockRepository.restoreSale(productId, quantity);
+  }
 }
