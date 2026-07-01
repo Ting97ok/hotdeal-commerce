@@ -41,10 +41,8 @@ public class PaymentFacade {
     PgConfirmResult result = paymentGatewayClient.confirm(request.paymentKey(), request.orderId(), request.amount());
 
     Payment payment = switch (result) {
-      case PgConfirmResult.Approved approved ->
-          transactionTemplate.execute(status -> paymentService.createPayment(order, approved));
-      case PgConfirmResult.InDoubt inDoubt ->
-          transactionTemplate.execute(status -> paymentService.createInDoubtPayment(order));
+      case PgConfirmResult.Approved approved -> paymentService.createPayment(order, approved);
+      case PgConfirmResult.InDoubt inDoubt -> paymentService.createInDoubtPayment(order);
       case PgConfirmResult.Rejected rejected -> {
         transactionTemplate.executeWithoutResult(status -> compensate(order));
         throw new DomainException(PaymentExceptionCode.PAYMENT_REJECTED);
