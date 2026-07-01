@@ -111,7 +111,7 @@
 
 > **Phase B1 — 미확정(in-doubt)은 예외가 아니라 결과값**: 타임아웃·응답 유실 등 "성공도 실패도 아닌" 경우는 `DomainException`을 던지지 않는다. 던지면 Facade TX가 무조건 롤백→PENDING 복귀하는데, 토스에선 돈이 실제로 나갔을 수 있어 롤백이 위험하다. 대신 `PgConfirmResult`가 **미확정 결과값**으로 돌려받아 Payment를 `IN_DOUBT`로 저장한다(롤백 없음). 따라서 미확정 전용 ExceptionCode는 두지 않는다 — 아래 "결과 분류" 표 참조.
 >
-> 에러 분류 세부: `TossPaymentClient`(어댑터)가 토스 에러코드·예외를 **확정 실패(throw)** 와 **미확정(result)** 로 나눈다. 확정 실패는 `PAYMENT_GATEWAY_ERROR`(통신 오류, 돈 안 나감)·`PAYMENT_REJECTED`(결제 수단 거부) 두 throw로 접고, 미확정은 throw하지 않고 in-doubt 결과로 돌려준다([ADR-0008](../adr/0008-payment-model-pg-boundary.md) 결정3 — "재시도 가능/재시도 무의미/상태 불명"의 "상태 불명"이 미확정).
+> 에러 분류 세부: `TossPaymentClient`(어댑터)가 토스 응답/예외를 **4가지 결과값**으로 접는다 — 승인 `Approved`·거절 `Rejected`·통신오류 `GatewayError`·미확정 `InDoubt`. Facade는 결과를 `switch`(try-catch 없이)로 받아 거절→402 `PAYMENT_REJECTED`·통신오류→502 `PAYMENT_GATEWAY_ERROR`로 throw하고, 미확정은 IN_DOUBT로 보존한다. **예상 못한 예외(버그)만** 결과로 담지 않고 그대로 전파(500)([ADR-0008](../adr/0008-payment-model-pg-boundary.md) 결정3 — "재시도 가능/재시도 무의미/상태 불명").
 
 ---
 
@@ -151,7 +151,7 @@
   조회+금액검증(getOrderForPayment) → 핫딜취소가드 → markPaid(조건부 선점) → confirmSale(재고차감)
   ↓ 커밋 (주문 PAID·재고 차감 확정)
 [외부 호출 — TX 밖]
-  paymentGatewayClient.confirm(...) → PgConfirmResult (승인 | 거절 | 미확정)
+  paymentGatewayClient.confirm(...) → PgConfirmResult (승인 | 거절 | 통신오류 | 미확정)
   ↓
 [TX2: 결과 반영 — 짧은 @Transactional, 결과별 분기]
   승인   → Payment(DONE) 저장
@@ -164,11 +164,11 @@
 
 > **설계 노트 — 만료↔결제 동시성 정합이 새 경계 위에서 유지되는 방식**: 핵심 방어인 `markPaid` 조건부 전이(`UPDATE ... WHERE status='PENDING'`, affected==1)는 **여전히 TX1 안에서·토스 앞에** 있다. 따라서 ① 만료로 CANCELED된 주문·② 이미 PAID된 주문(이중 승인)은 TX1의 선점 단계에서 affected==0으로 걸러져 **토스를 호출하지 않는다** — 슬라이스4가 세운 "토스 호출 전 차단"이 그대로 성립한다. 바뀐 것은 토스 *이후*뿐이다: 슬라이스4에선 토스 거부가 단일 TX 롤백으로 PAID를 되돌렸으나, B1에선 TX1이 이미 커밋됐으므로 **보상**으로 되돌린다. 만료 스케줄러와의 경합도 동일하게 행 잠금·조건부 전이로 직렬화되며(보상의 `markPending`도 `WHERE status='PAID'` 조건부 전이라 만료가 끼어들어도 affected로 사실을 안다), 미확정(IN_DOUBT) 시에는 주문을 PAID로 **유지**해 "돈 나갔는데 주문 PENDING"을 원천 차단한다([ADR-0004 결정4](../adr/0004-stock-reservation-lifecycle.md) "성공한 결제는 되살린다"와 정합).
 
-### B1-2. `PgConfirmResult` 결과 모델 확장 — 성공/거절/미확정 3결과
+### B1-2. `PgConfirmResult` 결과 모델 확장 — 성공/거절/통신오류/미확정 4결과
 
-현재 `PgConfirmResult`는 **성공값만 담는 record**(`pgPaymentKey·idempotencyKey·amount·approvedAt`)이고, 실패는 `TossPaymentClient`가 **예외를 던져** 갈렸다. 미확정(타임아웃·응답유실)은 표현할 자리가 없어 예외로 던지면 무조건 롤백→돈 나감 위험이 생긴다. B1에서 **세 결과를 표현하는 형태**로 재설계한다.
+현재 `PgConfirmResult`는 **성공값만 담는 record**(`pgPaymentKey·idempotencyKey·amount·approvedAt`)이고, 실패는 `TossPaymentClient`가 **예외를 던져** 갈렸다. 미확정(타임아웃·응답유실)은 표현할 자리가 없어 예외로 던지면 무조건 롤백→돈 나감 위험이 생긴다. B1에서 **네 결과(승인·거절·통신오류·미확정)를 표현하는 형태**로 재설계한다.
 
-- **권장 형태 — sealed 결과 타입**: `PgConfirmResult`를 sealed interface로 두고 `Approved`(승인값 보유) / `Rejected`(거절 사유·토스 status) / `InDoubt`(원인·부분 식별자)로 가른다. 호출부(Facade)는 `switch` 패턴 매칭으로 분기한다. 거절을 throw가 아니라 result로 옮기면 "롤백이 보상"이라는 B1 흐름과 일관된다(throw는 미확정에서 위험).
+- **권장 형태 — sealed 결과 타입**: `PgConfirmResult`를 sealed interface로 두고 `Approved`(승인값 보유) / `Rejected`(거절 사유·토스 status) / `GatewayError`(통신 실패) / `InDoubt`(원인·부분 식별자)로 가른다. 호출부(Facade)는 `switch` 패턴 매칭으로 분기한다. 거절·통신오류를 throw가 아니라 result로 옮기면 "롤백이 보상"이라는 B1 흐름과 일관되고, Facade의 try-catch 없이 `switch` 한 곳에서 4결과를 처리한다(throw는 미확정에서 위험). 단 **예상 못한 예외(버그)는 결과로 담지 않고 그대로 전파(500)** — 어댑터가 접는 것은 "토스 호출의 알려진 결과"뿐이다.
   - 대안(분류 enum 필드): record 한 개에 `PgResultType` enum 필드를 더하는 방식도 가능하나, 결과별로 채워지는 값이 달라 nullable 필드가 늘어 sealed가 더 정직.
 - **거절(비즈니스 4xx)과 재시도 분류 기준**:
 
@@ -176,7 +176,7 @@
 |---|---|---|---|---|---|
 | 승인 성공(2xx) | `Approved` | DONE 생성 | PAID 유지·차감 유지 | — | 200 성공 |
 | 승인 거부(잔액부족·한도초과 등 비즈니스 4xx) | `Rejected` | 미생성(보상 롤백) | PENDING 복귀·재고 복원 | **재시도 무의미**(같은 수단 재시도해도 거부) | 402 `PAYMENT_REJECTED` |
-| 통신 오류 — **요청이 토스에 닿지 못함**(connect 실패·DNS·5xx 즉답) | throw → `PAYMENT_GATEWAY_ERROR` | 미생성(보상 롤백) | PENDING 복귀·재고 복원 | **재시도 가능**(돈 안 나감, 같은 멱등키로 안전 재시도) | 502 |
+| 통신 오류 — **요청이 토스에 닿지 못함**(connect 실패·DNS·5xx 즉답) | `GatewayError` result → (Facade가) `PAYMENT_GATEWAY_ERROR` | 미생성(보상 롤백) | PENDING 복귀·재고 복원 | **재시도 가능**(돈 안 나감, 같은 멱등키로 안전 재시도) | 502 |
 | **미확정** — read 타임아웃·응답 유실·소켓 끊김(요청은 갔는데 결과 모름) | `InDoubt` | **IN_DOUBT 생성** | **PAID·차감 유지(보상 ❌)** | **결과 미확정**(섣불리 재시도·롤백 금지 → B2 대사) | 200/202(보류) |
 
 > **설계 노트 — "통신 오류 재시도 가능" vs "미확정"의 갈림**: 둘 다 토스 응답을 정상 수신 못 한 경우지만 **요청이 토스에 닿았는지**로 갈린다. connect 단계 실패·DNS·즉시 5xx는 **요청 자체가 전달 안 됨**(돈 안 나감)이라 확정 실패로 보고 보상 롤백 후 재시도 가능. 반대로 **read 타임아웃·응답 바디 유실·소켓 중단**은 토스가 요청을 받아 처리했을 수 있어(돈 나갔을 수 있어) **미확정**이다 — 이때 롤백하면 "돈 나감+주문 PENDING"이 되므로 보상하지 않고 IN_DOUBT로 보존한다. 이 분류 책임은 어댑터(`TossPaymentClient`)에 격리된다([ADR-0008](../adr/0008-payment-model-pg-boundary.md) 결정3 — "상태 불명"이 미확정).
@@ -205,7 +205,7 @@
 | 층 | 클래스 | 책임 |
 |---|---|---|
 | 계약 | `PaymentGatewayClient`(인터페이스) | 도메인 언어 — `confirm(paymentKey, orderId, amount) → PgConfirmResult`. 토스 DTO 노출 0(시그니처 불변, 반환 타입만 sealed로 확장) |
-| 어댑터 | `TossPaymentClient` | 토스 요청 DTO 조립 → `TossHttpClient` 호출 → 토스 응답/예외를 `Approved`/`Rejected`/`InDoubt`로 **분류·매핑**. 토스 지식 전부 격리 |
+| 어댑터 | `TossPaymentClient` | 토스 요청 DTO 조립 → `TossHttpClient` 호출 → 토스 응답/예외를 `Approved`/`Rejected`/`GatewayError`/`InDoubt`로 **분류·매핑**(예상 못한 예외는 전파). 토스 지식 전부 격리 |
 | 전송 | `TossHttpClient`(신설) | `RestClient`로 HTTP 호출만 — 시크릿 Basic 인증 헤더·`Idempotency-Key` 헤더·타임아웃. 판단 로직 0, 얇게 |
 
 - **RestClient 빈 구성 위치**: `global/config/TossHttpClientConfig`(신규) — `RestClient.Builder`에 baseUrl·타임아웃·기본 헤더를 박아 토스 전용 빈으로 노출. (`build.gradle`에 `spring-boot-starter-web`(Undertow) 있어 동기 `RestClient` 사용 가능, webflux 불필요.)

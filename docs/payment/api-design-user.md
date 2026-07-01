@@ -202,7 +202,7 @@ int confirmSale(@Param("productId") Long productId, @Param("quantity") int quant
 | 검증 항목 | 방식 | 결과 |
 |-----------|------|------|
 | 토스 승인 거부(비즈니스 4xx) | `TossPaymentClient`가 `Rejected` 결과 분류 | **보상 롤백** 후 402 `PAYMENT_REJECTED`(주문 PENDING 복귀·재고 복원) |
-| 토스 통신 오류(요청 미도달 — connect 실패·DNS·즉시 5xx) | `TossPaymentClient`가 확정 실패로 throw | **보상 롤백** 후 502 `PAYMENT_GATEWAY_ERROR` |
+| 토스 통신 오류(요청 미도달 — connect 실패·DNS·즉시 5xx) | `TossPaymentClient`가 `GatewayError` 결과 분류(예상 못한 예외는 그대로 전파=500) | **보상 롤백** 후 502 `PAYMENT_GATEWAY_ERROR` |
 | 토스 미확정(read 타임아웃·응답 유실 — 요청은 도달, 결과 모름) | `TossPaymentClient`가 `InDoubt` 결과 분류 | **보상 안 함** — Payment `IN_DOUBT` 생성, 주문 PAID·재고 차감 유지(돈 나감 가능 → B2 대사로 확정) |
 | confirm 재시도 멱등(같은 주문·같은 멱등키 재호출) | 서버 생성 멱등키 재사용 + 토스 멱등 보장 + `pgPaymentKey` UNIQUE 충돌 핸들링 | 첫 결과 그대로 반환(중복 승인·이중 출금 방지) |
 
@@ -290,5 +290,5 @@ int restoreSale(@Param("productId") Long productId, @Param("quantity") int quant
 |---|---------------|----------|------|--------|
 | 1 | `토스_결과_sealed_분기_거부_Rejected_결과값_402` | paymentGatewayClient가 sealed `Rejected()` 결과값 반환 → Facade switch 분기 → 402 PAYMENT_REJECTED, 주문 PENDING 유지, Payment 0건(단일 TX throw 롤백) | ✅ Pass | 2026-06-30 |
 | 2 | `토스_미확정_InDoubt_시_IN_DOUBT_보존_주문_PAID_유지` | paymentGatewayClient가 `InDoubt()` 반환 → 보상 없이 Payment IN_DOUBT 생성, 주문 PAID·재고 차감 유지, 200(보류) | ✅ Pass | 2026-07-01 |
-| 3 | `토스_통신오류_시_502_PAYMENT_GATEWAY_ERROR_롤백` | paymentGatewayClient 통신오류(예외 throw) → 502 PAYMENT_GATEWAY_ERROR, 주문 PENDING 유지, Payment 0건, 재고 복원(단일 TX 롤백 — TX 분리 후에도 유지될 계약) | ✅ Pass | 2026-07-01 |
+| 3 | `토스_통신오류_GatewayError_결과값_시_502_보상_롤백` | paymentGatewayClient가 `GatewayError()` 결과값 반환 → Facade switch 분기 → compensate(markPending·restoreSale) 후 502 PAYMENT_GATEWAY_ERROR, 주문 PENDING·재고 복원, Payment 0건 | ✅ Pass | 2026-07-01 |
 
