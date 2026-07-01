@@ -19,4 +19,9 @@ public class PaymentService {
   public Payment createPayment(Order order, PgConfirmResult.Approved approved) {
     return paymentRepository.save(Payment.create(order, approved));
   }
+
+  @Transactional
+  public Payment createInDoubtPayment(Order order) {
+    return paymentRepository.save(Payment.createInDoubt(order));
+  }
 }

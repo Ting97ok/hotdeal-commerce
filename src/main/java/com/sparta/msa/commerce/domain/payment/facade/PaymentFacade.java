@@ -42,6 +42,10 @@ public class PaymentFacade {
       }
       case PgConfirmResult.Rejected rejected ->
           throw new DomainException(PaymentExceptionCode.PAYMENT_REJECTED);
+      case PgConfirmResult.InDoubt inDoubt -> {
+        Payment payment = paymentService.createInDoubtPayment(order);
+        yield paymentMapper.toConfirmResponse(payment);
+      }
     };
   }
 }

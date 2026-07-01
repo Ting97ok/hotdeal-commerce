@@ -67,4 +67,12 @@ public class Payment extends BaseEntity {
         .approvedAt(approved.approvedAt())
         .build();
   }
+
+  public static Payment createInDoubt(Order order) {
+    return Payment.builder()
+        .orderId(order.getId())
+        .amount(order.getOrderAmount())
+        .status(PaymentStatus.IN_DOUBT)
+        .build();
+  }
 }

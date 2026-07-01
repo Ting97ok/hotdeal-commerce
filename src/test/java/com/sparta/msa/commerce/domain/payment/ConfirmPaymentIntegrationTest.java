@@ -306,6 +306,49 @@ class ConfirmPaymentIntegrationTest {
   }
 
   @Nested
+  @DisplayName("토스 미확정")
+  class PaymentInDoubt {
+
+    @Test
+    @DisplayName("토스가 미확정(InDoubt)을 반환하면 보상 없이 Payment가 IN_DOUBT로 생성되고 주문 PAID·재고 차감이 유지된다")
+    void preservesInDoubtWhenGatewayUncertain() throws Exception {
+      User user = userRepository.save(
+          User.create("buyer@test.com", passwordEncoder.encode("pass"), "구매자", UserRole.USER));
+      Product product = createProductWithStock();
+      LocalDateTime start = LocalDateTime.now().minusHours(1);
+      LocalDateTime end = LocalDateTime.now().plusHours(1);
+      HotDeal hotDeal = hotDealRepository.save(HotDeal.create(
+          new CreateHotDealRequest(product.getId(), new BigDecimal("19800"), 100, 5, start, end),
+          product));
+      hotDealStockRepository.save(HotDealStock.create(hotDeal.getId(), 99));
+      Order order = orderRepository.save(
+          Order.create(user, hotDeal, product, 1, Duration.ofMinutes(10)));
+
+      given(paymentGatewayClient.confirm(any(), any(), any()))
+          .willReturn(new PgConfirmResult.InDoubt());
+
+      ConfirmPaymentRequest request = new ConfirmPaymentRequest(
+          "toss_pk_abc123", order.getOrderNo(), order.getOrderAmount());
+
+      mockMvc.perform(post("/api/payments/confirm")
+              .contentType(APPLICATION_JSON)
+              .content(objectMapper.writeValueAsString(request)))
+          .andExpect(status().isOk());
+
+      Order preserved = orderRepository.findById(order.getId()).orElseThrow();
+      assertThat(preserved.getStatus()).isEqualTo(OrderStatus.PAID);
+
+      List<Payment> payments = paymentRepository.findAll();
+      assertThat(payments).hasSize(1);
+      assertThat(payments.get(0).getStatus()).isEqualTo(PaymentStatus.IN_DOUBT);
+
+      ProductStock stock = productStockRepository.findByProductId(product.getId()).orElseThrow();
+      assertThat(stock.getOnHandQuantity()).isEqualTo(99);
+      assertThat(stock.getReservedQuantity()).isEqualTo(99);
+    }
+  }
+
+  @Nested
   @DisplayName("동시성")
   class Concurrency {
 
