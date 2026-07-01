@@ -56,6 +56,12 @@ order:
   expiry-scheduler:
     enabled: true
 
+toss:
+  base-url: https://api.tosspayments.com
+  secret-key: ${TOSS_SECRET_KEY:test_sk_replace_me}
+  connect-timeout: PT2S
+  read-timeout: PT60S
+
 management:
   endpoints:
     web:

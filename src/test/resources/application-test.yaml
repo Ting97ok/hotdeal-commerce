@@ -27,3 +27,9 @@ logging:
 order:
   expiry-scheduler:
     enabled: false
+
+toss:
+  base-url: http://localhost
+  secret-key: test_sk_dummy
+  connect-timeout: PT2S
+  read-timeout: PT10S
