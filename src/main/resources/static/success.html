@@ -1,0 +1,19 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <title>결제 인증 성공 — paymentKey 확인</title>
+</head>
+<body>
+  <h1>결제 인증 성공</h1>
+  <p>아래 세 값을 실제 토스 검증 테스트에 넣으세요 (paymentKey는 10분 내 승인해야 유효).</p>
+  <pre id="result" style="font-size:16px;background:#f4f4f4;padding:16px"></pre>
+  <script>
+    const params = new URLSearchParams(window.location.search);
+    document.getElementById("result").textContent =
+      "paymentKey = " + params.get("paymentKey") + "\n" +
+      "orderId    = " + params.get("orderId") + "\n" +
+      "amount     = " + params.get("amount");
+  </script>
+</body>
+</html>

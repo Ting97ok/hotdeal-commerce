@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <title>토스 결제 테스트</title>
+</head>
+<body>
+  <h1>토스 결제 테스트 (19,800원)</h1>
+  <button id="pay-button" style="font-size:18px;padding:12px 24px">카드로 결제하기</button>
+
+  <script src="https://js.tosspayments.com/v2/standard"></script>
+  <script>
+    const clientKey = "test_ck_GjLJoQ1aVZbNDWm5ADwgVw6KYe2R";
+    const tossPayments = TossPayments(clientKey);
+    const payment = tossPayments.payment({ customerKey: TossPayments.ANONYMOUS });
+
+    document.getElementById("pay-button").addEventListener("click", async () => {
+      await payment.requestPayment({
+        method: "CARD",
+        amount: { currency: "KRW", value: 19800 },
+        orderId: "test-order-" + Date.now(),
+        orderName: "테스트 상품",
+        successUrl: window.location.origin + "/success.html",
+        failUrl: window.location.origin + "/fail.html",
+        card: {
+          useEscrow: false,
+          flowMode: "DEFAULT",
+          useCardPoint: false,
+          useAppCardOnly: false,
+        },
+      });
+    });
+  </script>
+</body>
+</html>

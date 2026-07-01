@@ -8,6 +8,8 @@ import java.util.List;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.core.env.Environment;
+import org.springframework.core.env.Profiles;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
@@ -30,20 +32,25 @@ public class SecurityConfig {
   private final JwtAccessDeniedHandler accessDeniedHandler;
 
   @Bean
-  public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
+  public SecurityFilterChain securityFilterChain(HttpSecurity http, Environment environment) throws Exception {
     return http
         .csrf(AbstractHttpConfigurer::disable)
         .formLogin(AbstractHttpConfigurer::disable)
         .httpBasic(AbstractHttpConfigurer::disable)
         .cors(cors -> cors.configurationSource(corsConfigurationSource()))
         .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
-        .authorizeHttpRequests(auth -> auth
-            .requestMatchers("/api/auth/signup", "/api/auth/login", "/api/auth/reissue", "/api/auth/logout").permitAll()
-            .requestMatchers("/swagger-ui/**", "/swagger-ui.html", "/v3/api-docs/**").permitAll()
-            .requestMatchers("/actuator/**").permitAll()
-            .requestMatchers("/api/admin/**").hasRole("ADMIN")
-            .anyRequest().authenticated()
-        )
+        .authorizeHttpRequests(auth -> {
+          auth
+              .requestMatchers("/api/auth/signup", "/api/auth/login", "/api/auth/reissue", "/api/auth/logout").permitAll()
+              .requestMatchers("/swagger-ui/**", "/swagger-ui.html", "/v3/api-docs/**").permitAll()
+              .requestMatchers("/actuator/**").permitAll();
+          if (environment.acceptsProfiles(Profiles.of("local"))) {
+            auth.requestMatchers("/checkout.html", "/success.html", "/fail.html", "/favicon.ico").permitAll();
+          }
+          auth
+              .requestMatchers("/api/admin/**").hasRole("ADMIN")
+              .anyRequest().authenticated();
+        })
         .exceptionHandling(ex -> ex
             .authenticationEntryPoint(authenticationEntryPoint)
             .accessDeniedHandler(accessDeniedHandler)
