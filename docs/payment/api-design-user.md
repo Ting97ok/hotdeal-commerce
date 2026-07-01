@@ -289,4 +289,5 @@ int restoreSale(@Param("productId") Long productId, @Param("quantity") int quant
 | # | 테스트 케이스 | 시나리오 | 상태 | 작성일 |
 |---|---------------|----------|------|--------|
 | 1 | `토스_결과_sealed_분기_거부_Rejected_결과값_402` | paymentGatewayClient가 sealed `Rejected()` 결과값 반환 → Facade switch 분기 → 402 PAYMENT_REJECTED, 주문 PENDING 유지, Payment 0건(단일 TX throw 롤백) | ✅ Pass | 2026-06-30 |
+| 2 | `토스_미확정_InDoubt_시_IN_DOUBT_보존_주문_PAID_유지` | paymentGatewayClient가 `InDoubt()` 반환 → 보상 없이 Payment IN_DOUBT 생성, 주문 PAID·재고 차감 유지, 200(보류) | ✅ Pass | 2026-07-01 |
 
