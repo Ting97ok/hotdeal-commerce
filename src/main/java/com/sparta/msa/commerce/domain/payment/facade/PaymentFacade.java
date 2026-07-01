@@ -44,11 +44,11 @@ public class PaymentFacade {
       case PgConfirmResult.Approved approved -> paymentService.createPayment(order, approved);
       case PgConfirmResult.InDoubt inDoubt -> paymentService.createInDoubtPayment(order);
       case PgConfirmResult.Rejected rejected -> {
-        transactionTemplate.executeWithoutResult(status -> compensate(order));
+        transactionTemplate.executeWithoutResult(status -> revertPreemption(order));
         throw new DomainException(PaymentExceptionCode.PAYMENT_REJECTED);
       }
       case PgConfirmResult.GatewayError gatewayError -> {
-        transactionTemplate.executeWithoutResult(status -> compensate(order));
+        transactionTemplate.executeWithoutResult(status -> revertPreemption(order));
         throw new DomainException(PaymentExceptionCode.PAYMENT_GATEWAY_ERROR);
       }
     };
@@ -56,7 +56,7 @@ public class PaymentFacade {
     return paymentMapper.toConfirmResponse(payment);
   }
 
-  private void compensate(Order order) {
+  private void revertPreemption(Order order) {
     commonOrderService.markPending(order);
     productStockService.restoreSale(order.getProductId(), order.getQuantity());
   }
