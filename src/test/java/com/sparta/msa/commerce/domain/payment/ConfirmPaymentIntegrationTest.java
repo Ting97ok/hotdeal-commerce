@@ -22,6 +22,7 @@ import com.sparta.msa.commerce.domain.order.service.CommonOrderService;
 import com.sparta.msa.commerce.domain.payment.dto.request.ConfirmPaymentRequest;
 import com.sparta.msa.commerce.domain.payment.entity.Payment;
 import com.sparta.msa.commerce.domain.payment.entity.PaymentStatus;
+import com.sparta.msa.commerce.domain.payment.exception.PaymentExceptionCode;
 import com.sparta.msa.commerce.domain.payment.facade.PaymentFacade;
 import com.sparta.msa.commerce.domain.payment.gateway.PaymentGatewayClient;
 import com.sparta.msa.commerce.domain.payment.gateway.PgConfirmResult;
@@ -345,6 +346,48 @@ class ConfirmPaymentIntegrationTest {
       ProductStock stock = productStockRepository.findByProductId(product.getId()).orElseThrow();
       assertThat(stock.getOnHandQuantity()).isEqualTo(99);
       assertThat(stock.getReservedQuantity()).isEqualTo(99);
+    }
+  }
+
+  @Nested
+  @DisplayName("토스 통신 오류")
+  class GatewayError {
+
+    @Test
+    @DisplayName("토스 통신 오류(요청 미도달)면 502 PAYMENT_GATEWAY_ERROR, 주문 PENDING 유지, Payment 미생성, 재고 복원")
+    void rollsBackWhenGatewayUnreachable() throws Exception {
+      User user = userRepository.save(
+          User.create("buyer@test.com", passwordEncoder.encode("pass"), "구매자", UserRole.USER));
+      Product product = createProductWithStock();
+      LocalDateTime start = LocalDateTime.now().minusHours(1);
+      LocalDateTime end = LocalDateTime.now().plusHours(1);
+      HotDeal hotDeal = hotDealRepository.save(HotDeal.create(
+          new CreateHotDealRequest(product.getId(), new BigDecimal("19800"), 100, 5, start, end),
+          product));
+      hotDealStockRepository.save(HotDealStock.create(hotDeal.getId(), 99));
+      Order order = orderRepository.save(
+          Order.create(user, hotDeal, product, 1, Duration.ofMinutes(10)));
+
+      given(paymentGatewayClient.confirm(any(), any(), any()))
+          .willThrow(new DomainException(PaymentExceptionCode.PAYMENT_GATEWAY_ERROR));
+
+      ConfirmPaymentRequest request = new ConfirmPaymentRequest(
+          "toss_pk_abc123", order.getOrderNo(), order.getOrderAmount());
+
+      mockMvc.perform(post("/api/payments/confirm")
+              .contentType(APPLICATION_JSON)
+              .content(objectMapper.writeValueAsString(request)))
+          .andExpect(status().isBadGateway())
+          .andExpect(jsonPath("$.result").value(false))
+          .andExpect(jsonPath("$.error.code").value("PAYMENT_GATEWAY_ERROR"));
+
+      Order untouched = orderRepository.findById(order.getId()).orElseThrow();
+      assertThat(untouched.getStatus()).isEqualTo(OrderStatus.PENDING);
+
+      assertThat(paymentRepository.findAll()).isEmpty();
+
+      ProductStock stock = productStockRepository.findByProductId(product.getId()).orElseThrow();
+      assertThat(stock.getReservedQuantity()).isEqualTo(100);
     }
   }
 
