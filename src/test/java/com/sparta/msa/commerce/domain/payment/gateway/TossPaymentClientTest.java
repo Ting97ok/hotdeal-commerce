@@ -7,11 +7,14 @@ import java.math.BigDecimal;
 import java.time.Duration;
 import okhttp3.mockwebserver.MockResponse;
 import okhttp3.mockwebserver.MockWebServer;
+import okhttp3.mockwebserver.RecordedRequest;
 import okhttp3.mockwebserver.SocketPolicy;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.springframework.boot.http.client.ClientHttpRequestFactoryBuilder;
 import org.springframework.boot.http.client.ClientHttpRequestFactorySettings;
 import org.springframework.web.client.RestClient;
@@ -92,6 +95,40 @@ class TossPaymentClientTest {
   }
 
   @Test
+  @DisplayName("토스 FDS_ERROR(403, 위험거래 차단)를 Rejected 결과로 매핑한다")
+  void mapsRejectedOnFdsError() {
+    server.enqueue(new MockResponse()
+        .setResponseCode(403)
+        .addHeader("Content-Type", "application/json")
+        .setBody("""
+            {"code":"FDS_ERROR","message":"위험거래가 감지되어 결제가 제한됩니다."}
+            """));
+
+    PgConfirmResult result = tossPaymentClient.confirm("toss_pk_123", "order-abc", new BigDecimal("19800"));
+
+    assertThat(result).isInstanceOf(PgConfirmResult.Rejected.class);
+  }
+
+  @ParameterizedTest(name = "{0}({1}) -> InDoubt")
+  @CsvSource({
+      "PROVIDER_ERROR, 400",
+      "FAILED_PAYMENT_INTERNAL_SYSTEM_PROCESSING, 500",
+      "FAILED_INTERNAL_SYSTEM_PROCESSING, 500",
+      "UNKNOWN_PAYMENT_ERROR, 500"
+  })
+  @DisplayName("토스 결제상태 불명 에러코드(4xx·5xx 혼재)를 InDoubt 결과로 매핑한다")
+  void mapsInDoubtOnStateUnknownCodes(String code, int status) {
+    server.enqueue(new MockResponse()
+        .setResponseCode(status)
+        .addHeader("Content-Type", "application/json")
+        .setBody("{\"code\":\"" + code + "\",\"message\":\"결제 상태 불명\"}"));
+
+    PgConfirmResult result = tossPaymentClient.confirm("toss_pk_123", "order-abc", new BigDecimal("19800"));
+
+    assertThat(result).isInstanceOf(PgConfirmResult.InDoubt.class);
+  }
+
+  @Test
   @DisplayName("토스 read 타임아웃(응답 유실)을 InDoubt 결과로 매핑한다")
   void mapsInDoubtOnReadTimeout() {
     server.enqueue(new MockResponse().setSocketPolicy(SocketPolicy.NO_RESPONSE));
@@ -102,18 +139,45 @@ class TossPaymentClientTest {
   }
 
   @Test
-  @DisplayName("토스 5xx 즉답(통신오류)을 GatewayError 결과로 매핑한다")
-  void mapsGatewayErrorOn5xx() {
+  @DisplayName("응답을 받았으나 거절 코드가 아니면(순수 5xx 등) InDoubt로 매핑한다")
+  void mapsInDoubtOnUnrecognized5xx() {
     server.enqueue(new MockResponse()
-        .setResponseCode(500)
+        .setResponseCode(502)
+        .setBody("Bad Gateway"));
+
+    PgConfirmResult result = tossPaymentClient.confirm("toss_pk_123", "order-abc", new BigDecimal("19800"));
+
+    assertThat(result).isInstanceOf(PgConfirmResult.InDoubt.class);
+  }
+
+  @Test
+  @DisplayName("ALREADY_PROCESSED_PAYMENT(이미 결제됨=돈 빠짐)는 Rejected가 아니라 InDoubt로 매핑한다")
+  void mapsInDoubtOnAlreadyProcessedPayment() {
+    server.enqueue(new MockResponse()
+        .setResponseCode(400)
         .addHeader("Content-Type", "application/json")
         .setBody("""
-            {"code":"FAILED_INTERNAL_SYSTEM_PROCESSING","message":"내부 처리 오류"}
+            {"code":"ALREADY_PROCESSED_PAYMENT","message":"이미 처리된 결제 입니다."}
             """));
 
     PgConfirmResult result = tossPaymentClient.confirm("toss_pk_123", "order-abc", new BigDecimal("19800"));
 
-    assertThat(result).isInstanceOf(PgConfirmResult.GatewayError.class);
+    assertThat(result).isInstanceOf(PgConfirmResult.InDoubt.class);
+  }
+
+  @Test
+  @DisplayName("거절 목록에 없는 알 수 없는 code는 InDoubt로 매핑한다(안전 기본값)")
+  void mapsInDoubtOnUnknownCode() {
+    server.enqueue(new MockResponse()
+        .setResponseCode(400)
+        .addHeader("Content-Type", "application/json")
+        .setBody("""
+            {"code":"SOME_UNRECOGNIZED_CODE","message":"처음 보는 에러"}
+            """));
+
+    PgConfirmResult result = tossPaymentClient.confirm("toss_pk_123", "order-abc", new BigDecimal("19800"));
+
+    assertThat(result).isInstanceOf(PgConfirmResult.InDoubt.class);
   }
 
   @Test
@@ -124,5 +188,21 @@ class TossPaymentClientTest {
     PgConfirmResult result = tossPaymentClient.confirm("toss_pk_123", "order-abc", new BigDecimal("19800"));
 
     assertThat(result).isInstanceOf(PgConfirmResult.GatewayError.class);
+  }
+
+  @Test
+  @DisplayName("confirm 요청에 Idempotency-Key 헤더로 paymentKey를 전송한다")
+  void sendsIdempotencyKeyHeader() throws InterruptedException {
+    server.enqueue(new MockResponse()
+        .setResponseCode(200)
+        .addHeader("Content-Type", "application/json")
+        .setBody("""
+            {"paymentKey":"toss_pk_123","orderId":"order-abc","status":"DONE","totalAmount":19800,"approvedAt":"2026-07-01T15:00:00+09:00"}
+            """));
+
+    tossPaymentClient.confirm("toss_pk_123", "order-abc", new BigDecimal("19800"));
+
+    RecordedRequest recorded = server.takeRequest();
+    assertThat(recorded.getHeader("Idempotency-Key")).isEqualTo("toss_pk_123");
   }
 }
