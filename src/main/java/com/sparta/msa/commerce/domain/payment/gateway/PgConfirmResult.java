@@ -3,7 +3,8 @@ package com.sparta.msa.commerce.domain.payment.gateway;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 
-public sealed interface PgConfirmResult permits PgConfirmResult.Approved, PgConfirmResult.Rejected, PgConfirmResult.InDoubt {
+public sealed interface PgConfirmResult
+    permits PgConfirmResult.Approved, PgConfirmResult.Rejected, PgConfirmResult.InDoubt, PgConfirmResult.GatewayError {
 
   record Approved(
       String pgPaymentKey,
@@ -15,4 +16,6 @@ public sealed interface PgConfirmResult permits PgConfirmResult.Approved, PgConf
   record Rejected() implements PgConfirmResult {}
 
   record InDoubt() implements PgConfirmResult {}
+
+  record GatewayError() implements PgConfirmResult {}
 }

@@ -30,54 +30,36 @@ public class PaymentFacade {
   private final TransactionTemplate transactionTemplate;
 
   public ConfirmPaymentResponse confirm(ConfirmPaymentRequest request) {
-    Order order = preempt(request);
+    Order order = transactionTemplate.execute(status -> {
+      Order preempted = commonOrderService.getOrderForPayment(request.orderId(), request.amount());
+      commonHotDealService.validateNotCanceledIfHotDeal(preempted.getHotDeal());
+      commonOrderService.markPaid(preempted);
+      productStockService.confirmSale(preempted.getProductId(), preempted.getQuantity());
+      return preempted;
+    });
 
-    PgConfirmResult result;
-    try {
-      result = paymentGatewayClient.confirm(request.paymentKey(), request.orderId(), request.amount());
-    } catch (DomainException e) {
-      compensate(order);
-      throw e;
-    }
+    PgConfirmResult result = paymentGatewayClient.confirm(request.paymentKey(), request.orderId(), request.amount());
 
-    return switch (result) {
-      case PgConfirmResult.Approved approved -> settleApproved(order, approved);
-      case PgConfirmResult.InDoubt inDoubt -> settleInDoubt(order);
+    Payment payment = switch (result) {
+      case PgConfirmResult.Approved approved ->
+          transactionTemplate.execute(status -> paymentService.createPayment(order, approved));
+      case PgConfirmResult.InDoubt inDoubt ->
+          transactionTemplate.execute(status -> paymentService.createInDoubtPayment(order));
       case PgConfirmResult.Rejected rejected -> {
-        compensate(order);
+        transactionTemplate.executeWithoutResult(status -> compensate(order));
         throw new DomainException(PaymentExceptionCode.PAYMENT_REJECTED);
       }
+      case PgConfirmResult.GatewayError gatewayError -> {
+        transactionTemplate.executeWithoutResult(status -> compensate(order));
+        throw new DomainException(PaymentExceptionCode.PAYMENT_GATEWAY_ERROR);
+      }
     };
-  }
 
-  private Order preempt(ConfirmPaymentRequest request) {
-    return transactionTemplate.execute(status -> {
-      Order order = commonOrderService.getOrderForPayment(request.orderId(), request.amount());
-      commonHotDealService.validateNotCanceledIfHotDeal(order.getHotDeal());
-      commonOrderService.markPaid(order);
-      productStockService.confirmSale(order.getProductId(), order.getQuantity());
-      return order;
-    });
-  }
-
-  private ConfirmPaymentResponse settleApproved(Order order, PgConfirmResult.Approved approved) {
-    return transactionTemplate.execute(status -> {
-      Payment payment = paymentService.createPayment(order, approved);
-      return paymentMapper.toConfirmResponse(payment);
-    });
-  }
-
-  private ConfirmPaymentResponse settleInDoubt(Order order) {
-    return transactionTemplate.execute(status -> {
-      Payment payment = paymentService.createInDoubtPayment(order);
-      return paymentMapper.toConfirmResponse(payment);
-    });
+    return paymentMapper.toConfirmResponse(payment);
   }
 
   private void compensate(Order order) {
-    transactionTemplate.executeWithoutResult(status -> {
-      commonOrderService.markPending(order);
-      productStockService.restoreSale(order.getProductId(), order.getQuantity());
-    });
+    commonOrderService.markPending(order);
+    productStockService.restoreSale(order.getProductId(), order.getQuantity());
   }
 }
