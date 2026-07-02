@@ -68,11 +68,12 @@ public class Payment extends BaseEntity {
         .build();
   }
 
-  public static Payment createInDoubt(Order order) {
+  public static Payment createInDoubt(Order order, String paymentKey) {
     return Payment.builder()
         .orderId(order.getId())
         .amount(order.getOrderAmount())
         .status(PaymentStatus.IN_DOUBT)
+        .pgPaymentKey(paymentKey)
         .build();
   }
 }

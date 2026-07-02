@@ -21,7 +21,7 @@ public class PaymentService {
   }
 
   @Transactional
-  public Payment createInDoubtPayment(Order order) {
-    return paymentRepository.save(Payment.createInDoubt(order));
+  public Payment createInDoubtPayment(Order order, String paymentKey) {
+    return paymentRepository.save(Payment.createInDoubt(order, paymentKey));
   }
 }

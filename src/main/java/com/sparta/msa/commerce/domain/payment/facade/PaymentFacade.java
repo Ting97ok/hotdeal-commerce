@@ -42,7 +42,7 @@ public class PaymentFacade {
 
     Payment payment = switch (result) {
       case PgConfirmResult.Approved approved -> paymentService.createPayment(order, approved);
-      case PgConfirmResult.InDoubt inDoubt -> paymentService.createInDoubtPayment(order);
+      case PgConfirmResult.InDoubt inDoubt -> paymentService.createInDoubtPayment(order, request.paymentKey());
       case PgConfirmResult.Rejected rejected -> {
         transactionTemplate.executeWithoutResult(status -> revertPreemption(order));
         throw new DomainException(PaymentExceptionCode.PAYMENT_REJECTED);
