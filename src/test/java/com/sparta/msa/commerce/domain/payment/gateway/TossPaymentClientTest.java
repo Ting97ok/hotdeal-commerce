@@ -205,4 +205,48 @@ class TossPaymentClientTest {
     RecordedRequest recorded = server.takeRequest();
     assertThat(recorded.getHeader("Idempotency-Key")).isEqualTo("toss_pk_123");
   }
+
+  @Test
+  @DisplayName("토스 결제 조회 DONE 응답을 PgPaymentStatus.DONE으로 매핑한다")
+  void mapsGetPaymentStatusDone() {
+    server.enqueue(new MockResponse()
+        .setResponseCode(200)
+        .addHeader("Content-Type", "application/json")
+        .setBody("""
+            {"paymentKey":"toss_pk_123","orderId":"order-abc","status":"DONE","totalAmount":19800,"approvedAt":"2026-07-02T10:00:00+09:00"}
+            """));
+
+    PgPayment result = tossPaymentClient.getPayment("toss_pk_123");
+
+    assertThat(result.status()).isEqualTo(PgPaymentStatus.DONE);
+  }
+
+  @ParameterizedTest(name = "조회 status {0}")
+  @CsvSource({"IN_PROGRESS", "EXPIRED", "ABORTED", "CANCELED"})
+  @DisplayName("토스 결제 조회 status를 같은 이름의 PgPaymentStatus로 매핑한다")
+  void mapsGetPaymentStatus(String tossStatus) {
+    server.enqueue(new MockResponse()
+        .setResponseCode(200)
+        .addHeader("Content-Type", "application/json")
+        .setBody("{\"paymentKey\":\"toss_pk_123\",\"orderId\":\"order-abc\",\"status\":\"" + tossStatus + "\",\"totalAmount\":19800}"));
+
+    PgPayment result = tossPaymentClient.getPayment("toss_pk_123");
+
+    assertThat(result.status().name()).isEqualTo(tossStatus);
+  }
+
+  @Test
+  @DisplayName("토스 결제 조회의 알 수 없는 status는 UNKNOWN으로 매핑한다(안전 기본값)")
+  void mapsGetPaymentUnknownStatus() {
+    server.enqueue(new MockResponse()
+        .setResponseCode(200)
+        .addHeader("Content-Type", "application/json")
+        .setBody("""
+            {"paymentKey":"toss_pk_123","orderId":"order-abc","status":"SOME_NEW_STATUS","totalAmount":19800}
+            """));
+
+    PgPayment result = tossPaymentClient.getPayment("toss_pk_123");
+
+    assertThat(result.status()).isEqualTo(PgPaymentStatus.UNKNOWN);
+  }
 }
