@@ -6,7 +6,6 @@ import com.sparta.msa.commerce.domain.payment.gateway.PgConfirmResult;
 import com.sparta.msa.commerce.domain.payment.repository.PaymentRepository;
 import java.time.LocalDateTime;
 import java.util.List;
-import java.util.Optional;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -18,12 +17,8 @@ public class PaymentService {
 
   private final PaymentRepository paymentRepository;
 
-  public Optional<Payment> findById(Long paymentId) {
-    return paymentRepository.findById(paymentId);
-  }
-
-  public List<Long> findInDoubtIds() {
-    return paymentRepository.findInDoubtIds();
+  public List<Payment> findInDoubtCreatedBefore(LocalDateTime threshold) {
+    return paymentRepository.findInDoubtCreatedBefore(threshold);
   }
 
   @Transactional

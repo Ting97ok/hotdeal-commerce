@@ -10,8 +10,8 @@ import org.springframework.data.repository.query.Param;
 
 public interface PaymentRepository extends JpaRepository<Payment, Long> {
 
-  @Query("SELECT p.id FROM Payment p WHERE p.status = 'IN_DOUBT'")
-  List<Long> findInDoubtIds();
+  @Query("SELECT p FROM Payment p WHERE p.status = 'IN_DOUBT' AND p.createdAt < :threshold")
+  List<Payment> findInDoubtCreatedBefore(@Param("threshold") LocalDateTime threshold);
 
   @Modifying
   @Query("UPDATE Payment p SET p.status = 'DONE', p.approvedAt = :approvedAt WHERE p = :payment AND p.status = 'IN_DOUBT'")

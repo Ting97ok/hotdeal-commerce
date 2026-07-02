@@ -8,6 +8,7 @@ import com.sparta.msa.commerce.domain.payment.gateway.PgPayment;
 import com.sparta.msa.commerce.domain.payment.service.PaymentService;
 import com.sparta.msa.commerce.domain.stock.service.HotDealStockService;
 import com.sparta.msa.commerce.domain.stock.service.ProductStockService;
+import java.time.LocalDateTime;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.support.TransactionTemplate;
@@ -23,28 +24,19 @@ public class PaymentResolutionFacade {
   private final ProductStockService productStockService;
   private final TransactionTemplate transactionTemplate;
 
-  public void resolveInDoubt() {
-    for (Long paymentId : paymentService.findInDoubtIds()) {
-      resolveOne(paymentId);
+  public void resolveInDoubt(LocalDateTime now) {
+    LocalDateTime graceThreshold = now.minusMinutes(1);
+    for (Payment payment : paymentService.findInDoubtCreatedBefore(graceThreshold)) {
+      resolveOne(payment);
     }
   }
 
-  private void resolveOne(Long paymentId) {
-    String paymentKey = paymentService.findById(paymentId)
-        .map(Payment::getPgPaymentKey)
-        .orElse(null);
-    if (paymentKey == null) {
-      return;
-    }
-    PgPayment pgPayment = paymentGatewayClient.getPayment(paymentKey);
-    transactionTemplate.executeWithoutResult(status -> apply(paymentId, pgPayment));
+  private void resolveOne(Payment payment) {
+    PgPayment pgPayment = paymentGatewayClient.getPayment(payment.getPgPaymentKey());
+    transactionTemplate.executeWithoutResult(status -> apply(payment, pgPayment));
   }
 
-  private void apply(Long paymentId, PgPayment pgPayment) {
-    Payment payment = paymentService.findById(paymentId).orElse(null);
-    if (payment == null) {
-      return;
-    }
+  private void apply(Payment payment, PgPayment pgPayment) {
     switch (pgPayment.status()) {
       case DONE -> paymentService.markDone(payment, pgPayment.approvedAt());
       case EXPIRED, ABORTED, CANCELED -> failPayment(payment);
