@@ -5,6 +5,8 @@ import com.sparta.msa.commerce.domain.payment.entity.Payment;
 import com.sparta.msa.commerce.domain.payment.gateway.PgConfirmResult;
 import com.sparta.msa.commerce.domain.payment.repository.PaymentRepository;
 import java.time.LocalDateTime;
+import java.util.List;
+import java.util.Optional;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -15,6 +17,14 @@ import org.springframework.transaction.annotation.Transactional;
 public class PaymentService {
 
   private final PaymentRepository paymentRepository;
+
+  public Optional<Payment> findById(Long paymentId) {
+    return paymentRepository.findById(paymentId);
+  }
+
+  public List<Long> findInDoubtIds() {
+    return paymentRepository.findInDoubtIds();
+  }
 
   @Transactional
   public Payment createPayment(Order order, PgConfirmResult.Approved approved) {
@@ -29,5 +39,10 @@ public class PaymentService {
   @Transactional
   public void markDone(Payment payment, LocalDateTime approvedAt) {
     paymentRepository.markDone(payment, approvedAt);
+  }
+
+  @Transactional
+  public boolean markFailed(Payment payment) {
+    return paymentRepository.markFailed(payment) == 1;
   }
 }

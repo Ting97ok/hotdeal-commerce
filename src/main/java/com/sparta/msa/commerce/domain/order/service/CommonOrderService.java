@@ -23,6 +23,11 @@ public class CommonOrderService {
         .orElseThrow(() -> new DomainException(ORDER_NOT_FOUND));
   }
 
+  public Order getOrderById(Long orderId) {
+    return orderRepository.findById(orderId)
+        .orElseThrow(() -> new DomainException(ORDER_NOT_FOUND));
+  }
+
   public Order getOrderForPayment(String orderNo, BigDecimal paymentAmount) {
     Order order = getOrder(orderNo);
     order.validatePaymentAmount(paymentAmount);
@@ -37,7 +42,12 @@ public class CommonOrderService {
   }
 
   @Transactional
-  public void markPending(Order order) {
-    orderRepository.markPending(order);
+  public boolean markPending(Order order) {
+    return orderRepository.markPending(order) == 1;
+  }
+
+  @Transactional
+  public boolean markPaymentFailed(Order order) {
+    return orderRepository.markPaymentFailed(order) == 1;
   }
 }

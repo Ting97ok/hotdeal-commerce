@@ -27,6 +27,10 @@ public interface OrderRepository extends JpaRepository<Order, Long> {
   @Query("UPDATE Order o SET o.status = 'CANCELED', o.cancelReason = 'EXPIRED' WHERE o = :order AND o.status = 'PENDING'")
   int markExpired(@Param("order") Order order);
 
+  @Modifying
+  @Query("UPDATE Order o SET o.status = 'CANCELED', o.cancelReason = 'PAYMENT_FAILED' WHERE o = :order AND o.status = 'PAID'")
+  int markPaymentFailed(@Param("order") Order order);
+
   @Query("""
       SELECT COUNT(o) > 0 FROM Order o
       WHERE o.user = :user
