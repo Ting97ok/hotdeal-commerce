@@ -70,6 +70,10 @@ flowchart TD
 
 | # | 테스트 케이스 | 시나리오 | 상태 | 작성일 |
 |---|---|---|---|---|
+| 1 | `해소_DONE_확정` | 결제 조회가 DONE → IN_DOUBT을 DONE으로 확정 | ✅ Pass | 2026-07-02 |
+| 2 | `해소_실패_확정_재고복원` | 결제 조회가 EXPIRED → Payment FAILED·주문 CANCELED·핫딜+상품 재고 복원 | ✅ Pass | 2026-07-02 |
+| 3 | `해소_grace_미경과_제외` | 생성 후 grace(1분) 미경과 IN_DOUBT은 해소 대상에서 제외 → IN_DOUBT 유지 | ✅ Pass | 2026-07-02 |
+| 4 | `해소_스케줄러_배선` | 스케줄러 활성화 시 PaymentResolutionScheduler 빈 생성·컨텍스트 로드 | ✅ Pass | 2026-07-02 |
 
 ## 계층
 
