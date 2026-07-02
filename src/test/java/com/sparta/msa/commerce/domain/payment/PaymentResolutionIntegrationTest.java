@@ -163,6 +163,25 @@ class PaymentResolutionIntegrationTest {
   }
 
   @Test
+  @DisplayName("IN_PROGRESS confirm 재시도가 GatewayError로 미확정이면 IN_DOUBT을 유지해 다음 회차에 넘긴다")
+  void keepsInDoubtWhenRetriedConfirmUnresolved() {
+    Payment payment = saveInDoubtPayment("toss_pk_r");
+    Order order = orderRepository.findById(payment.getOrderId()).orElseThrow();
+    given(paymentGatewayClient.getPayment("toss_pk_r"))
+        .willReturn(new PgPayment(PgPaymentStatus.IN_PROGRESS, null, null));
+    given(paymentGatewayClient.confirm("toss_pk_r", order.getOrderNo(), payment.getAmount()))
+        .willReturn(new PgConfirmResult.GatewayError());
+
+    paymentResolutionFacade.resolveInDoubt(LocalDateTime.now().plusMinutes(5));
+
+    Payment kept = paymentRepository.findById(payment.getId()).orElseThrow();
+    assertThat(kept.getStatus()).isEqualTo(PaymentStatus.IN_DOUBT);
+
+    Order keptOrder = orderRepository.findById(payment.getOrderId()).orElseThrow();
+    assertThat(keptOrder.getStatus()).isEqualTo(OrderStatus.PAID);
+  }
+
+  @Test
   @DisplayName("생성 후 grace가 지나지 않은 IN_DOUBT은 해소 대상에서 제외되어 IN_DOUBT으로 유지된다")
   void skipsInDoubtWithinGrace() {
     Payment payment = saveInDoubtPayment("toss_pk_z");
