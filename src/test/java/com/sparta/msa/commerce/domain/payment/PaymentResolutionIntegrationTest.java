@@ -92,7 +92,7 @@ class PaymentResolutionIntegrationTest {
     given(paymentGatewayClient.getPayment("toss_pk_x"))
         .willReturn(new PgPayment(PgPaymentStatus.DONE, new BigDecimal("19800"), LocalDateTime.now()));
 
-    paymentResolutionFacade.resolveInDoubt();
+    paymentResolutionFacade.resolveInDoubt(LocalDateTime.now().plusMinutes(5));
 
     Payment resolved = paymentRepository.findById(payment.getId()).orElseThrow();
     assertThat(resolved.getStatus()).isEqualTo(PaymentStatus.DONE);
@@ -105,7 +105,7 @@ class PaymentResolutionIntegrationTest {
     given(paymentGatewayClient.getPayment("toss_pk_y"))
         .willReturn(new PgPayment(PgPaymentStatus.EXPIRED, null, null));
 
-    paymentResolutionFacade.resolveInDoubt();
+    paymentResolutionFacade.resolveInDoubt(LocalDateTime.now().plusMinutes(5));
 
     Payment resolved = paymentRepository.findById(payment.getId()).orElseThrow();
     assertThat(resolved.getStatus()).isEqualTo(PaymentStatus.FAILED);
@@ -118,5 +118,16 @@ class PaymentResolutionIntegrationTest {
 
     HotDealStock hotDealStock = hotDealStockRepository.findByHotDealId(order.getHotDealId()).orElseThrow();
     assertThat(hotDealStock.getRemainingQuantity()).isEqualTo(100);
+  }
+
+  @Test
+  @DisplayName("생성 후 grace가 지나지 않은 IN_DOUBT은 해소 대상에서 제외되어 IN_DOUBT으로 유지된다")
+  void skipsInDoubtWithinGrace() {
+    Payment payment = saveInDoubtPayment("toss_pk_z");
+
+    paymentResolutionFacade.resolveInDoubt(LocalDateTime.now());
+
+    Payment kept = paymentRepository.findById(payment.getId()).orElseThrow();
+    assertThat(kept.getStatus()).isEqualTo(PaymentStatus.IN_DOUBT);
   }
 }
