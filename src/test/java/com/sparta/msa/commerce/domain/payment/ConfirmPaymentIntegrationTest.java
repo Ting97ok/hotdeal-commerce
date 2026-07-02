@@ -341,6 +341,7 @@ class ConfirmPaymentIntegrationTest {
       List<Payment> payments = paymentRepository.findAll();
       assertThat(payments).hasSize(1);
       assertThat(payments.get(0).getStatus()).isEqualTo(PaymentStatus.IN_DOUBT);
+      assertThat(payments.get(0).getPgPaymentKey()).isEqualTo("toss_pk_abc123");
 
       ProductStock stock = productStockRepository.findByProductId(product.getId()).orElseThrow();
       assertThat(stock.getOnHandQuantity()).isEqualTo(99);
