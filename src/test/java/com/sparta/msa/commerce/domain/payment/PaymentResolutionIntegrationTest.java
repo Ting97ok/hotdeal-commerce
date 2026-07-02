@@ -14,6 +14,7 @@ import com.sparta.msa.commerce.domain.payment.entity.Payment;
 import com.sparta.msa.commerce.domain.payment.entity.PaymentStatus;
 import com.sparta.msa.commerce.domain.payment.facade.PaymentResolutionFacade;
 import com.sparta.msa.commerce.domain.payment.gateway.PaymentGatewayClient;
+import com.sparta.msa.commerce.domain.payment.gateway.PgConfirmResult;
 import com.sparta.msa.commerce.domain.payment.gateway.PgPayment;
 import com.sparta.msa.commerce.domain.payment.gateway.PgPaymentStatus;
 import com.sparta.msa.commerce.domain.payment.repository.PaymentRepository;
@@ -117,6 +118,47 @@ class PaymentResolutionIntegrationTest {
     assertThat(stock.getOnHandQuantity()).isEqualTo(100);
 
     HotDealStock hotDealStock = hotDealStockRepository.findByHotDealId(order.getHotDealId()).orElseThrow();
+    assertThat(hotDealStock.getRemainingQuantity()).isEqualTo(100);
+  }
+
+  @Test
+  @DisplayName("결제 조회가 IN_PROGRESS이면 confirm 멱등 재시도가 Approved일 때 DONE으로 확정한다")
+  void retriesConfirmWhenGatewayInProgress() {
+    Payment payment = saveInDoubtPayment("toss_pk_p");
+    Order order = orderRepository.findById(payment.getOrderId()).orElseThrow();
+    given(paymentGatewayClient.getPayment("toss_pk_p"))
+        .willReturn(new PgPayment(PgPaymentStatus.IN_PROGRESS, null, null));
+    given(paymentGatewayClient.confirm("toss_pk_p", order.getOrderNo(), payment.getAmount()))
+        .willReturn(new PgConfirmResult.Approved("toss_pk_p", "toss_pk_p", payment.getAmount(), LocalDateTime.now()));
+
+    paymentResolutionFacade.resolveInDoubt(LocalDateTime.now().plusMinutes(5));
+
+    Payment resolved = paymentRepository.findById(payment.getId()).orElseThrow();
+    assertThat(resolved.getStatus()).isEqualTo(PaymentStatus.DONE);
+  }
+
+  @Test
+  @DisplayName("IN_PROGRESS confirm 재시도가 Rejected이면 Payment FAILED·주문 CANCELED·재고를 복원한다")
+  void failsWhenRetriedConfirmRejected() {
+    Payment payment = saveInDoubtPayment("toss_pk_q");
+    Order order = orderRepository.findById(payment.getOrderId()).orElseThrow();
+    given(paymentGatewayClient.getPayment("toss_pk_q"))
+        .willReturn(new PgPayment(PgPaymentStatus.IN_PROGRESS, null, null));
+    given(paymentGatewayClient.confirm("toss_pk_q", order.getOrderNo(), payment.getAmount()))
+        .willReturn(new PgConfirmResult.Rejected());
+
+    paymentResolutionFacade.resolveInDoubt(LocalDateTime.now().plusMinutes(5));
+
+    Payment resolved = paymentRepository.findById(payment.getId()).orElseThrow();
+    assertThat(resolved.getStatus()).isEqualTo(PaymentStatus.FAILED);
+
+    Order failedOrder = orderRepository.findById(payment.getOrderId()).orElseThrow();
+    assertThat(failedOrder.getStatus()).isEqualTo(OrderStatus.CANCELED);
+
+    ProductStock stock = productStockRepository.findByProductId(failedOrder.getProductId()).orElseThrow();
+    assertThat(stock.getOnHandQuantity()).isEqualTo(100);
+
+    HotDealStock hotDealStock = hotDealStockRepository.findByHotDealId(failedOrder.getHotDealId()).orElseThrow();
     assertThat(hotDealStock.getRemainingQuantity()).isEqualTo(100);
   }
 
