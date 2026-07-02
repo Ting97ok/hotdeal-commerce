@@ -4,6 +4,7 @@ import com.sparta.msa.commerce.domain.order.entity.Order;
 import com.sparta.msa.commerce.domain.payment.entity.Payment;
 import com.sparta.msa.commerce.domain.payment.gateway.PgConfirmResult;
 import com.sparta.msa.commerce.domain.payment.repository.PaymentRepository;
+import java.time.LocalDateTime;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -23,5 +24,10 @@ public class PaymentService {
   @Transactional
   public Payment createInDoubtPayment(Order order, String paymentKey) {
     return paymentRepository.save(Payment.createInDoubt(order, paymentKey));
+  }
+
+  @Transactional
+  public void markDone(Payment payment, LocalDateTime approvedAt) {
+    paymentRepository.markDone(payment, approvedAt);
   }
 }
