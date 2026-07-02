@@ -8,7 +8,7 @@
 - **슬라이스 4 범위**: 결제 승인 순서 정합화 — `markPaid` 선점을 토스 승인 앞으로 재배치(만료·이중 승인을 토스 호출 전 차단) + 만료 조건부 전이 구현 정합화([order System 설계](../order/api-design-system.md)).
 - **슬라이스 5 범위**: 결제 확정 시 ProductStock 실물·예약 차감(`confirmSale`) — `markPaid` 선점 직후·토스 앞에 재고 차감 선점 ([ADR-0011 결정3](../adr/0011-product-inventory-reservation.md) 누락 정합화).
 - **Phase B1 범위**: 토스 결제 승인 **실연동** — `TossPaymentClient` 실HTTP 호출(stub 제거) + `TossHttpClient`(전송층) 신설. 외부 토스 호출을 DB 트랜잭션 **밖**으로 분리(TX 경계 교정), `PgConfirmResult`를 성공/거절/미확정(in-doubt) 세 결과로 확장, 미확정 결제를 `PaymentStatus.IN_DOUBT`로 보존, 토스 멱등키 헤더 전송 + `pgPaymentKey` UNIQUE 충돌 멱등 처리. (아래 "Phase B1 — 토스 결제 실연동" 절)
-- **후속 범위(B2/B3)**: **B2** = 결제 웹훅 수신 → **결제 조회 재확인**(서명 아님, 일반 결제 웹훅용 서명이 없어 조회로 위조 방지+상태 확정) → `IN_DOUBT` 해소(DONE 확정/실패 보상) + `payment_event` 원문 테이블 ([api-design-system.md](api-design-system.md)). **B3** = 배치 대사(웹훅 안 온 미확정·"주문 PAID+Payment 없음" 잔여를 시간 구동으로 확정). **이번 Phase B1 범위 밖** — IN_DOUBT 행은 B1에서 *생성·보존*까지만 하고, 그 *해소*는 B2(웹훅)/B3(대사)에서 다룬다.
+- **후속 범위(B2/B3+)**: **B2** = **IN_DOUBT 대사 스케줄러** — IN_DOUBT 결제를 주기적으로 결제 조회해 확정(DONE 확정 / IN_PROGRESS는 confirm 멱등 재시도로 매출 복구 / 실패는 주문 CANCELED·재고 복원). 확정 주체는 토스(10분이면 자동 EXPIRED), 우리는 폴링으로 읽음 ([api-design-system.md](api-design-system.md)). **B3+** = 웹훅(대사보다 빠른 실시간 해소 최적화 — **대사 대체 아님**, 유실 가능)·넓은 대사(배민식 PG 전체 대조)·앱 밖 사후 취소/환불/분쟁. **이번 Phase B1 범위 밖** — IN_DOUBT 행은 B1에서 *생성·보존*까지만 하고, 그 *해소*는 B2 대사에서 다룬다.
 - **문서 구조**: User API(결제 승인) → [api-design-user.md](api-design-user.md).
 
 ---

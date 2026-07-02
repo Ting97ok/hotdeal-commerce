@@ -1,90 +1,62 @@
-# 결제 시스템 인바운드 설계 (Phase B2) — 토스 웹훅
+# 결제 시스템 설계 (Phase B2) — IN_DOUBT 대사(reconciliation)
 
 > 공통 정의(엔티티·Enum·응답 형식·ExceptionCode·제약)는 [api-design.md](api-design.md) 참조. 유저 결제 승인 흐름은 [api-design-user.md](api-design-user.md).
 
 ## 개요
 
-- **배경**: B1에서 confirm 응답이 타임아웃·유실되면 `IN_DOUBT`(결과 미확정) Payment를 남기고 주문은 PAID로 **보존**한다(돈 나갔을 수 있어 롤백 금지). 이 미확정을 **누가·언제 DONE/FAILED로 확정하는가**가 B2다.
-- **목적(B2 범위)**: 토스 **웹훅 수신 → 결제 조회로 실제 상태 재확인 → `IN_DOUBT` 해소**(PAID 확정 또는 실패 보상). 멱등 처리.
-- **제외(B3)**: **배치 대사(reconciliation)** — 웹훅이 아예 오지 않은 미확정(상태 미변화·웹훅 유실)과 "주문 PAID + Payment 없음" 잔여는 주기적 배치가 스캔·확정한다. B2는 **웹훅이 오는 케이스만** 해소하고, 안 오는 케이스는 B3가 받는다.
+- **배경**: B1에서 confirm 응답이 타임아웃·유실되면 `IN_DOUBT`(결과 미확정)를 남기고 주문은 PAID로 **보존**한다(돈 나갔을 수 있어 롤백 금지). 이 미확정을 **확정**하는 게 B2다.
+- **목적(B2 범위)**: **스케줄러가 IN_DOUBT 결제를 주기적으로 결제 조회해 확정하는 대사(polling)**. + IN_PROGRESS(우리 confirm 미완성)는 **멱등 재시도로 매출 복구**.
+- **제외(후속)**: **웹훅**(실시간 해소 최적화) — 유실 가능(트래픽·방화벽·다운)해서 정합 backbone이 못 되고, 대사가 보장 backbone이라 **대사를 먼저** 둔다. 웹훅은 그 위의 속도 옵션으로 나중에. **앱 밖 사후 취소/환불/분쟁 반영**(별도 환불 기능)도 제외.
 
-> **B2와 B3의 경계**: 웹훅은 결제 **상태가 바뀔 때만** 발화한다([토스 웹훅 규격](https://docs.tosspayments.com/reference/using-api/webhook-events)). confirm이 성공(DONE)하면 상태 변화라 웹훅이 오지만, confirm이 조용히 실패(상태 미변화)한 미확정엔 웹훅이 안 올 수 있다. 그 공백을 B3 대사가 메운다 — B2만으로 완결되지 않음을 전제한다.
+> **왜 웹훅이 아니라 대사가 먼저인가**: 웹훅은 IN_DOUBT을 일으키는 상황(서버 부하·타임아웃)에서 같이 유실될 수 있어, 웹훅만 믿으면 "놓친 IN_DOUBT 영영 미해소" 구멍이 남는다. 스케줄러 폴링은 능동 조회라 놓칠 게 없다. IN_DOUBT은 드물어 폴링 대상이 대부분 0건이라 비용도 낮고, 기존 order 만료 스케줄러와 같은 패턴이라 추가 부담이 작다.
 
 ## 변경 이력
 
 | 버전 | 날짜 | 내용 |
 |---|---|---|
-| v0.1 | 2026-07-01 | Phase B2 초안 — 토스 웹훅 수신(`PAYMENT_STATUS_CHANGED`) + 결제 조회 재확인 검증 + `IN_DOUBT` 해소(DONE 확정/실패 보상) + `payment_event` 멱등. 대사 배치는 B3 분리 |
+| v0.2 | 2026-07-02 | B2 범위 재정의 — 웹훅 → **대사 스케줄러**(결제 조회 폴링)로 전환. IN_PROGRESS는 멱등 재시도로 매출 복구. 웹훅은 후속 최적화로 분리 |
+| v0.1 | 2026-07-01 | (초안 — 웹훅 수신 설계. v0.2에서 대사 우선으로 대체) |
 
-## 알려진 제약
+## 알려진 제약 (확정 주체는 우리가 아니라 토스)
 
-- **웹훅 검증은 서명이 아니라 결제 조회 재확인**: 토스는 일반 결제 웹훅(`PAYMENT_STATUS_CHANGED`)용 서명 헤더를 문서에 명시하지 않는다(HMAC `tosspayments-webhook-signature`는 **지급대행 전용**). 따라서 **웹훅 body를 신뢰하지 않고**, 담긴 `paymentKey`로 **결제 조회 API(GET)** 를 호출해 실제 상태를 우리 시크릿키로 인증된 채널에서 재확인한다. 위조 방지 + 확정 상태 획득을 겸한다.
-- **10초 이내 200 응답**: 미응답 시 최대 7회 재전송(3일 19시간, 지수 백오프)([웹훅 연결하기](https://docs.tosspayments.com/guides/v2/webhook)). 재전송이 있으므로 **핸들러 멱등 필수**.
-- **웹훅은 hot path 아님**: 유저 confirm 경로와 별개의 비동기 인바운드라, 결제 조회 1회 추가가 유저 요청 스레드를 잡지 않는다(B1에서 confirm 경로에 동기 조회를 피한 것과 상충하지 않음).
+- **10분 확정은 토스가 한다**: 결제 인증 후 10분 내 confirm이 성립 안 되면 토스가 자동으로 `IN_PROGRESS → EXPIRED`로 바꾼다([코어 API](https://docs.tosspayments.com/reference)). 우리가 "10분 타이머"로 확정하는 게 아니라, **토스가 확정한 상태를 결제 조회로 읽는다**.
+- **만료돼도 조회된다**: `EXPIRED`가 돼도 `paymentKey`로 결제 조회 가능(NOT_FOUND 아님, EXPIRED 상태의 Payment 반환). 그래서 폴링이 항상 최종 상태를 읽을 수 있다.
+- **보장선**: `IN_PROGRESS`는 영원히 안 남는다 — 토스가 늦어도 10분이면 `DONE` 또는 `EXPIRED`로 만든다. 따라서 스케줄러가 계속 폴링하면 **모든 IN_DOUBT은 최대 10분 안에 확정**된다(보통 1~2분).
 
-## API 목록
+## 대사 동작
 
-| # | Method | URL | 호출자 | 설명 |
-|---|---|---|---|---|
-| 1 | POST | `/api/payments/toss/webhook` | 토스(시스템) | 결제 상태 변화 웹훅 수신 → IN_DOUBT 해소 |
+**스케줄러**(`@Scheduled`, 예: **1분마다**) 매 회차:
 
----
+1. `IN_DOUBT` 결제 중 **생성 후 grace(예: 1분) 경과**한 것을 조회한다(방금 생긴 건 토스가 아직 처리 중일 수 있어 헛조회 방지).
+2. 각 건을 **결제 조회**(`GET /v1/payments/{paymentKey}`)해 실제 status로 분기.
 
-## 1. 토스 결제 웹훅 수신
-
-### Endpoint
-`POST /api/payments/toss/webhook` — 인증 없음(`permitAll`). 발신자 신뢰는 서명이 아니라 **결제 조회 재확인**으로 보장.
-
-> 토스가 결제 상태 변화 시 보내는 `PAYMENT_STATUS_CHANGED` 이벤트를 받아, 담긴 `paymentKey`로 실제 상태를 재확인하고 우리 쪽 `IN_DOUBT` 결제를 확정한다. 응답 body는 없고 **200만 빠르게** 반환한다(처리 후, 10초 이내).
-
-### Request (토스 웹훅 payload)
-
-| 필드 | 타입 | 설명 |
+| 결제 조회 status | 의미 | 우리 처리 |
 |---|---|---|
-| eventType | String | 이벤트 타입. B2는 `PAYMENT_STATUS_CHANGED`만 처리(그 외는 무시 + 200) |
-| createdAt | String | 웹훅 생성 시각(ISO 8601) |
-| data | Object | 상태 변경된 Payment 객체 — `data.paymentKey`·`data.orderId`·`data.status` 사용 |
+| `DONE` | 승인 완료(돈 나감) — confirm이 실제론 성공했고 응답만 유실 | Payment `IN_DOUBT→DONE` 조건부 전이. 주문 PAID·재고 유지 |
+| `IN_PROGRESS` | **인증은 됐는데 우리 confirm이 미완성**(돈 안 나감) — 고객은 사려던 상태 | **confirm 멱등 재시도로 완성 시도**(매출 복구). 성공→DONE, 또 미확정→다음 회차, 실패→아래 실패 처리 |
+| `EXPIRED` / `ABORTED` / `CANCELED` | 실패·만료 확정(돈 안 나감) | Payment `IN_DOUBT→FAILED` + 주문 `PAID→CANCELED` + **재고 복원**(`restoreSale`) |
+| `READY` | 인증 전(비정상 — 우리 IN_DOUBT과 안 맞음) | 변경 없음, 다음 회차/로깅 |
 
-> **body의 status는 참고용**: 분기 판단은 body의 `data.status`가 아니라 **결제 조회 결과**로 한다(body 불신 원칙). body에서 쓰는 건 조회 키인 `paymentKey`(+ 대조용 `orderId`)뿐이다.
+> **설계 노트 — IN_PROGRESS는 "실패"가 아니라 "우리가 마무리 못 한 매출"**: IN_PROGRESS로 남은 건 고객이 인증까지 다 했는데 우리 confirm이 안 들어간(또는 미완성) **우리 쪽 실패**다 — 카드 거절이 아니다. 그래서 만료로 죽이기 전에 **confirm을 멱등 재시도**(멱등키=paymentKey)해 고객이 원한 결제를 **완성**시킨다. 토스가 타임아웃 시 권장한 "멱등 재시도"가 정확히 이 경우다. 재시도는 **10분 창이 자연 상한**(그 뒤엔 EXPIRED라 재시도 대상이 아님)이라 별도 횟수 카운터가 없어도 폭주하지 않는다.
 
-### 검증
+> **설계 노트 — 실패 해소는 PAID→CANCELED(비동기라 재시도 불가)**: B1 동기 보상은 PENDING으로 되돌리지만(유저 즉시 재시도), 대사는 수 분 뒤 비동기 + paymentKey 죽음이라 PENDING이면 좀비 주문이 된다. 그래서 실패 확정은 **CANCELED(종료)** + 재고 복원. 재고는 판매 성립 안 했으니 시점 무관 복원.
 
-| 항목 | 방식 | 결과 |
-|---|---|---|
-| 발신자 진위 | `paymentKey`로 **결제 조회**(우리 시크릿키 인증 호출) 성공 여부 | 조회 실패(존재X·인증X)면 위조/오류 → 처리 없이 로깅 후 200(재전송 무의미) |
-| 이벤트 타입 | `eventType == PAYMENT_STATUS_CHANGED` | 아니면 무시 + 200 |
-| 중복 수신(멱등) | `payment_event` 저장 시 중복 키 충돌 | 이미 처리됨 → no-op + 200 |
-| 대상 존재 | `paymentKey`로 우리 Payment 조회 | 없으면(주문 누락 잔여) 이벤트만 저장, 상태 변경 없음 → **B3 대사 대상** |
+> **설계 노트 — 고객 노출 상태는 "확인 중"**: IN_DOUBT은 고객에게 "결제 완료"로 보이면 안 된다(나중에 실패 확정 시 "완료→취소" 민원). Payment가 IN_DOUBT면 주문이 내부적으로 PAID여도 **고객 화면엔 "결제 확인 중"** 으로 노출한다(가상계좌 "입금 대기"와 같은 결). 대사가 확정하면 성공/실패로 갱신 → "완료→취소" 휘둘림이 없다. (이 표현 매핑은 주문 조회 응답의 파생 상태 — 별도 작은 조각.)
 
-### Response
-
-성공/무시 모두 **HTTP 200**(body 없음 또는 `{"result":true}`). 실패해도 재전송이 의미 있는 경우(일시적 DB 오류 등)만 5xx로 재전송 유도. 위조·타입불일치·이미처리는 200(재전송 무의미).
-
-### 테스트 리스트
-
-| # | 테스트 케이스 | 시나리오 | 상태 | 작성일 |
-|---|---|---|---|---|
-
-### 처리 흐름
+## 처리 흐름
 
 ```mermaid
 flowchart TD
-    A[웹훅 수신 POST] --> B{eventType == PAYMENT_STATUS_CHANGED?}
-    B -- 아니오 --> Z[/무시 · 200/]:::success
-    B -- 예 --> C[payment_event 저장 시도]
-    C --> D{중복 수신?}
-    D -- 예 --> Z2[/no-op · 200/]:::success
-    D -- 아니오 --> E[paymentKey로 결제 조회 GET]
-    E --> F{조회 성공?}
-    F -- 아니오 --> Y[/위조·오류 로깅 · 200/]:::error
-    F -- 예 --> G{우리 Payment 존재?}
-    G -- 아니오 --> X[/주문 누락 잔여 · B3 대사 · 200/]:::decision
-    G -- 예 --> H{조회 status}
-    H -- DONE --> I[[IN_DOUBT→DONE 조건부 전이 · 주문 PAID 유지]]:::process
-    H -- CANCELED/ABORTED/EXPIRED --> J[[IN_DOUBT→FAILED · 주문 PAID→CANCELED · 재고 복원]]:::process
-    H -- IN_PROGRESS/READY --> K[/미확정 유지 · 다음 웹훅 대기 · 200/]:::decision
-    I --> C2[커밋 후 200]:::success
-    J --> C2
+    A[스케줄러 1분] --> B[IN_DOUBT + 경과 grace 조회]
+    B --> C{건별 결제 조회}
+    C -- DONE --> D[[IN_DOUBT→DONE 조건부 전이<br/>주문 PAID 유지]]:::success
+    C -- IN_PROGRESS --> E[confirm 멱등 재시도]
+    E --> F{재시도 결과}
+    F -- Approved --> D
+    F -- 미확정 --> G[/다음 회차 대기/]:::decision
+    F -- 실패 --> H
+    C -- EXPIRED/ABORTED/CANCELED --> H[[IN_DOUBT→FAILED<br/>주문 PAID→CANCELED · 재고 복원]]:::process
+    C -- READY --> G
 
     classDef error fill:#f8d7da,stroke:#dc3545,color:#dc3545,font-weight:bold
     classDef success fill:#d4edda,stroke:#28a745,color:#155724
@@ -92,66 +64,50 @@ flowchart TD
     classDef decision fill:#fff3cd,stroke:#ffc107,color:#856404
 ```
 
-> **설계 노트 — 해소 시맨틱(DONE/실패)**: ① 조회가 **DONE** = 돈이 실제로 나감 → `IN_DOUBT`를 `DONE`으로 **조건부 전이**(`WHERE status='IN_DOUBT'`), 주문은 이미 PAID라 유지(재고 차감도 유지). ② 조회가 **CANCELED/ABORTED/EXPIRED** = 결제 실패 확정(돈 안 나감) → Payment `FAILED` + 주문 `PAID→CANCELED` + **재고 복원**(`restoreSale`). ③ **IN_PROGRESS/READY** = 아직 미확정 → 아무것도 안 하고 다음 웹훅·대사를 기다린다.
+## 테스트 리스트
 
-> **설계 노트 — 실패 해소는 왜 PENDING이 아니라 CANCELED인가**: B1 동기 보상(`revertPreemption`)은 주문을 **PENDING**으로 되돌린다(유저가 그 자리에서 재시도 가능). 하지만 B2 웹훅은 **수 분~수 시간 뒤 비동기**로 오고 그 `paymentKey`는 이미 죽었다 — PENDING으로 되돌리면 유저가 떠난 좀비 주문이 된다. 그래서 웹훅 실패 해소는 **CANCELED(종료)** + 재고 복원이 정직하다. (재고는 판매가 성립 안 했으니 시점 무관하게 복원.)
+| # | 테스트 케이스 | 시나리오 | 상태 | 작성일 |
+|---|---|---|---|---|
 
-> **설계 노트 — 멱등 3중**: (1) `payment_event` 중복 키로 같은 웹훅 재수신 차단, (2) 상태 전이가 **조건부**(`WHERE status='IN_DOUBT'`)라 이미 확정된 건 affected==0으로 no-op, (3) 이미 DONE/CANCELED인 Payment엔 조회 후에도 전이 대상이 없어 자연 no-op. 토스 7회 재전송·중복 발화에 안전.
-
-> **설계 노트 — ack 순서**: `200`은 **Facade 트랜잭션 커밋 뒤** 반환한다. 먼저 200 보내고 DB가 롤백되면 미확정이 확정된 줄 알고 유실된다(B1 컨슈머 ack-after-commit 원칙과 동일 — [service.md](../../.claude/rules/service.md)).
-
----
-
-## payment_event 엔티티 (수신 원문 보관 + 멱등)
-
-`domain/payment/entity/PaymentEvent` — 웹훅 수신 원문을 누적 저장(감사·대사 근거) + 멱등 dedupe 근거.
-
-| 필드 | 타입 | 제약 | 설명 |
-|---|---|---|---|
-| eventType | String | length 40 | 토스 이벤트 타입(`PAYMENT_STATUS_CHANGED`) |
-| paymentKey | String | length 200 | 조회 키 |
-| orderId | String | length 64 | 대조용 주문번호 |
-| tossStatus | String | length 20 | 결제 조회로 재확인한 실제 status(분기 판단 근거) |
-| rawPayload | String | columnDefinition TEXT | 수신 원문 JSON(감사·CS 증빙) |
-| dedupeKey | String | UNIQUE, length 260 | 멱등 키 = `paymentKey + ':' + tossStatus`(같은 상태 재수신 차단) |
-
-> **설계 노트 — dedupeKey 구성**: 토스 웹훅에 안정적 이벤트 고유 ID가 일반 결제용으로 명시되지 않아, **`paymentKey + 재확인 status`** 를 멱등 키로 쓴다(같은 결제가 같은 최종 상태로 여러 번 와도 1회만 처리). 상태가 실제로 바뀌면(예: DONE 후 CANCELED) 다른 키라 각각 처리된다.
-
-## 계층 (인바운드 어댑터 = 컨트롤러 동급)
-
-웹훅은 REST 컨트롤러처럼 **인바운드 어댑터**라 Facade를 거친다([service.md](../../.claude/rules/service.md) 컨슈머 규칙과 동형).
+## 계층
 
 | 층 | 클래스 | 책임 |
 |---|---|---|
-| 인바운드 | `TossWebhookController` | payload 수신 → Facade 위임 + 200 반환(로직 0) |
-| Facade | `PaymentWebhookFacade` | 결제 조회 재확인 → 상태별 해소 조합(Payment·Order·Stock) + `payment_event` 저장. 메서드 `@Transactional` |
-| Service | `CommonPaymentService`(해소)·`CommonOrderService`(PAID→CANCELED)·`ProductStockService`(restoreSale) | 자기 도메인 조건부 전이 |
-| 게이트웨이 | `PaymentGatewayClient.inquire(paymentKey)` → `TossPaymentClient` → `TossHttpClient` | **결제 조회** 신설(`@GetExchange("/v1/payments/{paymentKey}")`), 응답 status를 도메인 결과로 매핑 |
+| 스케줄러 | `PaymentReconciliationScheduler` | `@Scheduled` — IN_DOUBT 목록 조회 후 건별 Facade 위임(로직 0). order 만료 스케줄러와 같은 패턴 |
+| Facade | `PaymentReconciliationFacade` | 건별: 결제 조회 → status 분기 → 확정/재시도/실패 조합(Payment·Order·Stock). 메서드 `@Transactional` |
+| Service | `CommonPaymentService`(전이)·`CommonOrderService`(PAID→CANCELED)·`ProductStockService`(restoreSale) | 자기 도메인 조건부 전이 |
+| 게이트웨이 | `PaymentGatewayClient.inquire(paymentKey)`(신설) + `confirm(...)`(B1 재사용) → `TossPaymentClient` → `TossHttpClient` | 결제 조회 GET 신설, IN_PROGRESS 재시도는 기존 confirm 재사용 |
 
 ### 결제 조회 게이트웨이 규약 (신설)
 
-B1의 3층(계약/어댑터/전송)을 그대로 확장한다.
+B1의 3층(계약/어댑터/전송)을 확장한다.
 
 ```java
-// 계약 — 도메인 언어
-PgPaymentInquiry inquire(String paymentKey);   // 실패(존재X·통신오류)는 결과값 또는 예외로
+// 계약 — 실제 상태 재확인
+PgPaymentInquiry inquire(String paymentKey);
 
-// 결과 — 재확인한 실제 상태 최소 식별자
-record PgPaymentInquiry(PgPaymentStatus status, String paymentKey, String orderId,
-                        BigDecimal totalAmount, LocalDateTime approvedAt) {}
+// 결과 — 토스가 확정한 상태 최소 식별자
+record PgPaymentInquiry(PgPaymentStatus status, BigDecimal totalAmount, LocalDateTime approvedAt) {}
+enum PgPaymentStatus { DONE, IN_PROGRESS, EXPIRED, ABORTED, CANCELED, READY, WAITING_FOR_DEPOSIT }
 
 // 전송 — @HttpExchange
 @GetExchange("/v1/payments/{paymentKey}")
 TossPaymentInquiryResponse inquire(@PathVariable String paymentKey);
 ```
 
-> **설계 노트 — 상태 매핑**: 토스 status(`DONE`/`CANCELED`/`ABORTED`/`EXPIRED`/`IN_PROGRESS`/`READY`/`WAITING_FOR_DEPOSIT`)를 어댑터가 우리 분기용 enum으로 접는다. 카드 범위에선 `WAITING_FOR_DEPOSIT`(가상계좌)은 안 온다.
+## 쿼리 설계
 
-## ExceptionCode (B2 추가 후보)
+```java
+// IN_DOUBT + 생성 후 grace 경과 (조건부 조회, 페이지/배치)
+@Query("""
+    SELECT p FROM Payment p
+    WHERE p.status = 'IN_DOUBT' AND p.createdAt <= :threshold
+""")
+List<Payment> findInDoubtBefore(@Param("threshold") LocalDateTime threshold);
+```
 
-대부분 흐름은 예외가 아니라 **상태 분기 + 200**이라 신규 ExceptionCode는 최소다. 조회 실패·타입 불일치는 throw가 아니라 로깅 후 200(재전송 무의미)이므로 전용 코드를 두지 않는다. 신규 필요 시 vertical TDD의 RED가 요구할 때 추가.
+## 후속 (B3+)
 
-## B2 이후(B3) 연결
-
-- **대사 배치**: 웹훅이 안 온 `IN_DOUBT`(생성 후 N분 경과)와 "주문 PAID + Payment 없음" 잔여를 스캔 → 결제 조회로 확정. B2 웹훅 해소 로직(조회→상태별 전이)을 그대로 재사용한다(웹훅=이벤트 구동, 대사=시간 구동, 확정 로직 동일).
-- **payment_event**: 대사가 "어떤 웹훅이 왔었나"를 조회하는 근거로도 쓰인다.
+- **웹훅**: 대사보다 **빠른** 실시간 해소가 필요해지면 `PAYMENT_STATUS_CHANGED` 웹훅을 붙여 같은 확정 로직(결제 조회 재확인 → status 분기)을 재사용한다. 웹훅은 **대사를 대체하지 않고**(유실 가능) 그 위의 최적화. 검증은 서명이 아니라 결제 조회 재확인.
+- **넓은 대사**: "주문 PAID + Payment 없음"(예상 못한 예외 잔여) 같은 다른 drift까지 잡는 일 단위 PG 전체 대조(배민식)는 재무급 안전망으로 더 나중.
+- **앱 밖 사후 변경**: CS·카드사 취소, 분쟁(chargeback)은 환불/취소 기능과 함께 웹훅으로 반영.
