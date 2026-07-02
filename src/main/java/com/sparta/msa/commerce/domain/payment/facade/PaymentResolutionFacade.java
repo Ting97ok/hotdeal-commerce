@@ -4,7 +4,9 @@ import com.sparta.msa.commerce.domain.order.entity.Order;
 import com.sparta.msa.commerce.domain.order.service.CommonOrderService;
 import com.sparta.msa.commerce.domain.payment.entity.Payment;
 import com.sparta.msa.commerce.domain.payment.gateway.PaymentGatewayClient;
+import com.sparta.msa.commerce.domain.payment.gateway.PgConfirmResult;
 import com.sparta.msa.commerce.domain.payment.gateway.PgPayment;
+import com.sparta.msa.commerce.domain.payment.gateway.PgPaymentStatus;
 import com.sparta.msa.commerce.domain.payment.service.PaymentService;
 import com.sparta.msa.commerce.domain.stock.service.HotDealStockService;
 import com.sparta.msa.commerce.domain.stock.service.ProductStockService;
@@ -33,7 +35,25 @@ public class PaymentResolutionFacade {
 
   private void resolveOne(Payment payment) {
     PgPayment pgPayment = paymentGatewayClient.getPayment(payment.getPgPaymentKey());
+    if (pgPayment.status() == PgPaymentStatus.IN_PROGRESS) {
+      retryConfirm(payment);
+      return;
+    }
     transactionTemplate.executeWithoutResult(status -> apply(payment, pgPayment));
+  }
+
+  private void retryConfirm(Payment payment) {
+    Order order = commonOrderService.getOrderById(payment.getOrderId());
+    PgConfirmResult result = paymentGatewayClient.confirm(
+        payment.getPgPaymentKey(), order.getOrderNo(), payment.getAmount());
+    switch (result) {
+      case PgConfirmResult.Approved approved -> transactionTemplate.executeWithoutResult(status ->
+          paymentService.markDone(payment, approved.approvedAt()));
+      case PgConfirmResult.Rejected rejected -> transactionTemplate.executeWithoutResult(status ->
+          failPayment(payment));
+      default -> {
+      }
+    }
   }
 
   private void apply(Payment payment, PgPayment pgPayment) {
