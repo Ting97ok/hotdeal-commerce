@@ -76,6 +76,7 @@ flowchart TD
 | 4 | `해소_스케줄러_배선` | 스케줄러 활성화 시 PaymentResolutionScheduler 빈 생성·컨텍스트 로드 | ✅ Pass | 2026-07-02 |
 | 5 | `해소_IN_PROGRESS_재시도_승인` | 결제 조회가 IN_PROGRESS → confirm 멱등 재시도 Approved → DONE 확정 | ✅ Pass | 2026-07-02 |
 | 6 | `해소_IN_PROGRESS_재시도_거절` | confirm 재시도 Rejected → Payment FAILED·주문 CANCELED·핫딜+상품 재고 복원 | ✅ Pass | 2026-07-02 |
+| 7 | `해소_IN_PROGRESS_재시도_미확정_유지` | confirm 재시도 GatewayError(미확정) → IN_DOUBT·주문 PAID 유지, 다음 회차 대기 | ✅ Pass | 2026-07-02 |
 
 ## 계층
 
