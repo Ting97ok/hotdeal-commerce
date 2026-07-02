@@ -141,7 +141,7 @@ flowchart TD
 
 > **설계 노트 — ORDER_STATUS_CONFLICT 단일화**: affected==0에는 만료로 이미 CANCELED된 케이스와 이미 PAID(중복 승인)가 섞여 있다. UPDATE 한 번으로는 어느 쪽인지 알 수 없고, 조회→UPDATE→분기 순서는 확인-결정-쓰기 사이에 끼어드는 경합(TOCTOU)을 다시 만든다. `ORDER_STATUS_CONFLICT`(409) 하나로 "이미 PENDING이 아닌 상태"를 표현한다.
 
-> **설계 노트 — 남는 잔여와 그 처리(슬라이스4 범위 밖)**: 선점 순서로도 못 없애는 단 하나의 틈은 "토스 승인 성공(돈 나감) **직후** 우리 DB 커밋 실패·서버 다운"이다 — 외부 결제와 우리 DB는 하나의 원자 작업으로 못 묶이는(두 시스템에 따로 쓰기, dual-write) 분산 시스템 본질이라 순서로 제거 불가. 다만 이 케이스는 **요청 스레드 자체가 죽는** 장애라 "같은 요청에서 토스 취소"라는 동기 보정이 불가능하고, 오직 비동기(웹훅·만료 전 토스 조회·대사)로만 복구된다. 그 복구 원칙은 [ADR-0004 결정4](../adr/0004-stock-reservation-lifecycle.md)("성공한 결제는 강제 환불하지 않고 주문을 되살린다")가 이미 정의했고, 구현은 후속 결제 웹훅/대사 슬라이스로 미룬다.
+> **설계 노트 — 남는 잔여와 그 처리(슬라이스4 범위 밖)**: 선점 순서로도 못 없애는 단 하나의 틈은 "토스 승인 성공(돈 나감) **직후** 우리 DB 커밋 실패·서버 다운"이다 — 외부 결제와 우리 DB는 하나의 원자 작업으로 못 묶이는(두 시스템에 따로 쓰기, dual-write) 분산 시스템 본질이라 순서로 제거 불가. 다만 이 케이스는 **요청 스레드 자체가 죽는** 장애라 "같은 요청에서 토스 취소"라는 동기 보정이 불가능하고, 오직 비동기(웹훅·만료 전 토스 조회·해소)로만 복구된다. 그 복구 원칙은 [ADR-0004 결정4](../adr/0004-stock-reservation-lifecycle.md)("성공한 결제는 강제 환불하지 않고 주문을 되살린다")가 이미 정의했고, 구현은 후속 결제 웹훅/해소 슬라이스로 미룬다.
 
 **엔티티 메서드 설계**
 
@@ -203,7 +203,7 @@ int confirmSale(@Param("productId") Long productId, @Param("quantity") int quant
 |-----------|------|------|
 | 토스 승인 거부 — **거절 코드 목록(`REJECT_CODES`)** (카드 거절·잔액부족·한도초과·FDS 차단 등) | `TossPaymentClient`가 `Rejected` 분류 | **보상 롤백** 후 402 `PAYMENT_REJECTED`(주문 PENDING 복귀·재고 복원) |
 | 토스 통신 오류 — **응답을 못 받음**(connect 실패·DNS, 요청 미도달) | `TossPaymentClient`가 `GatewayError` 분류(예상 못한 예외는 그대로 전파=500) | **보상 롤백** 후 502 `PAYMENT_GATEWAY_ERROR` |
-| 토스 미확정 — **거절 코드가 아닌 응답 전부**(처리오류·모르는 code·5xx 포함) 또는 read 타임아웃·소켓 끊김 | `TossPaymentClient`가 `REJECT_CODES` 외는 전부 `InDoubt` 분류(상태값 안 봄) | **보상 안 함** — Payment `IN_DOUBT` 생성, 주문 PAID·재고 차감 유지(돈 나감 가능 → B2 대사로 확정) |
+| 토스 미확정 — **거절 코드가 아닌 응답 전부**(처리오류·모르는 code·5xx 포함) 또는 read 타임아웃·소켓 끊김 | `TossPaymentClient`가 `REJECT_CODES` 외는 전부 `InDoubt` 분류(상태값 안 봄) | **보상 안 함** — Payment `IN_DOUBT` 생성, 주문 PAID·재고 차감 유지(돈 나감 가능 → B2 해소로 확정) |
 | confirm 재시도 멱등(같은 주문·같은 멱등키 재호출) | 서버 생성 멱등키 재사용 + 토스 멱등 보장 + `pgPaymentKey` UNIQUE 충돌 핸들링 | 첫 결과 그대로 반환(중복 승인·이중 출금 방지) |
 
 > **설계 노트 — 보상 vs 미확정 보존**: 거절·통신오류는 "결과가 확정된 실패"라 TX1에서 한 선점·차감을 되돌려도 안전하다(돈 안 나감/거부 확정). 미확정은 "돈이 나갔을 수 있음"이라 되돌리면 "돈 나감+주문 PENDING+재고 복원"이라는 더 나쁜 불일치가 된다 — 그래서 보상하지 않고 주문 PAID·재고 차감을 **유지**한 채 IN_DOUBT로 보존한다([ADR-0004 결정4](../adr/0004-stock-reservation-lifecycle.md) "성공한(또는 성공했을 수 있는) 결제는 되살린다").
@@ -232,7 +232,7 @@ flowchart TD
     L -- 통신오류 throw --> TX2E[["TX2: 보상 — 주문 PENDING 복귀·재고 복원"]]:::process
     TX2E --> O[/PAYMENT_GATEWAY_ERROR 502/]:::error
     L -- 미확정 InDoubt --> TX2I[["TX2: Payment IN_DOUBT 저장\n보상 ❌·주문 PAID 유지"]]:::process
-    TX2I --> P([보류 응답 — B2 대사가 확정]):::success
+    TX2I --> P([보류 응답 — B2 해소가 확정]):::success
 
     classDef error fill:#f8d7da,stroke:#dc3545,color:#dc3545,font-weight:bold
     classDef success fill:#d4edda,stroke:#28a745,color:#155724
@@ -242,7 +242,7 @@ flowchart TD
 
 > **설계 노트 — 보상도 조건부 전이**: 보상의 주문 PENDING 복귀는 `UPDATE ... WHERE status='PAID' AND order=:order`(affected 관문) 조건부 전이로 한다. TX1 커밋과 보상 사이에 만료 스케줄러가 끼어들 수 없다(주문은 이미 PAID라 만료 조건부 전이가 affected==0으로 비켜감). 재고 복원은 `confirmSale`의 역연산(`onHand+=q, reserved+=q`)이다. 보상은 "확정 실패(거절·통신오류)"에만 실행하며, 미확정엔 절대 실행하지 않는다.
 
-> **설계 노트 — 멱등키 발급 시점**: 멱등키(서버 UUID)는 TX1 선점 직후 발급해 보관하고 토스 호출 직전 헤더(`Idempotency-Key`)로 전송한다. 같은 주문의 confirm 재호출(미확정 후 재시도·B2 대사)은 보관된 같은 키를 재사용해 토스가 첫 결과를 그대로 반환하게 한다. 생성·재사용·`pgPaymentKey` UNIQUE 충돌 규약은 [공통 정의 B1-3](api-design.md).
+> **설계 노트 — 멱등키 발급 시점**: 멱등키(서버 UUID)는 TX1 선점 직후 발급해 보관하고 토스 호출 직전 헤더(`Idempotency-Key`)로 전송한다. 같은 주문의 confirm 재호출(미확정 후 재시도·B2 해소)은 보관된 같은 키를 재사용해 토스가 첫 결과를 그대로 반환하게 한다. 생성·재사용·`pgPaymentKey` UNIQUE 충돌 규약은 [공통 정의 B1-3](api-design.md).
 
 **엔티티 메서드 설계 (Phase B1 추가)**
 
@@ -256,7 +256,7 @@ public static Payment createInDoubt(Order order, BigDecimal amount, String pgPay
         .amount(amount)
         .status(PaymentStatus.IN_DOUBT)
         .pgPaymentKey(pgPaymentKey)        // 토스가 식별자를 줬으면 보관(없을 수도)
-        .idempotencyKey(idempotencyKey)    // B2 대사가 토스 조회에 사용
+        .idempotencyKey(idempotencyKey)    // B2 해소가 토스 조회에 사용
         .build();                          // approvedAt 없음 — 아직 미확정
 }
 ```
