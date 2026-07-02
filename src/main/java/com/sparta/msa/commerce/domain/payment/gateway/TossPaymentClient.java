@@ -76,6 +76,24 @@ public class TossPaymentClient implements PaymentGatewayClient {
     }
   }
 
+  @Override
+  public PgPayment getPayment(String paymentKey) {
+    TossConfirmResponse response = tossHttpClient.getPayment(paymentKey);
+    return new PgPayment(
+        toStatus(response.status()),
+        response.totalAmount(),
+        response.approvedAt() != null ? response.approvedAt().toLocalDateTime() : null
+    );
+  }
+
+  private PgPaymentStatus toStatus(String tossStatus) {
+    try {
+      return PgPaymentStatus.valueOf(tossStatus);
+    } catch (IllegalArgumentException | NullPointerException e) {
+      return PgPaymentStatus.UNKNOWN;
+    }
+  }
+
   private String extractErrorCode(String body) {
     try {
       JsonNode code = OBJECT_MAPPER.readTree(body).get("code");
