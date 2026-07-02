@@ -57,7 +57,8 @@ public class PaymentFacade {
   }
 
   private void revertPreemption(Order order) {
-    commonOrderService.markPending(order);
-    productStockService.restoreSale(order.getProductId(), order.getQuantity());
+    if (commonOrderService.markPending(order)) {
+      productStockService.restoreSale(order.getProductId(), order.getQuantity());
+    }
   }
 }
