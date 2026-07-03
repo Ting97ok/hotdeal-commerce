@@ -20,7 +20,7 @@ POST /api/payments/confirm
 >
 > 인증: 회원 전용 (USER/ADMIN 무관, 비회원 401).
 >
-> **Phase B1(실연동) 변경 요약**: 아래 슬라이스3~5 본문은 stub 대역 기준의 단일 TX 흐름이다. Phase B1에서 ① 토스 호출을 **DB 트랜잭션 밖**으로 분리(선점·차감은 TX1, 결과 반영은 TX2), ② 거절·통신오류는 **보상 롤백**(주문 PENDING 복귀·재고 복원), ③ **미확정(타임아웃·응답유실)**은 롤백 대신 `IN_DOUBT`로 보존한다. 상세는 본 절 끝 "Phase B1 — 실연동 변경" + [공통 정의 "Phase B1 — 토스 결제 실연동"](api-design.md).
+> **Phase B1(실연동) 변경 요약**: 아래 슬라이스3~5 본문은 stub 대역 기준의 단일 TX 흐름이다. Phase B1에서 ① 토스 호출을 **DB 트랜잭션 밖**으로 분리(선점·차감은 TX1, 결과 반영은 TX2), ② 거절은 **실패 확정**(주문 CANCELED·핫딜+상품 재고 방출 — 핫딜 정책: 실패 즉시 방출, 재시도는 새 주문으로), 통신오류(요청 미도달)는 **보상 롤백**(주문 PENDING 복귀·재고 복원), ③ **미확정(타임아웃·응답유실)**은 롤백 대신 `IN_DOUBT`로 보존한다. 상세는 본 절 끝 "Phase B1 — 실연동 변경" + [공통 정의 "Phase B1 — 토스 결제 실연동"](api-design.md).
 
 **Request**
 
@@ -95,7 +95,7 @@ POST /api/payments/confirm
 | 2 | `만료_CANCELED_주문_결제_승인_시_409_ORDER_STATUS_CONFLICT_Payment_미생성` | 만료로 CANCELED된 주문 → 선점 affected==0 → **토스 미호출**(verify never), 409 ORDER_STATUS_CONFLICT, Payment 0건, 주문 CANCELED 유지 | ✅ Pass | 2026-06-25 |
 | 3 | `이미_PAID_주문_결제_승인_시_409_ORDER_STATUS_CONFLICT_Payment_미생성` | 이미 PAID된 주문 → 선점 affected==0 → **토스 미호출**(verify never), 409 ORDER_STATUS_CONFLICT, Payment 0건, 주문 PAID 유지 | ✅ Pass | 2026-06-25 |
 | 4 | `금액_불일치_시_토스_호출_전_400_AMOUNT_MISMATCH_차단` | request.amount ≠ order.orderAmount → 400 AMOUNT_MISMATCH, 토스 미호출(never), Payment 0건, 주문 PENDING 유지 | ✅ Pass | 2026-06-24 |
-| 5 | `토스_거부_시_402_PAYMENT_REJECTED_주문_PENDING_유지` | paymentGatewayClient 거부(DomainException) → 402 PAYMENT_REJECTED, 주문 PENDING 유지, Payment 0건(롤백) | ✅ Pass | 2026-06-24 |
+| 5 | `토스_거부_시_402_주문_CANCELED_재고_방출` | 토스 거절(Rejected) → 402 PAYMENT_REJECTED, 주문 CANCELED(PAYMENT_FAILED), 핫딜+상품 재고 방출, Payment 0건 (2026-07-03 핫딜 방향 반영 — 구 명세는 PENDING 유지) | ✅ Pass | 2026-07-03 |
 | 6 | `동시_결제_승인_시_1건만_PAID_나머지_ORDER_STATUS_CONFLICT_Payment_1건` | PENDING 주문 1건에 8스레드 동시 승인 → 선점 직렬화로 1건만 PAID(**토스 1회**), 7건 ORDER_STATUS_CONFLICT(토스 미호출), Payment 1건 | ✅ Pass | 2026-06-25 |
 | 7 | `결제_확정_시_ProductStock_실물_예약_차감` | 결제 확정(confirm 성공) → ProductStock onHand·reserved 각 1↓(`confirmSale`, 주문 수량만큼) | ✅ Pass | 2026-06-25 |
 
@@ -123,7 +123,7 @@ flowchart TD
     U -- 1 차감 성공 --> N[토스 결제 승인 API 호출\nPaymentGatewayClient.confirm]:::process
     N --> O{토스 응답}:::decision
     O -- 통신 오류 --> P[/PAYMENT_GATEWAY_ERROR\n롤백 → PENDING 복귀/]:::error
-    O -- 승인 거부 --> Q[/PAYMENT_REJECTED\n롤백 → PENDING 복귀/]:::error
+    O -- 승인 거부 --> Q[/PAYMENT_REJECTED\n실패 확정 → CANCELED·재고 방출/]:::error
     O -- 승인 성공 --> R[Payment 행 생성\nstatus=DONE·pgPaymentKey·approvedAt]:::process
     R --> S([결제 정보 반환]):::success
 
@@ -201,12 +201,12 @@ int confirmSale(@Param("productId") Long productId, @Param("quantity") int quant
 
 | 검증 항목 | 방식 | 결과 |
 |-----------|------|------|
-| 토스 승인 거부 — **거절 코드 목록(`REJECT_CODES`)** (카드 거절·잔액부족·한도초과·FDS 차단 등) | `TossPaymentClient`가 `Rejected` 분류 | **보상 롤백** 후 402 `PAYMENT_REJECTED`(주문 PENDING 복귀·재고 복원) |
+| 토스 승인 거부 — **거절 코드 목록(`REJECT_CODES`)** (카드 거절·잔액부족·한도초과·FDS 차단 등) | `TossPaymentClient`가 `Rejected` 분류 | **실패 확정** 후 402 `PAYMENT_REJECTED` — 주문 `CANCELED(PAYMENT_FAILED)` + 핫딜·상품 재고 방출(핫딜 정책: 확정 실패는 즉시 방출, 재시도는 새 주문) |
 | 토스 통신 오류 — **응답을 못 받음**(connect 실패·DNS, 요청 미도달) | `TossPaymentClient`가 `GatewayError` 분류(예상 못한 예외는 그대로 전파=500) | **보상 롤백** 후 502 `PAYMENT_GATEWAY_ERROR` |
 | 토스 미확정 — **거절 코드가 아닌 응답 전부**(처리오류·모르는 code·5xx 포함) 또는 read 타임아웃·소켓 끊김 | `TossPaymentClient`가 `REJECT_CODES` 외는 전부 `InDoubt` 분류(상태값 안 봄) | **보상 안 함** — Payment `IN_DOUBT` 생성, 주문 PAID·재고 차감 유지(돈 나감 가능 → B2 해소로 확정) |
 | confirm 재시도 멱등(같은 주문·같은 멱등키 재호출) | 서버 생성 멱등키 재사용 + 토스 멱등 보장 + `pgPaymentKey` UNIQUE 충돌 핸들링 | 첫 결과 그대로 반환(중복 승인·이중 출금 방지) |
 
-> **설계 노트 — 보상 vs 미확정 보존**: 거절·통신오류는 "결과가 확정된 실패"라 TX1에서 한 선점·차감을 되돌려도 안전하다(돈 안 나감/거부 확정). 미확정은 "돈이 나갔을 수 있음"이라 되돌리면 "돈 나감+주문 PENDING+재고 복원"이라는 더 나쁜 불일치가 된다 — 그래서 보상하지 않고 주문 PAID·재고 차감을 **유지**한 채 IN_DOUBT로 보존한다([ADR-0004 결정4](../adr/0004-stock-reservation-lifecycle.md) "성공한(또는 성공했을 수 있는) 결제는 되살린다").
+> **설계 노트 — 확정 실패 vs 미도달 vs 미확정 (세 갈래)**: ① **거절(확정 실패, 돈 안 나감)** → 핫딜 방향(실패 즉시 방출)에 따라 주문 `CANCELED(PAYMENT_FAILED)` 종료 + 재고 방출. 활성 유니크가 풀려 재시도는 새 주문으로. ② **통신오류(요청 미도달 — 우리/네트워크 문제, 사용자 잘못 아님)** → 주문을 죽이지 않고 PENDING 복귀 + 상품 재고 복원(만료가 백스톱). ③ **미확정(돈 나갔을 수 있음)** → 되돌리면 "돈 나감+재고 복원"이라는 더 나쁜 불일치 — 보상 없이 주문 PAID·재고 차감 유지한 채 IN_DOUBT 보존([ADR-0004 결정4](../adr/0004-stock-reservation-lifecycle.md)).
 
 **구현 로직 (Phase B1 — TX 경계 분리)**
 
