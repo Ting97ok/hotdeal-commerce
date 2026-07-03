@@ -11,6 +11,7 @@ import com.sparta.msa.commerce.domain.payment.gateway.PaymentGatewayClient;
 import com.sparta.msa.commerce.domain.payment.gateway.PgConfirmResult;
 import com.sparta.msa.commerce.domain.payment.mapper.PaymentMapper;
 import com.sparta.msa.commerce.domain.payment.service.PaymentService;
+import com.sparta.msa.commerce.domain.stock.service.HotDealStockService;
 import com.sparta.msa.commerce.domain.stock.service.ProductStockService;
 import com.sparta.msa.commerce.global.exception.DomainException;
 import lombok.RequiredArgsConstructor;
@@ -23,6 +24,7 @@ public class PaymentFacade {
 
   private final CommonOrderService commonOrderService;
   private final CommonHotDealService commonHotDealService;
+  private final HotDealStockService hotDealStockService;
   private final ProductStockService productStockService;
   private final PaymentGatewayClient paymentGatewayClient;
   private final PaymentService paymentService;
@@ -44,7 +46,7 @@ public class PaymentFacade {
       case PgConfirmResult.Approved approved -> paymentService.createPayment(order, approved);
       case PgConfirmResult.InDoubt inDoubt -> paymentService.createInDoubtPayment(order, request.paymentKey());
       case PgConfirmResult.Rejected rejected -> {
-        transactionTemplate.executeWithoutResult(status -> revertPreemption(order));
+        transactionTemplate.executeWithoutResult(status -> failPreemption(order));
         throw new DomainException(PaymentExceptionCode.PAYMENT_REJECTED);
       }
       case PgConfirmResult.GatewayError gatewayError -> {
@@ -54,6 +56,13 @@ public class PaymentFacade {
     };
 
     return paymentMapper.toConfirmResponse(payment);
+  }
+
+  private void failPreemption(Order order) {
+    if (commonOrderService.markPaymentFailed(order)) {
+      hotDealStockService.restore(order.getHotDealId(), order.getQuantity());
+      productStockService.restoreSale(order.getProductId(), order.getQuantity());
+    }
   }
 
   private void revertPreemption(Order order) {
