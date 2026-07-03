@@ -45,10 +45,6 @@ public class Payment extends BaseEntity {
   @Column(name = "pg_payment_key", unique = true, length = 200)
   String pgPaymentKey;
 
-  @Comment("멱등키 (승인 재시도용)")
-  @Column(name = "idempotency_key", length = 200)
-  String idempotencyKey;
-
   @Comment("승인 시각")
   @Column(name = "approved_at")
   LocalDateTime approvedAt;
@@ -63,7 +59,6 @@ public class Payment extends BaseEntity {
         .amount(approved.amount())
         .status(PaymentStatus.DONE)
         .pgPaymentKey(approved.pgPaymentKey())
-        .idempotencyKey(approved.idempotencyKey())
         .approvedAt(approved.approvedAt())
         .build();
   }

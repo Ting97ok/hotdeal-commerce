@@ -8,7 +8,6 @@ public sealed interface PgConfirmResult
 
   record Approved(
       String pgPaymentKey,
-      String idempotencyKey,
       BigDecimal amount,
       LocalDateTime approvedAt
   ) implements PgConfirmResult {}

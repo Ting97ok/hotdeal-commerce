@@ -60,7 +60,6 @@ public class TossPaymentClient implements PaymentGatewayClient {
           new TossConfirmRequest(paymentKey, orderId, amount), paymentKey);
       return new PgConfirmResult.Approved(
           response.paymentKey(),
-          null,
           response.totalAmount(),
           response.approvedAt().toLocalDateTime()
       );

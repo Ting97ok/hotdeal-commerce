@@ -129,7 +129,7 @@ class PaymentResolutionIntegrationTest {
     given(paymentGatewayClient.getPayment("toss_pk_p"))
         .willReturn(new PgPayment(PgPaymentStatus.IN_PROGRESS, null, null));
     given(paymentGatewayClient.confirm("toss_pk_p", order.getOrderNo(), payment.getAmount()))
-        .willReturn(new PgConfirmResult.Approved("toss_pk_p", "toss_pk_p", payment.getAmount(), LocalDateTime.now()));
+        .willReturn(new PgConfirmResult.Approved("toss_pk_p", payment.getAmount(), LocalDateTime.now()));
 
     paymentResolutionFacade.resolveInDoubt(LocalDateTime.now().plusMinutes(5));
 

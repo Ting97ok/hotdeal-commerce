@@ -123,7 +123,7 @@ class ConfirmPaymentIntegrationTest {
 
       String pgPaymentKey = "toss_pk_abc123";
       given(paymentGatewayClient.confirm(any(), any(), any()))
-          .willReturn(new PgConfirmResult.Approved(pgPaymentKey, UUID.randomUUID().toString(),
+          .willReturn(new PgConfirmResult.Approved(pgPaymentKey,
               order.getOrderAmount(), LocalDateTime.now()));
 
       ConfirmPaymentRequest request = new ConfirmPaymentRequest(
@@ -414,7 +414,7 @@ class ConfirmPaymentIntegrationTest {
 
       given(paymentGatewayClient.confirm(any(), any(), any()))
           .willAnswer(invocation -> new PgConfirmResult.Approved(
-              "toss_pk_" + UUID.randomUUID(), UUID.randomUUID().toString(),
+              "toss_pk_" + UUID.randomUUID(),
               order.getOrderAmount(), LocalDateTime.now()));
 
       ConfirmPaymentRequest request = new ConfirmPaymentRequest(
@@ -484,7 +484,7 @@ class ConfirmPaymentIntegrationTest {
 
       String pgPaymentKey = "toss_pk_abc123";
       given(paymentGatewayClient.confirm(any(), any(), any()))
-          .willReturn(new PgConfirmResult.Approved(pgPaymentKey, UUID.randomUUID().toString(),
+          .willReturn(new PgConfirmResult.Approved(pgPaymentKey,
               order.getOrderAmount(), LocalDateTime.now()));
 
       ConfirmPaymentRequest request = new ConfirmPaymentRequest(
