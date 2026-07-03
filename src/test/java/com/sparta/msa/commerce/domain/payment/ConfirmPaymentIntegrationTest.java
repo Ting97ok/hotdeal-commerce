@@ -15,6 +15,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.sparta.msa.commerce.domain.hotdeal.dto.request.CreateHotDealRequest;
 import com.sparta.msa.commerce.domain.hotdeal.entity.HotDeal;
 import com.sparta.msa.commerce.domain.hotdeal.repository.HotDealRepository;
+import com.sparta.msa.commerce.domain.order.entity.CancelReason;
 import com.sparta.msa.commerce.domain.order.entity.Order;
 import com.sparta.msa.commerce.domain.order.entity.OrderStatus;
 import com.sparta.msa.commerce.domain.order.repository.OrderRepository;
@@ -271,7 +272,7 @@ class ConfirmPaymentIntegrationTest {
   class PaymentRejected {
 
     @Test
-    @DisplayName("토스가 결제를 거부하면 402 PAYMENT_REJECTED를 반환하고 주문은 PENDING으로 유지되며 Payment가 생성되지 않는다")
+    @DisplayName("토스가 결제를 거부하면 402 PAYMENT_REJECTED를 반환하고 주문은 CANCELED(PAYMENT_FAILED)로 종료되며 핫딜·상품 재고가 방출된다")
     void rejectsConfirmWhenGatewayRejects() throws Exception {
       User user = userRepository.save(
           User.create("buyer@test.com", passwordEncoder.encode("pass"), "구매자", UserRole.USER));
@@ -298,8 +299,15 @@ class ConfirmPaymentIntegrationTest {
           .andExpect(jsonPath("$.result").value(false))
           .andExpect(jsonPath("$.error.code").value("PAYMENT_REJECTED"));
 
-      Order untouched = orderRepository.findById(order.getId()).orElseThrow();
-      assertThat(untouched.getStatus()).isEqualTo(OrderStatus.PENDING);
+      Order failed = orderRepository.findById(order.getId()).orElseThrow();
+      assertThat(failed.getStatus()).isEqualTo(OrderStatus.CANCELED);
+      assertThat(failed.getCancelReason()).isEqualTo(CancelReason.PAYMENT_FAILED);
+
+      HotDealStock hotDealStock = hotDealStockRepository.findByHotDealId(hotDeal.getId()).orElseThrow();
+      assertThat(hotDealStock.getRemainingQuantity()).isEqualTo(100);
+
+      ProductStock stock = productStockRepository.findByProductId(product.getId()).orElseThrow();
+      assertThat(stock.getOnHandQuantity()).isEqualTo(100);
 
       assertThat(paymentRepository.findAll()).isEmpty();
     }
