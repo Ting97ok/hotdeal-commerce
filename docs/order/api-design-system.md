@@ -66,6 +66,8 @@
 | 3 | `concurrentSweepRestoresStockOnce` | 같은 만료 주문 동시 N건 만료 처리 → `markExpired` 조건부 affected==1로 재고 1회만 복원(version=1), 낙관락 충돌 없음 | ✅ Pass | 2026-06-25 |
 | 4 | `canRepurchaseAfterExpiry` | 만료(CANCELED) 후 같은 회원이 같은 핫딜 재구매 성공(`is_active` 해제) | ✅ Pass | 2026-06-24 |
 | 5 | `paidOrderIsNotOverwrittenByExpirySweep` | 결제로 PAID 전이된 주문을 만료 처리가 CANCELED로 덮지 않고 재고도 복원 안 함 — `markExpired` 조건부, 결제 미커밋 행잠금 인터리빙으로 결정론적 재현 | ✅ Pass | 2026-06-25 |
+| 6 | `isolatesFailurePerOrder` | 한 건의 재고 복원 실패(예외 주입) → 그 건만 롤백·PENDING 유지(다음 회차 재시도), 나머지는 CANCELED·복원 계속 — "주문 1건 = 트랜잭션 1개" 이행 | ✅ Pass | 2026-07-04 |
+| 7 | `processesUpToLimitPerSweep` | 만료 3건 + LIMIT 2 → 한 회차에 2건만 처리하고 나머지는 다음 회차로 — 후보 조회 LIMIT(기본 500, `order.expiry-scheduler.batch-size`) 이행 | ✅ Pass | 2026-07-04 |
 
 **구현 로직**
 
