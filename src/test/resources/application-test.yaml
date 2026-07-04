@@ -28,6 +28,10 @@ order:
   expiry-scheduler:
     enabled: false
 
+payment:
+  resolution-scheduler:
+    enabled: false
+
 toss:
   base-url: http://localhost
   secret-key: test_sk_dummy
