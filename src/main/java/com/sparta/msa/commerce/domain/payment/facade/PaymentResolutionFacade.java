@@ -12,9 +12,11 @@ import com.sparta.msa.commerce.domain.stock.service.HotDealStockService;
 import com.sparta.msa.commerce.domain.stock.service.ProductStockService;
 import java.time.LocalDateTime;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.support.TransactionTemplate;
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class PaymentResolutionFacade {
@@ -29,7 +31,12 @@ public class PaymentResolutionFacade {
   public void resolveInDoubt(LocalDateTime now) {
     LocalDateTime graceThreshold = now.minusMinutes(1);
     for (Payment payment : paymentService.findInDoubtCreatedBefore(graceThreshold)) {
-      resolveOne(payment);
+      try {
+        resolveOne(payment);
+      } catch (RuntimeException e) {
+        log.warn("IN_DOUBT 해소 실패 — 다음 회차 재시도. paymentId={}, pgPaymentKey={}",
+            payment.getId(), payment.getPgPaymentKey(), e);
+      }
     }
   }
 
