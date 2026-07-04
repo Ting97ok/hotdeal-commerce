@@ -137,7 +137,8 @@ class ConfirmPaymentIntegrationTest {
               .content(objectMapper.writeValueAsString(request)))
           .andExpect(status().isOk())
           .andExpect(jsonPath("$.result").value(true))
-          .andExpect(jsonPath("$.data.paymentId").isNumber());
+          .andExpect(jsonPath("$.data.paymentId").isNumber())
+          .andExpect(jsonPath("$.data.status").value("DONE"));
 
       Order paid = orderRepository.findById(order.getId()).orElseThrow();
       assertThat(paid.getStatus()).isEqualTo(OrderStatus.PAID);
@@ -348,7 +349,9 @@ class ConfirmPaymentIntegrationTest {
               .header(AUTHORIZATION, "Bearer " + tokenIssuer.createAccessToken(user.getId(), UserRole.USER))
               .contentType(APPLICATION_JSON)
               .content(objectMapper.writeValueAsString(request)))
-          .andExpect(status().isOk());
+          .andExpect(status().isOk())
+          .andExpect(jsonPath("$.data.status").value("IN_DOUBT"))
+          .andExpect(jsonPath("$.data.approvedAt").doesNotExist());
 
       Order preserved = orderRepository.findById(order.getId()).orElseThrow();
       assertThat(preserved.getStatus()).isEqualTo(OrderStatus.PAID);
