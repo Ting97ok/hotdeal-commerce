@@ -157,7 +157,7 @@
   승인   → Payment(DONE) 저장
   거절   → 실패 확정: 주문 CANCELED(PAYMENT_FAILED) + 핫딜·상품 재고 방출, Payment 미생성 → PAYMENT_REJECTED(402)
   통신오류 → 보상: 주문 PENDING 복귀 + 재고 복원, Payment 미생성 → PAYMENT_GATEWAY_ERROR(502)
-  미확정 → Payment(IN_DOUBT) 저장, 보상 안 함(주문 PAID 유지·재고 차감 유지) → 200 또는 202
+  미확정 → Payment(IN_DOUBT) 저장, 보상 안 함(주문 PAID 유지·재고 차감 유지) → 200 + status=IN_DOUBT(보류)
 ```
 
 > **설계 노트 — 보상이 새로 필요한 이유(자동 롤백 상실)**: 기존 단일 TX에서는 토스 거부 시 같은 TX 롤백으로 선점한 PAID·재고차감이 **자동 복귀**했다. TX를 쪼개 TX1을 먼저 커밋하면 그 자동 복귀가 사라지므로, TX2에서 명시적으로 처리한다 — 거절(돈 안 나감 확정)은 **실패 확정**(주문 CANCELED(PAYMENT_FAILED) 조건부 전이 + 핫딜·상품 재고 방출, 재시도는 새 주문), 통신오류(요청 미도달)는 **명시적 보상**(주문 PENDING 복귀 = `markPending` 조건부 UPDATE, 재고 복원 = `confirmSale` 역연산). 이는 단일 TX가 공짜로 주던 원자성을 손으로 되살리는 비용이며, TX 경계 분리의 트레이드오프다.
@@ -177,7 +177,7 @@
 | 승인 성공(2xx) | `Approved` | DONE 생성 | PAID 유지·차감 유지 | — | 200 성공 |
 | 승인 거부 — **거절 코드 목록(`REJECT_CODES`)에 있는 code** (카드사 거절·잔액부족·한도초과·FDS 차단 등) | `Rejected` | 미생성(실패 확정) | **CANCELED(PAYMENT_FAILED)·핫딜+상품 재고 방출** | **재시도 무의미**(같은 수단 재시도해도 거부 — 재시도는 새 주문으로) | 402 `PAYMENT_REJECTED` |
 | 통신 오류 — **응답을 못 받음**: connect 실패·DNS(요청 미도달) | `GatewayError` → (Facade가) `PAYMENT_GATEWAY_ERROR` | 미생성(보상 롤백) | PENDING 복귀·재고 복원 | **재시도 가능**(돈 안 나감) | 502 |
-| **미확정** — 거절 코드가 아닌 응답 전부(처리오류·모르는 code·5xx 포함) + read 타임아웃·소켓 끊김 | `InDoubt` | **IN_DOUBT 생성** | **PAID·차감 유지(보상 ❌)** | **결과 미확정**(섣불리 재시도·롤백 금지 → B2 해소) | 200/202(보류) |
+| **미확정** — 거절 코드가 아닌 응답 전부(처리오류·모르는 code·5xx 포함) + read 타임아웃·소켓 끊김 | `InDoubt` | **IN_DOUBT 생성** | **PAID·차감 유지(보상 ❌)** | **결과 미확정**(섣불리 재시도·롤백 금지 → B2 해소) | 200(보류 — `status=IN_DOUBT`) |
 
 > **설계 노트 — 분류 규칙(HTTP 상태 안 봄)**: 기준은 하나, **"돈이 확실히 안 빠졌나?"** ① **응답을 받은 경우**는 토스 error `code`만 본다 — **`REJECT_CODES`에 있으면 `Rejected`(돈 안 나감 확정), 그 외 전부(처리오류·모르는 code·5xx 포함)는 `InDoubt`**(안전 기본값, 애매하면 안 되돌림). ② **응답을 못 받은 경우**는 요청이 닿았는지로 — connect 실패·DNS는 `GatewayError`(안 닿음=돈 안 나감), read 타임아웃·소켓 중단은 `InDoubt`(닿았을 수 있음). 분류는 어댑터(`TossPaymentClient`)에 격리된다([ADR-0008](../adr/0008-payment-model-pg-boundary.md) 결정3).
 

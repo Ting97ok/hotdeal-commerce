@@ -71,6 +71,7 @@ POST /api/payments/confirm
     "orderId": 1,
     "orderNo": "550e8400-e29b-41d4-a716-446655440000",
     "amount": 19800,
+    "status": "DONE",
     "approvedAt": "2026-06-24T12:05:40"
   }
 }
@@ -84,7 +85,8 @@ POST /api/payments/confirm
 | orderId | Long | 주문 ID | `payment.orderId` |
 | orderNo | String | 주문 번호 | Order 별도 조회 필요 (응답 설계 단순화 시 제거 가능) |
 | amount | BigDecimal | 결제 금액 | `payment.amount` |
-| approvedAt | LocalDateTime | 승인 시각 | `payment.approvedAt` |
+| status | PaymentStatus | 결제 상태 — `DONE`(확정) / `IN_DOUBT`(미확정 보류: 클라이언트는 "결제 완료"로 표시하면 안 됨, 해소 스케줄러가 확정) | `payment.status` |
+| approvedAt | LocalDateTime | 승인 시각 (IN_DOUBT이면 없음) | `payment.approvedAt` |
 
 **테스트 리스트**
 
@@ -290,7 +292,7 @@ int restoreSale(@Param("productId") Long productId, @Param("quantity") int quant
 | # | 테스트 케이스 | 시나리오 | 상태 | 작성일 |
 |---|---------------|----------|------|--------|
 | 1 | `토스_결과_sealed_분기_거부_Rejected_결과값_402` | paymentGatewayClient가 sealed `Rejected()` 결과값 반환 → Facade switch 분기 → 402 PAYMENT_REJECTED, 주문 CANCELED(PAYMENT_FAILED)·핫딜+상품 재고 방출(실패 확정), Payment 0건 | ✅ Pass | 2026-06-30 · 07-03 갱신 |
-| 2 | `토스_미확정_InDoubt_시_IN_DOUBT_보존_주문_PAID_유지` | paymentGatewayClient가 `InDoubt()` 반환 → 보상 없이 Payment IN_DOUBT 생성, 주문 PAID·재고 차감 유지, 200(보류) | ✅ Pass | 2026-07-01 |
+| 2 | `토스_미확정_InDoubt_시_IN_DOUBT_보존_주문_PAID_유지` | paymentGatewayClient가 `InDoubt()` 반환 → 보상 없이 Payment IN_DOUBT 생성, 주문 PAID·재고 차감 유지, 200 + `status=IN_DOUBT`(보류 — approvedAt 없음, 완료로 위장 금지) | ✅ Pass | 2026-07-01 · 07-04 갱신 |
 | 3 | `토스_통신오류_GatewayError_결과값_시_502_보상_롤백` | paymentGatewayClient가 `GatewayError()` 결과값 반환 → Facade switch 분기 → revertPreemption(markPending·restoreSale) 후 502 PAYMENT_GATEWAY_ERROR, 주문 PENDING·재고 복원, Payment 0건 | ✅ Pass | 2026-07-01 |
 | 4 | `토스_승인_2xx_Approved_매핑` | (단위·MockWebServer) 토스 승인 응답(status DONE, approvedAt) → TossPaymentClient가 `Approved` 결과로 매핑(@HttpExchange 실HTTP) | ✅ Pass | 2026-07-01 |
 | 5 | `토스_4xx_거부_Rejected_매핑` | (단위) 토스 400 응답 → `Rejected` 결과 | ✅ Pass | 2026-07-01 |
