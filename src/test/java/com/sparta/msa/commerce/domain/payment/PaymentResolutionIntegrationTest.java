@@ -39,6 +39,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.context.ActiveProfiles;
+import org.springframework.web.client.RestClientException;
 
 @SpringBootTest
 @ActiveProfiles("test")
@@ -71,7 +72,7 @@ class PaymentResolutionIntegrationTest {
 
   private Payment saveInDoubtPayment(String paymentKey) {
     User user = userRepository.save(
-        User.create("buyer@test.com", passwordEncoder.encode("pass"), "구매자", UserRole.USER));
+        User.create(paymentKey + "@test.com", passwordEncoder.encode("pass"), "구매자", UserRole.USER));
     Product product = productRepository.save(Product.create("맥북 프로", new BigDecimal("2000000")));
     productStockRepository.save(ProductStock.create(product.getId(), 100));
     productStockService.reserve(product.getId(), 1);
@@ -179,6 +180,24 @@ class PaymentResolutionIntegrationTest {
 
     Order keptOrder = orderRepository.findById(payment.getOrderId()).orElseThrow();
     assertThat(keptOrder.getStatus()).isEqualTo(OrderStatus.PAID);
+  }
+
+  @Test
+  @DisplayName("한 건의 토스 조회가 예외로 실패해도 나머지 IN_DOUBT은 해소된다")
+  void resolvesRemainingWhenOneInquiryFails() {
+    Payment poison = saveInDoubtPayment("toss_pk_poison");
+    Payment healthy = saveInDoubtPayment("toss_pk_ok");
+    given(paymentGatewayClient.getPayment("toss_pk_poison"))
+        .willThrow(new RestClientException("toss inquiry failed"));
+    given(paymentGatewayClient.getPayment("toss_pk_ok"))
+        .willReturn(new PgPayment(PgPaymentStatus.DONE, new BigDecimal("19800"), LocalDateTime.now()));
+
+    paymentResolutionFacade.resolveInDoubt(LocalDateTime.now().plusMinutes(5));
+
+    Payment kept = paymentRepository.findById(poison.getId()).orElseThrow();
+    assertThat(kept.getStatus()).isEqualTo(PaymentStatus.IN_DOUBT);
+    Payment resolved = paymentRepository.findById(healthy.getId()).orElseThrow();
+    assertThat(resolved.getStatus()).isEqualTo(PaymentStatus.DONE);
   }
 
   @Test
