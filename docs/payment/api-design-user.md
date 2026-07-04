@@ -18,7 +18,7 @@ POST /api/payments/confirm
 
 > 회원이 토스 결제창에서 완료한 결제를 서버에서 최종 확정한다. 프론트엔드가 토스 successUrl에서 받은 paymentKey·orderId(=orderNo)·amount를 전달하면, 서버가 금액을 검증하고 **주문을 PENDING→PAID로 먼저 선점한 뒤**(조건부 전이) 토스 결제 승인 API를 호출하고, 성공하면 Payment 행을 생성한다.
 >
-> 인증: 회원 전용 (USER/ADMIN 무관, 비회원 401).
+> 인증: 회원 전용 (USER/ADMIN 무관, 비회원 401). **본인 주문만 승인 가능** — 타인 주문은 404(존재 여부 은닉).
 >
 > **Phase B1(실연동) 변경 요약**: 아래 슬라이스3~5 본문은 stub 대역 기준의 단일 TX 흐름이다. Phase B1에서 ① 토스 호출을 **DB 트랜잭션 밖**으로 분리(선점·차감은 TX1, 결과 반영은 TX2), ② 거절은 **실패 확정**(주문 CANCELED·핫딜+상품 재고 방출 — 핫딜 정책: 실패 즉시 방출, 재시도는 새 주문으로), 통신오류(요청 미도달)는 **보상 롤백**(주문 PENDING 복귀·재고 복원), ③ **미확정(타임아웃·응답유실)**은 롤백 대신 `IN_DOUBT`로 보존한다. 상세는 본 절 끝 "Phase B1 — 실연동 변경" + [공통 정의 "Phase B1 — 토스 결제 실연동"](api-design.md).
 
@@ -48,6 +48,7 @@ POST /api/payments/confirm
 | orderId 필수 | @NotBlank | VALIDATION_ERROR |
 | amount 필수·양수 | @NotNull @Positive | VALIDATION_ERROR |
 | 주문 존재 | 비즈니스 검증 (CommonOrderService.getOrderForPayment) | ORDER_NOT_FOUND |
+| 주문 소유자 일치 | 비즈니스 검증 (order.validateOwnedBy — 토스 호출 전) | ORDER_NOT_FOUND (403 아님 — 존재 여부 은닉) |
 | 금액 일치 | 비즈니스 검증 (order.validatePaymentAmount) | AMOUNT_MISMATCH |
 | 핫딜 취소 여부 | 비즈니스 검증 (validateNotCanceledIfHotDeal) | HOTDEAL_CANCELED |
 | **조건부 상태 선점** | @Modifying UPDATE WHERE status='PENDING', affected==1 **(토스 호출 전)** | ORDER_STATUS_CONFLICT |
@@ -98,6 +99,7 @@ POST /api/payments/confirm
 | 5 | `토스_거부_시_402_주문_CANCELED_재고_방출` | 토스 거절(Rejected) → 402 PAYMENT_REJECTED, 주문 CANCELED(PAYMENT_FAILED), 핫딜+상품 재고 방출, Payment 0건 (2026-07-03 핫딜 방향 반영 — 구 명세는 PENDING 유지) | ✅ Pass | 2026-07-03 |
 | 6 | `동시_결제_승인_시_1건만_PAID_나머지_ORDER_STATUS_CONFLICT_Payment_1건` | PENDING 주문 1건에 8스레드 동시 승인 → 선점 직렬화로 1건만 PAID(**토스 1회**), 7건 ORDER_STATUS_CONFLICT(토스 미호출), Payment 1건 | ✅ Pass | 2026-06-25 |
 | 7 | `결제_확정_시_ProductStock_실물_예약_차감` | 결제 확정(confirm 성공) → ProductStock onHand·reserved 각 1↓(`confirmSale`, 주문 수량만큼) | ✅ Pass | 2026-06-25 |
+| 8 | `타인_주문_승인_시_404_ORDER_NOT_FOUND_토스_미호출` | 다른 사용자 토큰으로 confirm → 404 ORDER_NOT_FOUND(존재 은닉), 토스 미호출(never), 주문 PENDING 유지, Payment 0건 | ✅ Pass | 2026-07-04 |
 
 > **설계 노트 — 슬라이스4 재배치가 기존 테스트에 주는 영향**: 흐름이 "선점 먼저"로 바뀌면 #2(만료 CANCELED)·#3(이미 PAID)·#6(동시 7건 충돌)은 **토스를 호출하지 않고** affected==0으로 걸러진다(슬라이스3에서는 토스 승인 mock을 거친 뒤 markPaid 0건이었다). 단언의 핵심(409·Payment 0건/1건·주문 상태)은 동일하나, 검증 포인트가 "토스 승인 성공 후 충돌"에서 "**선점 단계에서 토스 호출 자체를 차단(verify never)**"으로 강해진다. Phase 2 TDD에서 해당 테스트의 토스 호출 단언(`verify(...).never()`)을 보강한다.
 
