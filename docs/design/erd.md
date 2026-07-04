@@ -53,7 +53,6 @@ erDiagram
         bigint id PK
         bigint hotDealId FK "UNIQUE — HotDeal 1:1, 논리 참조"
         int    remainingQuantity "잔여(경합 대상)"
-        bigint version "낙관락 @Version"
     }
     ORDERS {
         bigint   id PK
@@ -72,8 +71,7 @@ erDiagram
         bigint   orderId FK "논리 참조 — 주문 1 : 시도 N"
         decimal  amount
         string   status "결제 승인 슬라이스에서 확정(토스 기준)"
-        string   pgPaymentKey UK "PG 거래 키 — 행 단위 키 + 통보(웹훅) 매칭"
-        string   idempotencyKey "토스 멱등키(승인 재시도용)"
+        string   pgPaymentKey UK "PG 거래 키 — 행 단위 키 + 해소(토스 조회) 매칭"
         datetime approvedAt
     }
 ```
@@ -107,7 +105,7 @@ erDiagram
 | Product → Order | 1 : N | 주문이 산 상품 참조(적용 핫딜은 `hot_deal`) ([ADR-0011](../adr/0011-product-inventory-reservation.md)) |
 | HotDeal → HotDealStock | 1 : 1 | 핫딜 예약 재고 행 — 경합 격리 ([ADR-0009](../adr/0009-stock-concurrency-design.md)) |
 | HotDeal → Order | 1 : N | 한 핫딜에 여러 구매 |
-| Order → Payment | **1 : N** | 행 단위 = paymentKey(PG 거래 키) 1개 — 같은 멱등키 재시도는 기존 행 갱신. 승인 1건 보장은 주문 상태 전이(PENDING→PAID 1회)가 담당 ([ADR-0008](../adr/0008-payment-model-pg-boundary.md)) |
+| Order → Payment | **1 : N** | 행 단위 = paymentKey(PG 거래 키) 1개 — 재시도 멱등은 토스 `Idempotency-Key`(=paymentKey) 헤더가, 승인 1건 보장은 주문 상태 전이(PENDING→PAID 1회)가 담당 ([ADR-0008](../adr/0008-payment-model-pg-boundary.md)) |
 
 ---
 
@@ -115,11 +113,11 @@ erDiagram
 
 | 가설 규칙 ([가설 4](hotdeal-purchase-hypothesis.md)) | 데이터 모델에서의 구현 위치 |
 |---|---|
-| 오버셀 0 + 거짓 성공 0 | `HotDealStock.remainingQuantity` 차감의 원자성 + `version`(낙관락 출발점) + CHECK(`remaining >= 0`, 최후 방어선). 거짓 성공은 "응답 = 커밋된 트랜잭션"으로 차단 |
+| 오버셀 0 + 거짓 성공 0 | `HotDealStock.remainingQuantity` 차감의 원자성(조건부 UPDATE — [ADR-0010](../adr/0010-concurrency-strategy-selection.md)) + CHECK(`remaining >= 0`, 최후 방어선). 거짓 성공은 "응답 = 커밋된 트랜잭션"으로 차단 |
 | 계정당 1활성주문 | `orders` 활성 유니크 — 생성 칼럼 (아래 '6. 물리 DDL 정책'). 주문당 `maxPerOrder`·총량 `maxPerAccount`는 [ADR-0005](../adr/0005-one-per-user-active-unique.md) |
 | 선점 + 복원 정확히 한 번 | HotDealStock 차감과 `Order(PENDING)` 생성이 한 트랜잭션. 복원은 `PENDING→CANCELED` 조건부 갱신 성공(1행) 시에만 + `cancel_reason`. `expiresAt`(주문 생성 시 부여)으로 만료 추적 |
 | 금액 조작 방지 | `Order.orderAmount` 주문 시점 저장 — 결제 검증은 서버가 이 값으로 |
-| 멱등 2겹 | 내부 = 활성 유니크 / 외부 = `Payment.idempotencyKey` + 행 단위 = paymentKey |
+| 멱등 2겹 | 내부 = 활성 유니크·조건부 전이(주문당 PAID 1회) / 외부 = 토스 `Idempotency-Key`(=paymentKey) 헤더 + `pg_payment_key` UNIQUE |
 | 장부 일치(정합 검증식) | 핫딜: `totalQuantity = remaining + Σ(활성 주문 qty)` · `주문당 승인 ≤ 1` · `PAID ↔ 승인 1:1` — 쿼리로 검증. 상품: `ProductStock.reserved` 는 활성 핫딜 예약분 — 변동 원장 정식화는 슬라이스 2 ([ADR-0011](../adr/0011-product-inventory-reservation.md) 보류) |
 | 상태는 판단으로 | HotDeal 에 진행/매진 컬럼 없음. `status` 는 ACTIVE/CANCELED 만. `totalQuantity` 등록 후 불변(증량 전환 경로는 [ADR-0007](../adr/0007-hotdeal-state-operations.md)) |
 | 식별자 정책 | 공개 = 순번 id / 민감 = `order_no`(UUID, UNIQUE). PK 는 순번 유지 ([ADR 인덱스 — 식별자 정책](../adr/README.md)) |
@@ -128,7 +126,7 @@ erDiagram
 
 ## 5. 동시성 핫스팟 — HotDealStock 한 행
 
-수천 동시 구매 → 동일 HotDeal → 동일 **HotDealStock 1행** 차감. 경합은 이 한 행에 집중되며, 5방식(낙관/비관/Redis/분산락/원자적 조건부 UPDATE)을 이 한 행·키에 교체 적용해 비교한다(3주차).
+수천 동시 구매 → 동일 HotDeal → 동일 **HotDealStock 1행** 차감. 경합은 이 한 행에 집중되며, 5방식(낙관/비관/Redis/분산락/원자적 조건부 UPDATE) 중 3방식을 이 한 행·키에 교체 적용해 비교했고 운영 전략은 조건부 UPDATE 로 확정([ADR-0010](../adr/0010-concurrency-strategy-selection.md)).
 
 - 왜 별도 테이블인가(낙관락 가짜 충돌·잠금 줄 분리·벤치마크 집중·실증 사례) → **[ADR-0009](../adr/0009-stock-concurrency-design.md)**
 - **`ProductStock`은 핫스팟이 아니다** — 등록/취소(관리자)·결제확정(당첨자만·결제 창에 분산)만 건드려 저경합. 핫 패스는 `HotDealStock` 한 행으로 격리([ADR-0011](../adr/0011-product-inventory-reservation.md)).
@@ -141,7 +139,7 @@ erDiagram
 - **FK 제약 없음** — FK 칼럼(`*_id`) + 보조 인덱스(기본 키 외에 따로 만드는 검색용 색인)만 ([ADR-0003](../adr/0003-no-db-fk-constraints.md)).
 - **금액** — 전 금액 칼럼 `DECIMAL(12,0)`, JPA `BigDecimal` ([ADR 인덱스 — 금액 타입](../adr/README.md)).
 - **시각** — 전 칼럼 `DATETIME(6)` (V1 과 동일 정밀도).
-- **재고 테이블 분리** — `product_stock`(상품 재고 원본): `product_id`(UNIQUE 논리 참조)·`on_hand_quantity`·`reserved_quantity`(version 없음 — 예약·복원은 원자적 조건부 UPDATE, [ADR-0011](../adr/0011-product-inventory-reservation.md) 결정 4). `hot_deal_stock`(핫딜 예약 재고 — 기존 `stock` 리네임): `hot_deal_id`(UNIQUE)·`remaining_quantity`·`version`(벤치마크 낙관락 변형용 유지). 가용(실물−예약)은 **저장 안 함**(조회 시 계산) ([ADR-0011](../adr/0011-product-inventory-reservation.md)).
+- **재고 테이블 분리** — `product_stock`(상품 재고 원본): `product_id`(UNIQUE 논리 참조)·`on_hand_quantity`·`reserved_quantity`(version 없음 — 예약·복원은 원자적 조건부 UPDATE, [ADR-0011](../adr/0011-product-inventory-reservation.md) 결정 4). `hot_deal_stock`(핫딜 예약 재고 — 기존 `stock` 리네임): `hot_deal_id`(UNIQUE)·`remaining_quantity`(`version` 없음 — 낙관락 측정 종료 후 제거, [ADR-0010](../adr/0010-concurrency-strategy-selection.md)). 가용(실물−예약)은 **저장 안 함**(조회 시 계산) ([ADR-0011](../adr/0011-product-inventory-reservation.md)).
 - **상품 재고 시드** — `on_hand` 초기값은 시드/픽스처(운영 입고 API 는 스코프 밖 — [ADR-0011](../adr/0011-product-inventory-reservation.md) 보류). Product 생성 시 `product_stock` 행 동반 생성 — 핫딜 등록 가용검사가 의존하므로 "출처 없음" 재발 방지.
 - **orders 칼럼 확정** — `order_no CHAR(36)`(UUID v4) · `product_id BIGINT NOT NULL`(논리 참조 — 산 상품) · `hot_deal_id BIGINT NOT NULL`(논리 참조 — 적용 핫딜) · `expires_at DATETIME(6) NOT NULL`(임시 10분 — 최종값은 슬라이스 2) · `cancel_reason VARCHAR(30) NULL`(후보: PAYMENT_FAILED·EXPIRED).
 - **hot_deals 칼럼 추가** — `canceled_at DATETIME(6) NULL`(긴급 중단 시각 — 검수 쿼리가 "언제 중단됐나"에 답. 중단 사유 기록은 범위 밖 — 1인 운영).

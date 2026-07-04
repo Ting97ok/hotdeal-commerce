@@ -43,7 +43,7 @@ controller/ → facade/ → service/ → repository/
 ```
 
 - **신규 도메인은 4계층**(Controller → Facade → Service → Repository). Facade 전면 도입 — 단순 CRUD 도 Facade 경유.
-- **기존 8개 도메인은 3계층 유지**(`auth` 만 Facade) — 전환 강제하지 않음.
+- **지원 도메인(user·product·stock)은 Controller 없이 Service 까지만** — 타 도메인 Facade 가 진입점. auth·hotdeal·order·payment 는 Facade 4계층(전환 강제하지 않음).
 - Facade 는 타 도메인 Service 호출(Repository 직접 금지) + Response 조립. Service 는 자기 Repository + 같은 도메인 공통 Service 만(타 도메인 Service 직접 호출 금지 → Facade 경유). 상세 [.claude/rules/service.md](.claude/rules/service.md).
 
 ## 네이밍 컨벤션
@@ -114,7 +114,7 @@ Serena MCP 가 등록돼 있어 **Java 소스의 심볼 단위 분석/편집은 
 
 ## 통합 테스트
 
-상세는 [.claude/rules/integration-test.md](.claude/rules/integration-test.md). 핵심: **공통 베이스 클래스 없이** 각 테스트가 `@SpringBootTest @AutoConfigureMockMvc @ActiveProfiles("test") @WithMockUser` 를 직접 사용. testcontainers PostgreSQL + Redis. `@Nested/@DisplayName`(한글), `repository.deleteAll()` 격리, 단언은 ApiResponse 구조(`$.result`/`$.data`/`$.error.code`).
+상세는 [.claude/rules/integration-test.md](.claude/rules/integration-test.md). 핵심: **공통 베이스 클래스 없이** 각 테스트가 `@SpringBootTest @AutoConfigureMockMvc @ActiveProfiles("test") @WithMockUser` 를 직접 사용. testcontainers MySQL 8.4 + Redis. `@Nested/@DisplayName`(한글), `repository.deleteAll()` 격리, 단언은 ApiResponse 구조(`$.result`/`$.data`/`$.error.code`).
 
 ## Phase/Slice별 스킬 호출
 

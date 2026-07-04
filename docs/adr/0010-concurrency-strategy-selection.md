@@ -17,7 +17,7 @@
 
 - 워크로드: 선착순 폭주 — VU별 고유 계정(1인 1주문)으로 `POST /api/orders` 경합 ([k6/order-flash-sale.js](../../k6/order-flash-sale.js)). k6 `setupTimeout` 300s + 주문 지연 전용 `order_duration` 으로 setup(bcrypt 로그인) 지연을 분리.
 - **두 구간**: ① 저경합(동시 100·재고 10 — 대부분 빠른 거절) ② 고경합(동시 1000·재고 2000 — 거의 전원이 실제 차감 UPDATE 수행, 단일 행 경합 노출).
-- **측정 환경 2종**: (A) 호스트 수동 — 앱 호스트 기동 + SQL DEBUG 로그 on + 공유 MySQL. (B) **격리 자동** — 일회용 컨테이너(MySQL·Redis tmpfs) + 앱 컨테이너(SQL 로그 WARN), [run.sh](../../k6/benchmark/run.sh) 한 번으로 3전략 순회 후 폐기. **(B)가 오염이 적어 신뢰도가 높다** — 고경합은 (B)로 재측정했다.
+- **측정 환경 2종**: (A) 호스트 수동 — 앱 호스트 기동 + SQL DEBUG 로그 on + 공유 MySQL. (B) **격리 자동** — 일회용 컨테이너(MySQL·Redis tmpfs) + 앱 컨테이너(SQL 로그 WARN), [run.sh](../../k6/benchmark/run.sh) 한 번으로 전략 순회 후 폐기(측정 당시 3전략 — 낙관락 제거 후 현재 스크립트는 conditional·redis 2전략). **(B)가 오염이 적어 신뢰도가 높다** — 고경합은 (B)로 재측정했다.
 
 ### 결과
 

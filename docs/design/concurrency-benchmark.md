@@ -1,7 +1,7 @@
 # 동시성 벤치마크 설계 — 재고 차감 3방식
 
 > 핫딜 재고 차감(`HotDealStock`)을 3방식으로 **동일 조건 측정**해 운영 1개를 고르는 벤치마크의 구현 설계.
-> **결정 정본은 ADR** — 측정 대상·지표는 [ADR-0009](../adr/0009-stock-concurrency-design.md), 부하 도구는 [ADR-0013](../adr/0013-load-test-tool-k6.md), 결과는 [ADR-0010(예정)]. 본 문서는 그 결정을 **어떻게 구현·측정하는지**를 정의한다.
+> **결정 정본은 ADR** — 측정 대상·지표는 [ADR-0009](../adr/0009-stock-concurrency-design.md), 부하 도구는 [ADR-0013](../adr/0013-load-test-tool-k6.md), 결과·운영 전략 확정은 [ADR-0010](../adr/0010-concurrency-strategy-selection.md). 본 문서는 그 결정을 **어떻게 구현·측정하는지**를 정의한다.
 > 근거 자료: [research-flash-sale.md](research-flash-sale.md)
 
 ## 0. 범위
@@ -29,7 +29,7 @@ interface HotDealStockDeductor {
 
 - **선택 방식**: 설정 프로퍼티 `stock.deduct.strategy = optimistic | conditional | redis` + `@ConditionalOnProperty`로 빈 하나만 활성. 벤치마크는 프로퍼티만 바꿔 재기동하고 **같은 k6 시나리오를 재실행**한다(다른 조건은 그대로라 방식 차이만 순수 비교).
 - **끼움 지점**: `HotDealStockService.deduct/restore`가 주입된 `HotDealStockDeductor`에 위임한다. `create`·조회 등 비경합 연산은 공통(전략 무관).
-- **`@Version` 칼럼 유지**: 조건부 UPDATE·Redis 전략에서도 칼럼은 남긴다(스키마 공통). 낙관락 전략만 그 칼럼을 쓴다 — [ADR-0011 결정 4](../adr/0011-product-inventory-reservation.md)의 "HotDealStock version은 벤치마크 대상이라 유지".
+- **`@Version` 칼럼 — 측정 당시 스키마 공통 유지, 확정 후 제거**: 측정 기간엔 전략 무관하게 칼럼을 남겼다([ADR-0011 결정 4](../adr/0011-product-inventory-reservation.md)). [ADR-0010](../adr/0010-concurrency-strategy-selection.md) 확정 후 낙관락 전략·`version` 칼럼은 코드·스키마에서 제거됐다(측정 결과는 ADR-0010 표에 보존, 코드 재현은 git 히스토리).
 
 ## 2. k6 워크로드
 
