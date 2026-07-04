@@ -2,6 +2,8 @@ package com.sparta.msa.commerce.global.exception;
 
 import static com.sparta.msa.commerce.global.exception.DomainExceptionCode.CONCURRENT_UPDATE_CONFLICT;
 import static com.sparta.msa.commerce.global.exception.DomainExceptionCode.DATA_INTEGRITY_VIOLATION;
+import static com.sparta.msa.commerce.global.exception.DomainExceptionCode.METHOD_NOT_ALLOWED;
+import static com.sparta.msa.commerce.global.exception.DomainExceptionCode.RESOURCE_NOT_FOUND;
 import static com.sparta.msa.commerce.global.exception.DomainExceptionCode.SERVER_ERROR;
 import static com.sparta.msa.commerce.global.exception.DomainExceptionCode.VALIDATION_ERROR;
 
@@ -19,9 +21,11 @@ import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.validation.BindException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
+import org.springframework.web.HttpRequestMethodNotSupportedException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
+import org.springframework.web.servlet.resource.NoResourceFoundException;
 
 @Slf4j
 @Hidden
@@ -94,11 +98,23 @@ public class GlobalExceptionHandler {
     return fail(CONCURRENT_UPDATE_CONFLICT, CONCURRENT_UPDATE_CONFLICT.getMessage());
   }
 
+  @ExceptionHandler(NoResourceFoundException.class)
+  public ResponseEntity<ApiResponse<Void>> handleNoResourceFoundException(NoResourceFoundException ex) {
+    log.warn("[NoResourceFound] : {}", ex.getMessage());
+    return fail(RESOURCE_NOT_FOUND, RESOURCE_NOT_FOUND.getMessage());
+  }
+
+  @ExceptionHandler(HttpRequestMethodNotSupportedException.class)
+  public ResponseEntity<ApiResponse<Void>> handleHttpRequestMethodNotSupportedException(
+      HttpRequestMethodNotSupportedException ex) {
+    log.warn("[MethodNotSupported] : {}", ex.getMessage());
+    return fail(METHOD_NOT_ALLOWED, METHOD_NOT_ALLOWED.getMessage());
+  }
+
   @ExceptionHandler(Exception.class)
   public ResponseEntity<ApiResponse<Void>> handleException(Exception ex) {
     log.error("[Exception] : ", ex);
-    String message = ex.getMessage() != null ? ex.getMessage() : SERVER_ERROR.getMessage();
-    return fail(SERVER_ERROR, message);
+    return fail(SERVER_ERROR, SERVER_ERROR.getMessage());
   }
 
   private ResponseEntity<ApiResponse<Void>> fail(ExceptionCode code, String message) {
