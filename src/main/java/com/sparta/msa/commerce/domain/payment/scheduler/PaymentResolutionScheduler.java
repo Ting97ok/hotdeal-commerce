@@ -16,6 +16,8 @@ public class PaymentResolutionScheduler {
 
   @Scheduled(cron = "0 * * * * *")   // 매분
   public void runResolution() {
-    paymentResolutionFacade.resolveInDoubt(LocalDateTime.now());
+    LocalDateTime now = LocalDateTime.now();
+    paymentResolutionFacade.resolveInDoubt(now);
+    paymentResolutionFacade.resolveOrphanedPaid(now);
   }
 }

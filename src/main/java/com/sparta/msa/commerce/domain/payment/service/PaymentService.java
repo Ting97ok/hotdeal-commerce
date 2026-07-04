@@ -21,6 +21,10 @@ public class PaymentService {
     return paymentRepository.findInDoubtCreatedBefore(threshold);
   }
 
+  public List<Order> findPaidOrdersWithoutPayment(LocalDateTime threshold) {
+    return paymentRepository.findPaidOrdersWithoutPayment(threshold);
+  }
+
   @Transactional
   public Payment createPayment(Order order, PgConfirmResult.Approved approved) {
     return paymentRepository.save(Payment.create(order, approved));

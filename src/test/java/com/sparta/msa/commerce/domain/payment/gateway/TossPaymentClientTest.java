@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import java.io.IOException;
 import java.math.BigDecimal;
 import java.time.Duration;
+import java.util.Optional;
 import okhttp3.mockwebserver.MockResponse;
 import okhttp3.mockwebserver.MockWebServer;
 import okhttp3.mockwebserver.RecordedRequest;
@@ -233,6 +234,39 @@ class TossPaymentClientTest {
     PgPayment result = tossPaymentClient.getPayment("toss_pk_123");
 
     assertThat(result.status().name()).isEqualTo(tossStatus);
+  }
+
+  @Test
+  @DisplayName("주문번호 결제 조회 DONE 응답을 paymentKey 포함 PgPayment로 매핑한다")
+  void mapsFindPaymentByOrderIdDone() {
+    server.enqueue(new MockResponse()
+        .setResponseCode(200)
+        .addHeader("Content-Type", "application/json")
+        .setBody("""
+            {"paymentKey":"toss_pk_orphan","orderId":"order-abc","status":"DONE","totalAmount":19800,"approvedAt":"2026-07-02T10:00:00+09:00"}
+            """));
+
+    Optional<PgPayment> result = tossPaymentClient.findPaymentByOrderId("order-abc");
+
+    assertThat(result).isPresent();
+    assertThat(result.get().paymentKey()).isEqualTo("toss_pk_orphan");
+    assertThat(result.get().status()).isEqualTo(PgPaymentStatus.DONE);
+    assertThat(result.get().totalAmount()).isEqualByComparingTo("19800");
+  }
+
+  @Test
+  @DisplayName("주문번호 결제 조회 404(결제 없음)는 빈 결과로 매핑한다")
+  void mapsFindPaymentByOrderIdNotFound() {
+    server.enqueue(new MockResponse()
+        .setResponseCode(404)
+        .addHeader("Content-Type", "application/json")
+        .setBody("""
+            {"code":"NOT_FOUND_PAYMENT","message":"존재하지 않는 결제 입니다."}
+            """));
+
+    Optional<PgPayment> result = tossPaymentClient.findPaymentByOrderId("order-none");
+
+    assertThat(result).isEmpty();
   }
 
   @Test

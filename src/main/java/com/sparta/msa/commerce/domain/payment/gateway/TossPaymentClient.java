@@ -6,8 +6,10 @@ import java.math.BigDecimal;
 import java.net.ConnectException;
 import java.net.UnknownHostException;
 import java.net.http.HttpConnectTimeoutException;
+import java.util.Optional;
 import java.util.Set;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.HttpStatusCodeException;
 import org.springframework.web.client.ResourceAccessException;
@@ -77,8 +79,24 @@ public class TossPaymentClient implements PaymentGatewayClient {
 
   @Override
   public PgPayment getPayment(String paymentKey) {
-    TossConfirmResponse response = tossHttpClient.getPayment(paymentKey);
+    return toPgPayment(tossHttpClient.getPayment(paymentKey));
+  }
+
+  @Override
+  public Optional<PgPayment> findPaymentByOrderId(String orderId) {
+    try {
+      return Optional.of(toPgPayment(tossHttpClient.getPaymentByOrderId(orderId)));
+    } catch (HttpStatusCodeException e) {
+      if (e.getStatusCode().isSameCodeAs(HttpStatus.NOT_FOUND)) {
+        return Optional.empty();
+      }
+      throw e;
+    }
+  }
+
+  private PgPayment toPgPayment(TossConfirmResponse response) {
     return new PgPayment(
+        response.paymentKey(),
         toStatus(response.status()),
         response.totalAmount(),
         response.approvedAt() != null ? response.approvedAt().toLocalDateTime() : null

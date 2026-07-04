@@ -2,6 +2,8 @@ package com.sparta.msa.commerce.domain.payment;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.BDDMockito.given;
+import static org.mockito.BDDMockito.then;
+import static org.mockito.Mockito.never;
 
 import com.sparta.msa.commerce.domain.hotdeal.dto.request.CreateHotDealRequest;
 import com.sparta.msa.commerce.domain.hotdeal.entity.HotDeal;
@@ -31,6 +33,8 @@ import com.sparta.msa.commerce.domain.user.repository.UserRepository;
 import java.math.BigDecimal;
 import java.time.Duration;
 import java.time.LocalDateTime;
+import java.util.List;
+import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -71,8 +75,12 @@ class PaymentResolutionIntegrationTest {
   }
 
   private Payment saveInDoubtPayment(String paymentKey) {
+    return paymentRepository.save(Payment.createInDoubt(savePaidOrder(paymentKey), paymentKey));
+  }
+
+  private Order savePaidOrder(String tag) {
     User user = userRepository.save(
-        User.create(paymentKey + "@test.com", passwordEncoder.encode("pass"), "구매자", UserRole.USER));
+        User.create(tag + "@test.com", passwordEncoder.encode("pass"), "구매자", UserRole.USER));
     Product product = productRepository.save(Product.create("맥북 프로", new BigDecimal("2000000")));
     productStockRepository.save(ProductStock.create(product.getId(), 100));
     productStockService.reserve(product.getId(), 1);
@@ -84,7 +92,7 @@ class PaymentResolutionIntegrationTest {
     hotDealStockRepository.save(HotDealStock.create(hotDeal.getId(), 99));
     Order order = orderRepository.save(Order.create(user, hotDeal, product, 1, Duration.ofMinutes(10)));
     commonOrderService.markPaid(order);
-    return paymentRepository.save(Payment.createInDoubt(order, paymentKey));
+    return order;
   }
 
   @Test
@@ -92,7 +100,7 @@ class PaymentResolutionIntegrationTest {
   void resolvesToDoneWhenGatewayDone() {
     Payment payment = saveInDoubtPayment("toss_pk_x");
     given(paymentGatewayClient.getPayment("toss_pk_x"))
-        .willReturn(new PgPayment(PgPaymentStatus.DONE, new BigDecimal("19800"), LocalDateTime.now()));
+        .willReturn(new PgPayment("toss_pk_x", PgPaymentStatus.DONE, new BigDecimal("19800"), LocalDateTime.now()));
 
     paymentResolutionFacade.resolveInDoubt(LocalDateTime.now().plusMinutes(5));
 
@@ -105,7 +113,7 @@ class PaymentResolutionIntegrationTest {
   void resolvesToFailedWhenGatewayExpired() {
     Payment payment = saveInDoubtPayment("toss_pk_y");
     given(paymentGatewayClient.getPayment("toss_pk_y"))
-        .willReturn(new PgPayment(PgPaymentStatus.EXPIRED, null, null));
+        .willReturn(new PgPayment("toss_pk_y", PgPaymentStatus.EXPIRED, null, null));
 
     paymentResolutionFacade.resolveInDoubt(LocalDateTime.now().plusMinutes(5));
 
@@ -128,7 +136,7 @@ class PaymentResolutionIntegrationTest {
     Payment payment = saveInDoubtPayment("toss_pk_p");
     Order order = orderRepository.findById(payment.getOrderId()).orElseThrow();
     given(paymentGatewayClient.getPayment("toss_pk_p"))
-        .willReturn(new PgPayment(PgPaymentStatus.IN_PROGRESS, null, null));
+        .willReturn(new PgPayment("toss_pk_inq", PgPaymentStatus.IN_PROGRESS, null, null));
     given(paymentGatewayClient.confirm("toss_pk_p", order.getOrderNo(), payment.getAmount()))
         .willReturn(new PgConfirmResult.Approved("toss_pk_p", payment.getAmount(), LocalDateTime.now()));
 
@@ -144,7 +152,7 @@ class PaymentResolutionIntegrationTest {
     Payment payment = saveInDoubtPayment("toss_pk_q");
     Order order = orderRepository.findById(payment.getOrderId()).orElseThrow();
     given(paymentGatewayClient.getPayment("toss_pk_q"))
-        .willReturn(new PgPayment(PgPaymentStatus.IN_PROGRESS, null, null));
+        .willReturn(new PgPayment("toss_pk_inq", PgPaymentStatus.IN_PROGRESS, null, null));
     given(paymentGatewayClient.confirm("toss_pk_q", order.getOrderNo(), payment.getAmount()))
         .willReturn(new PgConfirmResult.Rejected());
 
@@ -169,7 +177,7 @@ class PaymentResolutionIntegrationTest {
     Payment payment = saveInDoubtPayment("toss_pk_r");
     Order order = orderRepository.findById(payment.getOrderId()).orElseThrow();
     given(paymentGatewayClient.getPayment("toss_pk_r"))
-        .willReturn(new PgPayment(PgPaymentStatus.IN_PROGRESS, null, null));
+        .willReturn(new PgPayment("toss_pk_inq", PgPaymentStatus.IN_PROGRESS, null, null));
     given(paymentGatewayClient.confirm("toss_pk_r", order.getOrderNo(), payment.getAmount()))
         .willReturn(new PgConfirmResult.GatewayError());
 
@@ -190,7 +198,7 @@ class PaymentResolutionIntegrationTest {
     given(paymentGatewayClient.getPayment("toss_pk_poison"))
         .willThrow(new RestClientException("toss inquiry failed"));
     given(paymentGatewayClient.getPayment("toss_pk_ok"))
-        .willReturn(new PgPayment(PgPaymentStatus.DONE, new BigDecimal("19800"), LocalDateTime.now()));
+        .willReturn(new PgPayment("toss_pk_x", PgPaymentStatus.DONE, new BigDecimal("19800"), LocalDateTime.now()));
 
     paymentResolutionFacade.resolveInDoubt(LocalDateTime.now().plusMinutes(5));
 
@@ -209,5 +217,97 @@ class PaymentResolutionIntegrationTest {
 
     Payment kept = paymentRepository.findById(payment.getId()).orElseThrow();
     assertThat(kept.getStatus()).isEqualTo(PaymentStatus.IN_DOUBT);
+  }
+
+  @Test
+  @DisplayName("PAID인데 Payment가 없는 고아는 토스 조회가 DONE이면 Payment DONE을 생성해 매출을 복구한다")
+  void recoversOrphanWhenGatewayDone() {
+    Order orphan = savePaidOrder("orphan-done");
+    given(paymentGatewayClient.findPaymentByOrderId(orphan.getOrderNo()))
+        .willReturn(Optional.of(new PgPayment("toss_pk_orphan", PgPaymentStatus.DONE,
+            orphan.getOrderAmount(), LocalDateTime.now())));
+
+    paymentResolutionFacade.resolveOrphanedPaid(LocalDateTime.now().plusMinutes(16));
+
+    List<Payment> payments = paymentRepository.findAll();
+    assertThat(payments).hasSize(1);
+    assertThat(payments.get(0).getStatus()).isEqualTo(PaymentStatus.DONE);
+    assertThat(payments.get(0).getPgPaymentKey()).isEqualTo("toss_pk_orphan");
+    assertThat(orderRepository.findById(orphan.getId()).orElseThrow().getStatus())
+        .isEqualTo(OrderStatus.PAID);
+  }
+
+  @Test
+  @DisplayName("고아의 토스 조회가 404(결제 없음)면 주문 CANCELED로 확정하고 핫딜·상품 재고를 방출한다")
+  void failsOrphanWhenGatewayHasNoPayment() {
+    Order orphan = savePaidOrder("orphan-none");
+    given(paymentGatewayClient.findPaymentByOrderId(orphan.getOrderNo()))
+        .willReturn(Optional.empty());
+
+    paymentResolutionFacade.resolveOrphanedPaid(LocalDateTime.now().plusMinutes(16));
+
+    assertThat(paymentRepository.findAll()).isEmpty();
+    Order canceled = orderRepository.findById(orphan.getId()).orElseThrow();
+    assertThat(canceled.getStatus()).isEqualTo(OrderStatus.CANCELED);
+    HotDealStock hotDealStock = hotDealStockRepository.findByHotDealId(canceled.getHotDealId()).orElseThrow();
+    assertThat(hotDealStock.getRemainingQuantity()).isEqualTo(100);
+    ProductStock stock = productStockRepository.findByProductId(canceled.getProductId()).orElseThrow();
+    assertThat(stock.getOnHandQuantity()).isEqualTo(100);
+  }
+
+  @Test
+  @DisplayName("고아의 토스 조회가 EXPIRED면 주문 CANCELED로 확정하고 재고를 방출한다")
+  void failsOrphanWhenGatewayExpired() {
+    Order orphan = savePaidOrder("orphan-expired");
+    given(paymentGatewayClient.findPaymentByOrderId(orphan.getOrderNo()))
+        .willReturn(Optional.of(new PgPayment("toss_pk_exp", PgPaymentStatus.EXPIRED, null, null)));
+
+    paymentResolutionFacade.resolveOrphanedPaid(LocalDateTime.now().plusMinutes(16));
+
+    assertThat(paymentRepository.findAll()).isEmpty();
+    assertThat(orderRepository.findById(orphan.getId()).orElseThrow().getStatus())
+        .isEqualTo(OrderStatus.CANCELED);
+  }
+
+  @Test
+  @DisplayName("만료시각+유예(5분)가 지나지 않은 PAID 주문은 고아 스캔 대상에서 제외된다")
+  void skipsOrphanWithinGrace() {
+    Order orphan = savePaidOrder("orphan-grace");
+
+    paymentResolutionFacade.resolveOrphanedPaid(LocalDateTime.now());
+
+    then(paymentGatewayClient).should(never()).findPaymentByOrderId(orphan.getOrderNo());
+    assertThat(orderRepository.findById(orphan.getId()).orElseThrow().getStatus())
+        .isEqualTo(OrderStatus.PAID);
+    assertThat(paymentRepository.findAll()).isEmpty();
+  }
+
+  @Test
+  @DisplayName("고아의 토스 조회가 IN_PROGRESS면 확정하지 않고 다음 회차로 남긴다")
+  void keepsOrphanWhenGatewayInProgress() {
+    Order orphan = savePaidOrder("orphan-progress");
+    given(paymentGatewayClient.findPaymentByOrderId(orphan.getOrderNo()))
+        .willReturn(Optional.of(new PgPayment("toss_pk_prog", PgPaymentStatus.IN_PROGRESS, null, null)));
+
+    paymentResolutionFacade.resolveOrphanedPaid(LocalDateTime.now().plusMinutes(16));
+
+    assertThat(paymentRepository.findAll()).isEmpty();
+    assertThat(orderRepository.findById(orphan.getId()).orElseThrow().getStatus())
+        .isEqualTo(OrderStatus.PAID);
+  }
+
+  @Test
+  @DisplayName("고아의 토스 조회가 DONE이어도 금액이 주문 금액과 다르면 자동 확정하지 않는다")
+  void holdsOrphanOnAmountMismatch() {
+    Order orphan = savePaidOrder("orphan-amount");
+    given(paymentGatewayClient.findPaymentByOrderId(orphan.getOrderNo()))
+        .willReturn(Optional.of(new PgPayment("toss_pk_bad", PgPaymentStatus.DONE,
+            orphan.getOrderAmount().add(BigDecimal.ONE), LocalDateTime.now())));
+
+    paymentResolutionFacade.resolveOrphanedPaid(LocalDateTime.now().plusMinutes(16));
+
+    assertThat(paymentRepository.findAll()).isEmpty();
+    assertThat(orderRepository.findById(orphan.getId()).orElseThrow().getStatus())
+        .isEqualTo(OrderStatus.PAID);
   }
 }

@@ -14,4 +14,7 @@ public interface TossHttpClient {
 
   @GetExchange("/v1/payments/{paymentKey}")
   TossConfirmResponse getPayment(@PathVariable String paymentKey);
+
+  @GetExchange("/v1/payments/orders/{orderId}")
+  TossConfirmResponse getPaymentByOrderId(@PathVariable String orderId);
 }
