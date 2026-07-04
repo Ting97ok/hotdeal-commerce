@@ -130,7 +130,7 @@
 | 이중 승인 차단 | 슬라이스4에서 **선점 순서 재배치**로 만료·이중 승인을 토스 호출 전 차단(돈이 나가지 않음). 토스 취소 동기 보정은 철회 — 서버 다운 잔여(토스 성공 후 커밋 실패)는 동기로 불가해 비동기 후속(웹훅·해소) | [ADR-0008](../adr/0008-payment-model-pg-boundary.md) "함께 묶이는 방어" 갱신 |
 | 재고 차감(슬라이스5) | 결제 확정 시 ProductStock 실물·예약 1씩↓(`confirmSale`, reserve 대칭 조건부 UPDATE). `markPaid` 선점 직후·토스 앞이라 차감 실패(장부 불일치) 시 토스 미호출·롤백. 품절은 주문 단계(HotDealStock)가 막아 결제 차감은 정상이면 항상 성공 | [ADR-0011 결정3](../adr/0011-product-inventory-reservation.md) |
 | **외부 HTTP 연동(B1)** | `TossHttpClient`가 프로젝트 **첫 외부 HTTP 클라이언트** — `RestClient` 빈을 `global/config/TossHttpClientConfig`가 구성, connect/read 타임아웃·시크릿 인증·멱등키 헤더를 여기서 정립(이후 외부 연동의 참조 패턴) | 선례 0건 — B1이 1호 |
-| **TX 경계 교정(B1)** | 토스 호출은 DB TX 밖. TX1(선점·차감) → 토스 → TX2(결과 반영). 거절/통신오류 확정 시 TX1을 **보상 롤백**(주문 PENDING 복귀·재고 복원), 미확정은 보상 없이 IN_DOUBT 보존 | 아래 B1 절 |
+| **TX 경계 교정(B1)** | 토스 호출은 DB TX 밖. TX1(선점·차감) → 토스 → TX2(결과 반영). 거절은 **실패 확정**(주문 CANCELED·핫딜+상품 재고 방출), 통신오류는 **보상 롤백**(주문 PENDING 복귀·재고 복원), 미확정은 보상 없이 IN_DOUBT 보존 | 아래 B1 절 |
 | **부하 테스트 제외(B1 유지)** | 통합 테스트·부하 테스트는 토스 실API를 호출하지 않는다 — `PaymentGatewayClient` 대역 유지. 실HTTP는 `TossHttpClient` 단위 테스트(MockWebServer)로 격리 | [ADR-0001](../adr/0001-payment-gateway-toss.md) 테스트 모드 한계 |
 
 ---
@@ -155,14 +155,14 @@
   ↓
 [TX2: 결과 반영 — 짧은 @Transactional, 결과별 분기]
   승인   → Payment(DONE) 저장
-  거절   → 보상: 주문 PENDING 복귀 + 재고 복원, Payment 미생성 → PAYMENT_REJECTED(402)
+  거절   → 실패 확정: 주문 CANCELED(PAYMENT_FAILED) + 핫딜·상품 재고 방출, Payment 미생성 → PAYMENT_REJECTED(402)
   통신오류 → 보상: 주문 PENDING 복귀 + 재고 복원, Payment 미생성 → PAYMENT_GATEWAY_ERROR(502)
   미확정 → Payment(IN_DOUBT) 저장, 보상 안 함(주문 PAID 유지·재고 차감 유지) → 200 또는 202
 ```
 
-> **설계 노트 — 보상이 새로 필요한 이유(자동 롤백 상실)**: 기존 단일 TX에서는 토스 거부 시 같은 TX 롤백으로 선점한 PAID·재고차감이 **자동 복귀**했다. TX를 쪼개 TX1을 먼저 커밋하면 그 자동 복귀가 사라지므로, 거절·통신오류(=확정 실패)에는 TX2에서 **명시적 보상**(주문 PENDING 복귀 = `markPending` 조건부 UPDATE, 재고 복원 = `confirmSale` 역연산)이 필요하다. 이는 단일 TX가 공짜로 주던 원자성을 손으로 되살리는 비용이며, TX 경계 분리의 트레이드오프다.
+> **설계 노트 — 보상이 새로 필요한 이유(자동 롤백 상실)**: 기존 단일 TX에서는 토스 거부 시 같은 TX 롤백으로 선점한 PAID·재고차감이 **자동 복귀**했다. TX를 쪼개 TX1을 먼저 커밋하면 그 자동 복귀가 사라지므로, TX2에서 명시적으로 처리한다 — 거절(돈 안 나감 확정)은 **실패 확정**(주문 CANCELED(PAYMENT_FAILED) 조건부 전이 + 핫딜·상품 재고 방출, 재시도는 새 주문), 통신오류(요청 미도달)는 **명시적 보상**(주문 PENDING 복귀 = `markPending` 조건부 UPDATE, 재고 복원 = `confirmSale` 역연산). 이는 단일 TX가 공짜로 주던 원자성을 손으로 되살리는 비용이며, TX 경계 분리의 트레이드오프다.
 
-> **설계 노트 — 만료↔결제 동시성 정합이 새 경계 위에서 유지되는 방식**: 핵심 방어인 `markPaid` 조건부 전이(`UPDATE ... WHERE status='PENDING'`, affected==1)는 **여전히 TX1 안에서·토스 앞에** 있다. 따라서 ① 만료로 CANCELED된 주문·② 이미 PAID된 주문(이중 승인)은 TX1의 선점 단계에서 affected==0으로 걸러져 **토스를 호출하지 않는다** — 슬라이스4가 세운 "토스 호출 전 차단"이 그대로 성립한다. 바뀐 것은 토스 *이후*뿐이다: 슬라이스4에선 토스 거부가 단일 TX 롤백으로 PAID를 되돌렸으나, B1에선 TX1이 이미 커밋됐으므로 **보상**으로 되돌린다. 만료 스케줄러와의 경합도 동일하게 행 잠금·조건부 전이로 직렬화되며(보상의 `markPending`도 `WHERE status='PAID'` 조건부 전이라 만료가 끼어들어도 affected로 사실을 안다), 미확정(IN_DOUBT) 시에는 주문을 PAID로 **유지**해 "돈 나갔는데 주문 PENDING"을 원천 차단한다([ADR-0004 결정4](../adr/0004-stock-reservation-lifecycle.md) "성공한 결제는 되살린다"와 정합).
+> **설계 노트 — 만료↔결제 동시성 정합이 새 경계 위에서 유지되는 방식**: 핵심 방어인 `markPaid` 조건부 전이(`UPDATE ... WHERE status='PENDING'`, affected==1)는 **여전히 TX1 안에서·토스 앞에** 있다. 따라서 ① 만료로 CANCELED된 주문·② 이미 PAID된 주문(이중 승인)은 TX1의 선점 단계에서 affected==0으로 걸러져 **토스를 호출하지 않는다** — 슬라이스4가 세운 "토스 호출 전 차단"이 그대로 성립한다. 바뀐 것은 토스 *이후*뿐이다: 슬라이스4에선 토스 거부가 단일 TX 롤백으로 PAID를 되돌렸으나, B1에선 TX1이 이미 커밋됐으므로 TX2가 명시적으로 확정한다(거절 = 실패 확정 CANCELED, 통신오류 = PENDING 복귀 보상). 만료 스케줄러와의 경합도 동일하게 행 잠금·조건부 전이로 직렬화되며(실패 확정의 `markPaymentFailed`·보상의 `markPending` 모두 `WHERE status='PAID'` 조건부 전이라 만료가 끼어들어도 affected로 사실을 안다), 미확정(IN_DOUBT) 시에는 주문을 PAID로 **유지**해 "돈 나갔는데 주문 PENDING"을 원천 차단한다([ADR-0004 결정4](../adr/0004-stock-reservation-lifecycle.md) "성공한 결제는 되살린다"와 정합).
 
 ### B1-2. `PgConfirmResult` 결과 모델 확장 — 성공/거절/통신오류/미확정 4결과
 
@@ -175,7 +175,7 @@
 | 토스 응답 | 우리 결과 | Payment 처리 | 주문/재고 | 재시도 의미 | 사용자 응답 |
 |---|---|---|---|---|---|
 | 승인 성공(2xx) | `Approved` | DONE 생성 | PAID 유지·차감 유지 | — | 200 성공 |
-| 승인 거부 — **거절 코드 목록(`REJECT_CODES`)에 있는 code** (카드사 거절·잔액부족·한도초과·FDS 차단 등) | `Rejected` | 미생성(보상 롤백) | PENDING 복귀·재고 복원 | **재시도 무의미**(같은 수단 재시도해도 거부) | 402 `PAYMENT_REJECTED` |
+| 승인 거부 — **거절 코드 목록(`REJECT_CODES`)에 있는 code** (카드사 거절·잔액부족·한도초과·FDS 차단 등) | `Rejected` | 미생성(실패 확정) | **CANCELED(PAYMENT_FAILED)·핫딜+상품 재고 방출** | **재시도 무의미**(같은 수단 재시도해도 거부 — 재시도는 새 주문으로) | 402 `PAYMENT_REJECTED` |
 | 통신 오류 — **응답을 못 받음**: connect 실패·DNS(요청 미도달) | `GatewayError` → (Facade가) `PAYMENT_GATEWAY_ERROR` | 미생성(보상 롤백) | PENDING 복귀·재고 복원 | **재시도 가능**(돈 안 나감) | 502 |
 | **미확정** — 거절 코드가 아닌 응답 전부(처리오류·모르는 code·5xx 포함) + read 타임아웃·소켓 끊김 | `InDoubt` | **IN_DOUBT 생성** | **PAID·차감 유지(보상 ❌)** | **결과 미확정**(섣불리 재시도·롤백 금지 → B2 해소) | 200/202(보류) |
 
@@ -224,7 +224,7 @@ toss:
   base-url: https://api.tosspayments.com
   secret-key: ${TOSS_SECRET_KEY:test_sk_local-placeholder}   # 환경변수 주입, 기본은 테스트 placeholder
   connect-timeout: PT2S
-  read-timeout: PT10S
+  read-timeout: PT60S
 ```
 
   - `application-test.yaml`: 통합 테스트는 토스 실API를 호출하지 않으므로(대역 유지) `secret-key`에 더미만 둔다. 실HTTP 검증은 `TossHttpClient` 단위 테스트에서 MockWebServer base-url로 덮어쓴다.

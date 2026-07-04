@@ -221,13 +221,13 @@ flowchart TD
     E -- 1 선점 성공 --> G[재고 차감 선점\nconfirmSale]:::process
     G --> H{affected == 1?}:::decision
     H -- 0 장부 불일치 --> I[/PRODUCT_STOCK_INCONSISTENT\n토스 미호출·TX1 롤백/]:::error
-    H -- 1 차감 성공 --> J[멱등키 발급·보관]:::process
+    H -- 1 차감 성공 --> J[멱등키 = paymentKey 재사용]:::process
     J --> TX1C[["TX1 커밋 — 주문 PAID·재고 차감 확정"]]:::process
     TX1C --> K[토스 결제 승인 API 호출\nPaymentGatewayClient.confirm\n★ TX 밖 — 커넥션 점유 없음 ★]:::process
     K --> L{PgConfirmResult 결과}:::decision
     L -- 승인 Approved --> TX2D[["TX2: Payment DONE 저장"]]:::process
     TX2D --> M([결제 정보 반환 200]):::success
-    L -- 거절 Rejected --> TX2R[["TX2: 보상 — 주문 PENDING 복귀·재고 복원"]]:::process
+    L -- 거절 Rejected --> TX2R[["TX2: 실패 확정 — 주문 CANCELED PAYMENT_FAILED·핫딜+상품 재고 방출"]]:::process
     TX2R --> N[/PAYMENT_REJECTED 402/]:::error
     L -- 통신오류 throw --> TX2E[["TX2: 보상 — 주문 PENDING 복귀·재고 복원"]]:::process
     TX2E --> O[/PAYMENT_GATEWAY_ERROR 502/]:::error
@@ -240,9 +240,9 @@ flowchart TD
     classDef decision fill:#fff3cd,stroke:#ffc107,color:#856404
 ```
 
-> **설계 노트 — 보상도 조건부 전이**: 보상의 주문 PENDING 복귀는 `UPDATE ... WHERE status='PAID' AND order=:order`(affected 관문) 조건부 전이로 한다. TX1 커밋과 보상 사이에 만료 스케줄러가 끼어들 수 없다(주문은 이미 PAID라 만료 조건부 전이가 affected==0으로 비켜감). 재고 복원은 `confirmSale`의 역연산(`onHand+=q, reserved+=q`)이다. 보상은 "확정 실패(거절·통신오류)"에만 실행하며, 미확정엔 절대 실행하지 않는다.
+> **설계 노트 — 보상도 조건부 전이**: 보상의 주문 PENDING 복귀는 `UPDATE ... WHERE status='PAID' AND order=:order`(affected 관문) 조건부 전이로 한다. TX1 커밋과 보상 사이에 만료 스케줄러가 끼어들 수 없다(주문은 이미 PAID라 만료 조건부 전이가 affected==0으로 비켜감). 재고 복원은 `confirmSale`의 역연산(`onHand+=q, reserved+=q`)이다. 보상(PENDING 복귀)은 **통신오류(요청 미도달)에만** 실행한다 — 거절은 보상이 아니라 **실패 확정**(`markPaymentFailed` 조건부 전이 + 핫딜·상품 재고 방출)으로 종료하고, 미확정엔 둘 다 절대 실행하지 않는다.
 
-> **설계 노트 — 멱등키 발급 시점**: 멱등키(서버 UUID)는 TX1 선점 직후 발급해 보관하고 토스 호출 직전 헤더(`Idempotency-Key`)로 전송한다. 같은 주문의 confirm 재호출(미확정 후 재시도·B2 해소)은 보관된 같은 키를 재사용해 토스가 첫 결과를 그대로 반환하게 한다. 생성·재사용·`pgPaymentKey` UNIQUE 충돌 규약은 [공통 정의 B1-3](api-design.md).
+> **설계 노트 — 멱등키**: 별도 서버 UUID 를 발급·보관하지 않고 **토스가 발급한 `paymentKey`를 그대로 멱등키로** 헤더(`Idempotency-Key`)에 전송한다. 같은 결제의 confirm 재호출(재전송·B2 해소의 재시도)은 같은 paymentKey → 토스가 첫 결과를 그대로 반환한다. 재사용·`pgPaymentKey` UNIQUE 충돌 규약은 [공통 정의 B1-3](api-design.md).
 
 **엔티티 메서드 설계 (Phase B1 추가)**
 
@@ -250,13 +250,12 @@ flowchart TD
 
 ```java
 // Payment — 미확정 결과 행 생성 (B1 신설). create(승인)와 별도 팩토리
-public static Payment createInDoubt(Order order, BigDecimal amount, String pgPaymentKey, String idempotencyKey) {
+public static Payment createInDoubt(Order order, BigDecimal amount, String pgPaymentKey) {
     return Payment.builder()
         .orderId(order.getId())
         .amount(amount)
         .status(PaymentStatus.IN_DOUBT)
-        .pgPaymentKey(pgPaymentKey)        // 토스가 식별자를 줬으면 보관(없을 수도)
-        .idempotencyKey(idempotencyKey)    // B2 해소가 토스 조회에 사용
+        .pgPaymentKey(pgPaymentKey)        // B2 해소가 토스 조회에 사용
         .build();                          // approvedAt 없음 — 아직 미확정
 }
 ```
@@ -288,7 +287,7 @@ int restoreSale(@Param("productId") Long productId, @Param("quantity") int quant
 
 | # | 테스트 케이스 | 시나리오 | 상태 | 작성일 |
 |---|---------------|----------|------|--------|
-| 1 | `토스_결과_sealed_분기_거부_Rejected_결과값_402` | paymentGatewayClient가 sealed `Rejected()` 결과값 반환 → Facade switch 분기 → 402 PAYMENT_REJECTED, 주문 PENDING 유지, Payment 0건(단일 TX throw 롤백) | ✅ Pass | 2026-06-30 |
+| 1 | `토스_결과_sealed_분기_거부_Rejected_결과값_402` | paymentGatewayClient가 sealed `Rejected()` 결과값 반환 → Facade switch 분기 → 402 PAYMENT_REJECTED, 주문 CANCELED(PAYMENT_FAILED)·핫딜+상품 재고 방출(실패 확정), Payment 0건 | ✅ Pass | 2026-06-30 · 07-03 갱신 |
 | 2 | `토스_미확정_InDoubt_시_IN_DOUBT_보존_주문_PAID_유지` | paymentGatewayClient가 `InDoubt()` 반환 → 보상 없이 Payment IN_DOUBT 생성, 주문 PAID·재고 차감 유지, 200(보류) | ✅ Pass | 2026-07-01 |
 | 3 | `토스_통신오류_GatewayError_결과값_시_502_보상_롤백` | paymentGatewayClient가 `GatewayError()` 결과값 반환 → Facade switch 분기 → revertPreemption(markPending·restoreSale) 후 502 PAYMENT_GATEWAY_ERROR, 주문 PENDING·재고 복원, Payment 0건 | ✅ Pass | 2026-07-01 |
 | 4 | `토스_승인_2xx_Approved_매핑` | (단위·MockWebServer) 토스 승인 응답(status DONE, approvedAt) → TossPaymentClient가 `Approved` 결과로 매핑(@HttpExchange 실HTTP) | ✅ Pass | 2026-07-01 |
