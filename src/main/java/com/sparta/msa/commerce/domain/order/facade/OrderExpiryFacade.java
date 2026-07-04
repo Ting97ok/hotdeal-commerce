@@ -26,17 +26,19 @@ public class OrderExpiryFacade {
     }
     log.info("미결제 만료 처리 시작 — 대상 {}건", overdueOrders.size());
     for (Order order : overdueOrders) {
-      try {
-        transactionTemplate.executeWithoutResult(status -> expireOne(order));
-      } catch (RuntimeException e) {
-        log.warn("만료 처리 실패 — 다음 회차 재시도. orderId={}", order.getId(), e);
-      }
+      expireOne(order);
     }
   }
 
   private void expireOne(Order order) {
-    if (commonOrderService.markExpired(order)) {
-      hotDealStockService.restore(order.getHotDealId(), order.getQuantity());
+    try {
+      transactionTemplate.executeWithoutResult(status -> {
+        if (commonOrderService.markExpired(order)) {
+          hotDealStockService.restore(order.getHotDealId(), order.getQuantity());
+        }
+      });
+    } catch (RuntimeException e) {
+      log.warn("만료 처리 실패 — 다음 회차 재시도. orderId={}", order.getId(), e);
     }
   }
 }
