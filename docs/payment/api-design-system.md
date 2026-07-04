@@ -77,6 +77,7 @@ flowchart TD
 | 5 | `해소_IN_PROGRESS_재시도_승인` | 결제 조회가 IN_PROGRESS → confirm 멱등 재시도 Approved → DONE 확정 | ✅ Pass | 2026-07-02 |
 | 6 | `해소_IN_PROGRESS_재시도_거절` | confirm 재시도 Rejected → Payment FAILED·주문 CANCELED·핫딜+상품 재고 복원 | ✅ Pass | 2026-07-02 |
 | 7 | `해소_IN_PROGRESS_재시도_미확정_유지` | confirm 재시도 GatewayError(미확정) → IN_DOUBT·주문 PAID 유지, 다음 회차 대기 | ✅ Pass | 2026-07-02 |
+| 8 | `해소_1건_조회실패_나머지_계속` | 한 건의 토스 조회가 예외(4xx/5xx·통신)로 실패해도 그 건만 warn 로그 후 스킵, 나머지 IN_DOUBT은 해소 — 독성 1건이 파이프라인을 못 막음 | ✅ Pass | 2026-07-04 |
 
 ## 계층
 
