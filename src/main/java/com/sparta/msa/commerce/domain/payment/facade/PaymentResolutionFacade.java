@@ -11,6 +11,7 @@ import com.sparta.msa.commerce.domain.payment.service.PaymentService;
 import com.sparta.msa.commerce.domain.stock.service.HotDealStockService;
 import com.sparta.msa.commerce.domain.stock.service.ProductStockService;
 import java.time.LocalDateTime;
+import java.util.List;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -30,7 +31,12 @@ public class PaymentResolutionFacade {
 
   public void resolveInDoubt(LocalDateTime now) {
     LocalDateTime graceThreshold = now.minusMinutes(1);
-    for (Payment payment : paymentService.findInDoubtCreatedBefore(graceThreshold)) {
+    List<Payment> targets = paymentService.findInDoubtCreatedBefore(graceThreshold);
+    if (targets.isEmpty()) {
+      return;
+    }
+    log.info("IN_DOUBT 해소 시작 — 대상 {}건", targets.size());
+    for (Payment payment : targets) {
       try {
         resolveOne(payment);
       } catch (RuntimeException e) {
@@ -54,8 +60,11 @@ public class PaymentResolutionFacade {
     PgConfirmResult result = paymentGatewayClient.confirm(
         payment.getPgPaymentKey(), order.getOrderNo(), payment.getAmount());
     switch (result) {
-      case PgConfirmResult.Approved approved -> transactionTemplate.executeWithoutResult(status ->
-          paymentService.markDone(payment, approved.approvedAt()));
+      case PgConfirmResult.Approved approved -> {
+        transactionTemplate.executeWithoutResult(status ->
+            paymentService.markDone(payment, approved.approvedAt()));
+        log.info("IN_DOUBT 해소 — confirm 재시도 승인, DONE 확정(매출 복구). paymentId={}", payment.getId());
+      }
       case PgConfirmResult.Rejected rejected -> transactionTemplate.executeWithoutResult(status ->
           failPayment(payment));
       default -> {
@@ -65,7 +74,10 @@ public class PaymentResolutionFacade {
 
   private void apply(Payment payment, PgPayment pgPayment) {
     switch (pgPayment.status()) {
-      case DONE -> paymentService.markDone(payment, pgPayment.approvedAt());
+      case DONE -> {
+        paymentService.markDone(payment, pgPayment.approvedAt());
+        log.info("IN_DOUBT 해소 — 토스 조회 DONE, 확정(매출 복구). paymentId={}", payment.getId());
+      }
       case EXPIRED, ABORTED, CANCELED -> failPayment(payment);
       default -> {
       }
@@ -80,6 +92,8 @@ public class PaymentResolutionFacade {
     if (commonOrderService.markPaymentFailed(order)) {
       hotDealStockService.restore(order.getHotDealId(), order.getQuantity());
       productStockService.restoreSale(order.getProductId(), order.getQuantity());
+      log.info("IN_DOUBT 해소 — 실패 확정, 주문 CANCELED·핫딜+상품 재고 방출. paymentId={}, orderId={}",
+          payment.getId(), order.getId());
     }
   }
 }
