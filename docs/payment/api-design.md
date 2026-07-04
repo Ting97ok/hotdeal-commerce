@@ -204,6 +204,8 @@
 
 > **설계 노트 — idempotency_key 칼럼**: 멱등키로 paymentKey를 재사용하므로 별도 `idempotency_key` 칼럼·인덱스는 B1에서 쓰지 않는다(`Payment.idempotencyKey`는 null로 남김 — 향후 별도 멱등키 정책이 필요해지면 B2에서 재검토). 토스 멱등은 `Idempotency-Key: paymentKey` 헤더로, 내부 이중 저장 방지는 `markPaid` 조건부 전이로 각각 담당한다.
 
+> **검토·기각(2026-07-04) — 같은 paymentKey 재요청에 저장 결과 재반환(자기 API 멱등 재응답)**: 응답 유실 후 재시도가 409로 끝나는 것을 "저장된 Payment(DONE/IN_DOUBT) 재반환"으로 바꾸는 안을 구현까지 했다가 기각했다. 이 시스템의 confirm 클라이언트는 결제위젯 리다이렉트 흐름의 브라우저뿐이라, **409(이미 처리된 주문) → 안내 후 주문 내역 확인**이 더 단순하고 충분한 계약이다 — 재응답은 프론트에 "새 승인 vs 재응답" 구분 없는 200 경로를 늘릴 뿐이다. 서버-투-서버 클라이언트나 자동 재시도 계층이 생기면 재검토한다(그때의 구현 방향: markPaid 충돌 시 orderId+paymentKey 로 Payment 조회 → DONE/IN_DOUBT 재반환, 키 불일치·부재는 409 유지).
+
 ### B1-4. `TossHttpClient` 신설 규약 (외부 HTTP 1호)
 
 프로젝트에 외부 HTTP 클라이언트 선례가 0건이라 B1이 패턴을 정립한다. 계층은 [ADR-0008](../adr/0008-payment-model-pg-boundary.md) 결정3·4의 3층을 그대로 따른다.
