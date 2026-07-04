@@ -7,7 +7,10 @@ import com.sparta.msa.commerce.domain.order.entity.Order;
 import com.sparta.msa.commerce.domain.order.repository.OrderRepository;
 import com.sparta.msa.commerce.global.exception.DomainException;
 import java.math.BigDecimal;
+import java.time.LocalDateTime;
+import java.util.List;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Limit;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -26,6 +29,10 @@ public class CommonOrderService {
   public Order getOrderById(Long orderId) {
     return orderRepository.findById(orderId)
         .orElseThrow(() -> new DomainException(ORDER_NOT_FOUND));
+  }
+
+  public List<Order> findExpiredPending(LocalDateTime now, int limit) {
+    return orderRepository.findExpiredPending(now, Limit.of(limit));
   }
 
   public Order getOrderForPayment(String orderNo, BigDecimal paymentAmount, Long userId) {
@@ -50,5 +57,10 @@ public class CommonOrderService {
   @Transactional
   public boolean markPaymentFailed(Order order) {
     return orderRepository.markPaymentFailed(order) == 1;
+  }
+
+  @Transactional
+  public boolean markExpired(Order order) {
+    return orderRepository.markExpired(order) == 1;
   }
 }

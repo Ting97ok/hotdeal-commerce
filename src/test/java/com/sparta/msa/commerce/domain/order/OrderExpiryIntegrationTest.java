@@ -5,6 +5,7 @@ import static com.sparta.msa.commerce.domain.order.entity.OrderStatus.CANCELED;
 import static com.sparta.msa.commerce.domain.order.entity.OrderStatus.PAID;
 import static com.sparta.msa.commerce.domain.order.entity.OrderStatus.PENDING;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.doThrow;
 
 import com.sparta.msa.commerce.domain.hotdeal.dto.request.CreateHotDealRequest;
 import com.sparta.msa.commerce.domain.hotdeal.entity.HotDeal;
@@ -19,6 +20,7 @@ import com.sparta.msa.commerce.domain.product.entity.Product;
 import com.sparta.msa.commerce.domain.product.repository.ProductRepository;
 import com.sparta.msa.commerce.domain.stock.entity.HotDealStock;
 import com.sparta.msa.commerce.domain.stock.repository.HotDealStockRepository;
+import com.sparta.msa.commerce.domain.stock.service.HotDealStockService;
 import com.sparta.msa.commerce.domain.user.entity.User;
 import com.sparta.msa.commerce.domain.user.entity.UserRole;
 import com.sparta.msa.commerce.domain.user.repository.UserRepository;
@@ -40,6 +42,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.context.ActiveProfiles;
+import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
@@ -68,6 +71,8 @@ class OrderExpiryIntegrationTest {
   CommonOrderService commonOrderService;
   @Autowired
   PlatformTransactionManager txManager;
+  @MockitoSpyBean
+  HotDealStockService hotDealStockService;
 
   @BeforeEach
   void setUp() {
@@ -97,7 +102,7 @@ class OrderExpiryIntegrationTest {
       Order order = orderRepository.save(
           Order.create(user, hotDeal, product, 2, Duration.ofMinutes(10)));
 
-      orderExpiryFacade.expireOverdueOrders(LocalDateTime.now().plusMinutes(11));
+      orderExpiryFacade.expireOverdueOrders(LocalDateTime.now().plusMinutes(11), 10);
 
       Order swept = orderRepository.findById(order.getId()).orElseThrow();
       assertThat(swept.getStatus()).isEqualTo(CANCELED);
@@ -127,7 +132,7 @@ class OrderExpiryIntegrationTest {
       Order order = orderRepository.save(
           Order.create(user, hotDeal, product, 2, Duration.ofMinutes(10)));
 
-      orderExpiryFacade.expireOverdueOrders(LocalDateTime.now());
+      orderExpiryFacade.expireOverdueOrders(LocalDateTime.now(), 10);
 
       Order swept = orderRepository.findById(order.getId()).orElseThrow();
       assertThat(swept.getStatus()).isEqualTo(PENDING);
@@ -176,7 +181,7 @@ class OrderExpiryIntegrationTest {
             return;
           }
           try {
-            orderExpiryFacade.expireOverdueOrders(sweepTime);
+            orderExpiryFacade.expireOverdueOrders(sweepTime, 10);
           } catch (Throwable t) {
             errors.add(t);
           }
@@ -217,7 +222,7 @@ class OrderExpiryIntegrationTest {
       CreateOrderRequest request = new CreateOrderRequest(product.getId(), 1);
 
       orderFacade.createOrder(user.getId(), request);
-      orderExpiryFacade.expireOverdueOrders(LocalDateTime.now().plusMinutes(11));
+      orderExpiryFacade.expireOverdueOrders(LocalDateTime.now().plusMinutes(11), 10);
       orderFacade.createOrder(user.getId(), request);
 
       List<Order> orders = orderRepository.findAll();
@@ -227,6 +232,82 @@ class OrderExpiryIntegrationTest {
 
       HotDealStock stock = hotDealStockRepository.findByHotDealId(hotDeal.getId()).orElseThrow();
       assertThat(stock.getRemainingQuantity()).isEqualTo(99);
+    }
+  }
+
+  @Nested
+  @DisplayName("부분 실패 격리")
+  class PartialFailureIsolation {
+
+    @Test
+    @DisplayName("한 건의 재고 복원이 실패해도 나머지 만료 주문은 처리되고, 실패 건은 PENDING으로 남아 다음 회차에 재시도된다")
+    void isolatesFailurePerOrder() {
+      User user = userRepository.save(
+          User.create("buyer@test.com", passwordEncoder.encode("password123"), "구매자", UserRole.USER));
+      Product product = productRepository.save(Product.create("맥북 프로", new BigDecimal("2000000")));
+      LocalDateTime start = LocalDateTime.now().minusHours(1);
+      LocalDateTime end = LocalDateTime.now().plusHours(1);
+      HotDeal poisonDeal = hotDealRepository.save(HotDeal.create(
+          new CreateHotDealRequest(product.getId(), new BigDecimal("9900"), 100, 5, start, end), product));
+      hotDealStockRepository.save(HotDealStock.create(poisonDeal.getId(), 98));
+      HotDeal healthyDeal = hotDealRepository.save(HotDeal.create(
+          new CreateHotDealRequest(product.getId(), new BigDecimal("9900"), 100, 5, start, end), product));
+      hotDealStockRepository.save(HotDealStock.create(healthyDeal.getId(), 98));
+
+      Order poisonOrder = orderRepository.save(
+          Order.create(user, poisonDeal, product, 2, Duration.ofMinutes(10)));
+      Order healthyOrder = orderRepository.save(
+          Order.create(user, healthyDeal, product, 2, Duration.ofMinutes(10)));
+
+      doThrow(new RuntimeException("복원 실패 주입"))
+          .when(hotDealStockService).restore(poisonDeal.getId(), 2);
+
+      orderExpiryFacade.expireOverdueOrders(LocalDateTime.now().plusMinutes(11), 10);
+
+      Order failedOne = orderRepository.findById(poisonOrder.getId()).orElseThrow();
+      assertThat(failedOne.getStatus()).isEqualTo(PENDING);
+      HotDealStock poisonStock = hotDealStockRepository.findByHotDealId(poisonDeal.getId()).orElseThrow();
+      assertThat(poisonStock.getRemainingQuantity()).isEqualTo(98);
+
+      Order processedOne = orderRepository.findById(healthyOrder.getId()).orElseThrow();
+      assertThat(processedOne.getStatus()).isEqualTo(CANCELED);
+      HotDealStock healthyStock = hotDealStockRepository.findByHotDealId(healthyDeal.getId()).orElseThrow();
+      assertThat(healthyStock.getRemainingQuantity()).isEqualTo(100);
+    }
+  }
+
+  @Nested
+  @DisplayName("회차 상한")
+  class SweepLimit {
+
+    @Test
+    @DisplayName("한 회차는 LIMIT 건까지만 처리하고 나머지는 다음 회차로 넘긴다")
+    void processesUpToLimitPerSweep() {
+      User user1 = userRepository.save(
+          User.create("buyer1@test.com", passwordEncoder.encode("password123"), "구매자1", UserRole.USER));
+      User user2 = userRepository.save(
+          User.create("buyer2@test.com", passwordEncoder.encode("password123"), "구매자2", UserRole.USER));
+      User user3 = userRepository.save(
+          User.create("buyer3@test.com", passwordEncoder.encode("password123"), "구매자3", UserRole.USER));
+      Product product = productRepository.save(Product.create("맥북 프로", new BigDecimal("2000000")));
+      LocalDateTime start = LocalDateTime.now().minusHours(1);
+      LocalDateTime end = LocalDateTime.now().plusHours(1);
+      HotDeal hotDeal = hotDealRepository.save(HotDeal.create(
+          new CreateHotDealRequest(product.getId(), new BigDecimal("9900"), 100, 5, start, end), product));
+      hotDealStockRepository.save(HotDealStock.create(hotDeal.getId(), 94));
+
+      orderRepository.save(Order.create(user1, hotDeal, product, 2, Duration.ofMinutes(10)));
+      orderRepository.save(Order.create(user2, hotDeal, product, 2, Duration.ofMinutes(10)));
+      orderRepository.save(Order.create(user3, hotDeal, product, 2, Duration.ofMinutes(10)));
+
+      orderExpiryFacade.expireOverdueOrders(LocalDateTime.now().plusMinutes(11), 2);
+
+      List<Order> orders = orderRepository.findAll();
+      assertThat(orders).filteredOn(o -> o.getStatus() == CANCELED).hasSize(2);
+      assertThat(orders).filteredOn(o -> o.getStatus() == PENDING).hasSize(1);
+
+      HotDealStock stock = hotDealStockRepository.findByHotDealId(hotDeal.getId()).orElseThrow();
+      assertThat(stock.getRemainingQuantity()).isEqualTo(98);
     }
   }
 
@@ -270,7 +351,7 @@ class OrderExpiryIntegrationTest {
 
       Thread sweeper = new Thread(() -> {
         try {
-          orderExpiryFacade.expireOverdueOrders(sweepTime);
+          orderExpiryFacade.expireOverdueOrders(sweepTime, 10);
         } catch (Throwable t) {
           errors.add(t);
         }
