@@ -6,12 +6,14 @@ import static org.mockito.BDDMockito.given;
 import static org.mockito.BDDMockito.then;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
+import static org.springframework.http.HttpHeaders.AUTHORIZATION;
 import static org.springframework.http.MediaType.APPLICATION_JSON;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.sparta.msa.commerce.domain.auth.token.TokenIssuer;
 import com.sparta.msa.commerce.domain.hotdeal.dto.request.CreateHotDealRequest;
 import com.sparta.msa.commerce.domain.hotdeal.entity.HotDeal;
 import com.sparta.msa.commerce.domain.hotdeal.repository.HotDealRepository;
@@ -61,12 +63,10 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
-import org.springframework.security.test.context.support.WithMockUser;
 
 @SpringBootTest
 @AutoConfigureMockMvc
 @ActiveProfiles("test")
-@WithMockUser
 @DisplayName("결제 승인 API")
 class ConfirmPaymentIntegrationTest {
 
@@ -83,6 +83,7 @@ class ConfirmPaymentIntegrationTest {
   @Autowired PaymentRepository paymentRepository;
   @Autowired CommonOrderService commonOrderService;
   @Autowired PaymentFacade paymentFacade;
+  @Autowired TokenIssuer tokenIssuer;
   @MockitoBean PaymentGatewayClient paymentGatewayClient;
 
   @BeforeEach
@@ -131,6 +132,7 @@ class ConfirmPaymentIntegrationTest {
           pgPaymentKey, order.getOrderNo(), order.getOrderAmount());
 
       mockMvc.perform(post("/api/payments/confirm")
+              .header(AUTHORIZATION, "Bearer " + tokenIssuer.createAccessToken(user.getId(), UserRole.USER))
               .contentType(APPLICATION_JSON)
               .content(objectMapper.writeValueAsString(request)))
           .andExpect(status().isOk())
@@ -173,6 +175,7 @@ class ConfirmPaymentIntegrationTest {
           "toss_pk_abc123", order.getOrderNo(), order.getOrderAmount());
 
       mockMvc.perform(post("/api/payments/confirm")
+              .header(AUTHORIZATION, "Bearer " + tokenIssuer.createAccessToken(user.getId(), UserRole.USER))
               .contentType(APPLICATION_JSON)
               .content(objectMapper.writeValueAsString(request)))
           .andExpect(status().isConflict())
@@ -213,6 +216,7 @@ class ConfirmPaymentIntegrationTest {
           "toss_pk_abc123", order.getOrderNo(), order.getOrderAmount());
 
       mockMvc.perform(post("/api/payments/confirm")
+              .header(AUTHORIZATION, "Bearer " + tokenIssuer.createAccessToken(user.getId(), UserRole.USER))
               .contentType(APPLICATION_JSON)
               .content(objectMapper.writeValueAsString(request)))
           .andExpect(status().isConflict())
@@ -252,6 +256,7 @@ class ConfirmPaymentIntegrationTest {
           "toss_pk_abc123", order.getOrderNo(), wrongAmount);
 
       mockMvc.perform(post("/api/payments/confirm")
+              .header(AUTHORIZATION, "Bearer " + tokenIssuer.createAccessToken(user.getId(), UserRole.USER))
               .contentType(APPLICATION_JSON)
               .content(objectMapper.writeValueAsString(request)))
           .andExpect(status().isBadRequest())
@@ -293,6 +298,7 @@ class ConfirmPaymentIntegrationTest {
           "toss_pk_abc123", order.getOrderNo(), order.getOrderAmount());
 
       mockMvc.perform(post("/api/payments/confirm")
+              .header(AUTHORIZATION, "Bearer " + tokenIssuer.createAccessToken(user.getId(), UserRole.USER))
               .contentType(APPLICATION_JSON)
               .content(objectMapper.writeValueAsString(request)))
           .andExpect(status().isPaymentRequired())
@@ -339,6 +345,7 @@ class ConfirmPaymentIntegrationTest {
           "toss_pk_abc123", order.getOrderNo(), order.getOrderAmount());
 
       mockMvc.perform(post("/api/payments/confirm")
+              .header(AUTHORIZATION, "Bearer " + tokenIssuer.createAccessToken(user.getId(), UserRole.USER))
               .contentType(APPLICATION_JSON)
               .content(objectMapper.writeValueAsString(request)))
           .andExpect(status().isOk());
@@ -383,6 +390,7 @@ class ConfirmPaymentIntegrationTest {
           "toss_pk_abc123", order.getOrderNo(), order.getOrderAmount());
 
       mockMvc.perform(post("/api/payments/confirm")
+              .header(AUTHORIZATION, "Bearer " + tokenIssuer.createAccessToken(user.getId(), UserRole.USER))
               .contentType(APPLICATION_JSON)
               .content(objectMapper.writeValueAsString(request)))
           .andExpect(status().isBadGateway())
@@ -444,7 +452,7 @@ class ConfirmPaymentIntegrationTest {
             return;
           }
           try {
-            paymentFacade.confirm(request);
+            paymentFacade.confirm(user.getId(), request);
             successCount.incrementAndGet();
           } catch (Throwable t) {
             errors.add(t);
@@ -468,6 +476,51 @@ class ConfirmPaymentIntegrationTest {
       assertThat(paymentRepository.findAll()).hasSize(1);
 
       then(paymentGatewayClient).should(times(1)).confirm(any(), any(), any());
+    }
+  }
+
+  @Nested
+  @DisplayName("소유자 검증")
+  class Ownership {
+
+    @Test
+    @DisplayName("다른 사용자의 주문을 승인하면 404 ORDER_NOT_FOUND — 토스 미호출·주문 PENDING 유지")
+    void rejectsConfirmByNonOwner() throws Exception {
+      User owner = userRepository.save(
+          User.create("owner@test.com", passwordEncoder.encode("pass"), "구매자", UserRole.USER));
+      User attacker = userRepository.save(
+          User.create("attacker@test.com", passwordEncoder.encode("pass"), "공격자", UserRole.USER));
+      Product product = createProductWithStock();
+      LocalDateTime start = LocalDateTime.now().minusHours(1);
+      LocalDateTime end = LocalDateTime.now().plusHours(1);
+      HotDeal hotDeal = hotDealRepository.save(HotDeal.create(
+          new CreateHotDealRequest(product.getId(), new BigDecimal("19800"), 100, 5, start, end),
+          product));
+      hotDealStockRepository.save(HotDealStock.create(hotDeal.getId(), 99));
+      Order order = orderRepository.save(
+          Order.create(owner, hotDeal, product, 1, Duration.ofMinutes(10)));
+
+      given(paymentGatewayClient.confirm(any(), any(), any()))
+          .willReturn(new PgConfirmResult.Approved("toss_pk_abc123",
+              order.getOrderAmount(), LocalDateTime.now()));
+
+      ConfirmPaymentRequest request = new ConfirmPaymentRequest(
+          "toss_pk_abc123", order.getOrderNo(), order.getOrderAmount());
+
+      mockMvc.perform(post("/api/payments/confirm")
+              .header(AUTHORIZATION, "Bearer " + tokenIssuer.createAccessToken(attacker.getId(), UserRole.USER))
+              .contentType(APPLICATION_JSON)
+              .content(objectMapper.writeValueAsString(request)))
+          .andExpect(status().isNotFound())
+          .andExpect(jsonPath("$.result").value(false))
+          .andExpect(jsonPath("$.error.code").value("ORDER_NOT_FOUND"));
+
+      then(paymentGatewayClient).should(never()).confirm(any(), any(), any());
+
+      Order untouched = orderRepository.findById(order.getId()).orElseThrow();
+      assertThat(untouched.getStatus()).isEqualTo(OrderStatus.PENDING);
+
+      assertThat(paymentRepository.findAll()).isEmpty();
     }
   }
 
@@ -499,6 +552,7 @@ class ConfirmPaymentIntegrationTest {
           pgPaymentKey, order.getOrderNo(), order.getOrderAmount());
 
       mockMvc.perform(post("/api/payments/confirm")
+              .header(AUTHORIZATION, "Bearer " + tokenIssuer.createAccessToken(user.getId(), UserRole.USER))
               .contentType(APPLICATION_JSON)
               .content(objectMapper.writeValueAsString(request)))
           .andExpect(status().isOk());

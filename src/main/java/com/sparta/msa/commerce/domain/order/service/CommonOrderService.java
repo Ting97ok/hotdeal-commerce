@@ -28,8 +28,9 @@ public class CommonOrderService {
         .orElseThrow(() -> new DomainException(ORDER_NOT_FOUND));
   }
 
-  public Order getOrderForPayment(String orderNo, BigDecimal paymentAmount) {
+  public Order getOrderForPayment(String orderNo, BigDecimal paymentAmount, Long userId) {
     Order order = getOrder(orderNo);
+    order.validateOwnedBy(userId);
     order.validatePaymentAmount(paymentAmount);
     return order;
   }

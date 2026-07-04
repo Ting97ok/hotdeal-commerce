@@ -31,9 +31,9 @@ public class PaymentFacade {
   private final PaymentMapper paymentMapper;
   private final TransactionTemplate transactionTemplate;
 
-  public ConfirmPaymentResponse confirm(ConfirmPaymentRequest request) {
+  public ConfirmPaymentResponse confirm(Long userId, ConfirmPaymentRequest request) {
     Order order = transactionTemplate.execute(status -> {
-      Order preempted = commonOrderService.getOrderForPayment(request.orderId(), request.amount());
+      Order preempted = commonOrderService.getOrderForPayment(request.orderId(), request.amount(), userId);
       commonHotDealService.validateNotCanceledIfHotDeal(preempted.getHotDeal());
       commonOrderService.markPaid(preempted);
       productStockService.confirmSale(preempted.getProductId(), preempted.getQuantity());

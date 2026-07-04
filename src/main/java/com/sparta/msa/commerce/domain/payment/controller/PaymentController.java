@@ -3,6 +3,8 @@ package com.sparta.msa.commerce.domain.payment.controller;
 import com.sparta.msa.commerce.domain.payment.dto.request.ConfirmPaymentRequest;
 import com.sparta.msa.commerce.domain.payment.dto.response.ConfirmPaymentResponse;
 import com.sparta.msa.commerce.domain.payment.facade.PaymentFacade;
+import com.sparta.msa.commerce.global.security.AuthUser;
+import com.sparta.msa.commerce.global.security.CurrentUser;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -18,7 +20,8 @@ public class PaymentController {
   private final PaymentFacade paymentFacade;
 
   @PostMapping("/confirm")
-  public ConfirmPaymentResponse confirm(@RequestBody @Valid ConfirmPaymentRequest request) {
-    return paymentFacade.confirm(request);
+  public ConfirmPaymentResponse confirm(@CurrentUser AuthUser currentUser,
+      @RequestBody @Valid ConfirmPaymentRequest request) {
+    return paymentFacade.confirm(currentUser.userId(), request);
   }
 }

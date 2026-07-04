@@ -2,6 +2,7 @@ package com.sparta.msa.commerce.domain.order.entity;
 
 import static com.sparta.msa.commerce.domain.order.exception.OrderExceptionCode.AMOUNT_MISMATCH;
 import static com.sparta.msa.commerce.domain.order.exception.OrderExceptionCode.EXCEEDS_PURCHASE_LIMIT;
+import static com.sparta.msa.commerce.domain.order.exception.OrderExceptionCode.ORDER_NOT_FOUND;
 import static jakarta.persistence.ConstraintMode.NO_CONSTRAINT;
 import static jakarta.persistence.FetchType.LAZY;
 import static lombok.AccessLevel.PRIVATE;
@@ -113,6 +114,13 @@ public class Order extends BaseEntity {
   public void validatePaymentAmount(BigDecimal paymentAmount) {
     if (orderAmount.compareTo(paymentAmount) != 0) {
       throw new DomainException(AMOUNT_MISMATCH);
+    }
+  }
+
+  public void validateOwnedBy(Long userId) {
+    // 소유 불일치는 403이 아니라 404 — 타인에게 주문 존재 여부를 노출하지 않는다
+    if (!user.getId().equals(userId)) {
+      throw new DomainException(ORDER_NOT_FOUND);
     }
   }
 
