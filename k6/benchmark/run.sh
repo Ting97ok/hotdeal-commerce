@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# 동시성 벤치마크 자동 실행 — 일회용 컨테이너 기동 -> 전략 3개 측정 -> 완전 삭제.
+# 동시성 벤치마크 자동 실행 — 일회용 컨테이너 기동 -> 전략(conditional·redis) 측정 -> 완전 삭제.
 # 사용: bash k6/benchmark/run.sh                  (처리량: 동시 1000·재고 2000, 거의 전원 차감)
 #       STOCK=10 bash k6/benchmark/run.sh         (정확성: 재고<인원 품절 경합 — 초과 판매 0 검증)
 #       ACCOUNTS=500 STOCK=10 bash k6/benchmark/run.sh
@@ -10,7 +10,7 @@ ACCOUNTS="${ACCOUNTS:-1000}"
 STOCK="${STOCK:-2000}"
 BASE_URL="http://localhost:18080"
 K6_SCRIPT="../order-flash-sale.js"
-RESET_SQL="UPDATE hot_deal_stock SET remaining_quantity=$STOCK, version=0 WHERE hot_deal_id=1; UPDATE product_stock SET reserved_quantity=$STOCK WHERE product_id=1; DELETE FROM orders;"
+RESET_SQL="UPDATE hot_deal_stock SET remaining_quantity=$STOCK WHERE hot_deal_id=1; UPDATE product_stock SET reserved_quantity=$STOCK WHERE product_id=1; DELETE FROM orders;"
 
 mysql_exec() { docker compose exec -T mysql mysql -uroot -proot commerce "$@"; }
 redis_exec() { docker compose exec -T redis redis-cli "$@"; }

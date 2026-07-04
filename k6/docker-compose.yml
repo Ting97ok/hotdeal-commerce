@@ -1,5 +1,5 @@
 # 동시성 벤치마크 측정 스택 — Prometheus(수집) + Grafana(시각화)
-# 앱은 호스트에서 기동(-Dstock.deduct.strategy=optimistic|conditional|redis),
+# 앱은 호스트에서 기동(-Dstock.deduct.strategy=conditional|redis),
 # 이 스택이 호스트의 /actuator/prometheus 를 스크랩한다.
 # 실행: docker compose -f k6/docker-compose.yml up -d
 services:

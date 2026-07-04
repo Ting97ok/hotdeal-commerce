@@ -7,7 +7,7 @@ import { Counter, Trend } from 'k6/metrics';
 //
 // 실행 전 사전 시드: 상품(Product)·ProductStock·활성 HotDeal·HotDealStock(재고 = STOCK).
 //   PRODUCT_ID 에 활성 핫딜이 걸려 있어야 주문이 성립한다.
-// 전략 교체: 앱 기동 시 -Dstock.deduct.strategy=optimistic|conditional|redis 로 바꿔 동일하게 재실행.
+// 전략 교체: 앱 기동 시 -Dstock.deduct.strategy=conditional|redis 로 바꿔 동일하게 재실행.
 // 환경변수: BASE_URL, PRODUCT_ID, ACCOUNTS(= 동시 사용자 수).
 //   예) k6 run -e ACCOUNTS=1000 -e PRODUCT_ID=1 order-flash-sale.js
 // 오버셀 0 검증: 측정 후 DB 로 (HotDealStock 잔여 + order_success 수량 == 총량).

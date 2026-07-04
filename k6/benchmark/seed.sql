@@ -9,5 +9,5 @@ INSERT INTO product_stock (product_id, on_hand_quantity, reserved_quantity)
 INSERT INTO hot_deals (id, product_id, deal_price, total_quantity, max_per_order, start_at, end_at, status)
   VALUES (1, 1, 5000, 2000, 1, DATE_SUB(NOW(), INTERVAL 1 HOUR), DATE_ADD(NOW(), INTERVAL 7 DAY), 'ACTIVE');
 
-INSERT INTO hot_deal_stock (hot_deal_id, remaining_quantity, version)
-  VALUES (1, 2000, 0);
+INSERT INTO hot_deal_stock (hot_deal_id, remaining_quantity)
+  VALUES (1, 2000);
