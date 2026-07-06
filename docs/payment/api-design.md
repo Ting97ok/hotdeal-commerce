@@ -37,8 +37,7 @@
 | id | Long | 결제 고유 ID (BaseEntity) |
 | amount | BigDecimal | 결제 금액 (필수, `DECIMAL(12,0)`) |
 | status | PaymentStatus | 결제 상태 (슬라이스3에서 enum 확정) |
-| pgPaymentKey | String | PG 거래 키 (토스 paymentKey, UNIQUE, max 200자) |
-| idempotencyKey | String | 멱등키 (서버 생성 UUID, 승인 재시도 시 같은 키 재사용) |
+| pgPaymentKey | String | PG 거래 키 (토스 paymentKey, UNIQUE, max 200자 — 멱등키로도 재사용) |
 | approvedAt | LocalDateTime | 승인 시각 (토스 응답 `approvedAt`) |
 | orderId | Long | 대상 주문 ID (FK 값 칼럼, `@ManyToOne` 매핑 없음) |
 | createdAt | LocalDateTime | 생성일시 (BaseEntity) |
@@ -166,7 +165,7 @@
 
 ### B1-2. `PgConfirmResult` 결과 모델 확장 — 성공/거절/통신오류/미확정 4결과
 
-현재 `PgConfirmResult`는 **성공값만 담는 record**(`pgPaymentKey·idempotencyKey·amount·approvedAt`)이고, 실패는 `TossPaymentClient`가 **예외를 던져** 갈렸다. 미확정(타임아웃·응답유실)은 표현할 자리가 없어 예외로 던지면 무조건 롤백→돈 나감 위험이 생긴다. B1에서 **네 결과(승인·거절·통신오류·미확정)를 표현하는 형태**로 재설계한다.
+현재 `PgConfirmResult`는 **성공값만 담는 record**(`pgPaymentKey·amount·approvedAt`)이고, 실패는 `TossPaymentClient`가 **예외를 던져** 갈렸다. 미확정(타임아웃·응답유실)은 표현할 자리가 없어 예외로 던지면 무조건 롤백→돈 나감 위험이 생긴다. B1에서 **네 결과(승인·거절·통신오류·미확정)를 표현하는 형태**로 재설계한다.
 
 - **권장 형태 — sealed 결과 타입**: `PgConfirmResult`를 sealed interface로 두고 `Approved`(승인값 보유) / `Rejected`(거절 사유·토스 status) / `GatewayError`(통신 실패) / `InDoubt`(원인·부분 식별자)로 가른다. 호출부(Facade)는 `switch` 패턴 매칭으로 분기한다. 거절·통신오류를 throw가 아니라 result로 옮기면 "롤백이 보상"이라는 B1 흐름과 일관되고, Facade의 try-catch 없이 `switch` 한 곳에서 4결과를 처리한다(throw는 미확정에서 위험). **예상 못한 예외**(코드 버그 등)는 결과값으로 접지 않고 **전파(500)** — 어댑터가 접는 건 "토스 호출의 알려진 결과"뿐이고, catch-all 삼키기는 버그를 미확정으로 위장하는 안티패턴이다. 잔여 일관성은 삼키기가 아니라 **B2 해소가 "주문 PAID 기준"으로 스캔**(IN_DOUBT든 Payment 없음이든 다 잡음)해서 확보한다.
   - 대안(분류 enum 필드): record 한 개에 `PgResultType` enum 필드를 더하는 방식도 가능하나, 결과별로 채워지는 값이 달라 nullable 필드가 늘어 sealed가 더 정직.
@@ -185,9 +184,11 @@
 
 > **`REJECT_CODES`는 "모든 4xx"가 아니라 엄선한다 — 넣으면 안 되는 함정**: ① **`ALREADY_PROCESSED_PAYMENT`**("이미 처리된 결제"=**돈 빠짐**)를 거절로 넣으면 **성공 결제를 되돌리는** 바로 그 파국 → 제외(InDoubt). ② 처리오류(`PROVIDER_ERROR`·`CARD_PROCESSING_ERROR`·`FAILED_*`)는 상태 불명 → 제외(InDoubt). ③ 설정 버그(`INVALID_API_KEY`·`UNAUTHORIZED_KEY`·`INVALID_REQUEST` 등)는 사용자 거절이 아니라 우리 버그 → "결제 거절"로 위장하지 않도록 제외(InDoubt로 두고 조사). 즉 목록엔 **"돈 안 빠진 사용자 거절"(카드 거절·한도·잘못된 카드·FDS 차단 등)만** 담는다.
 
+> **`NOT_FOUND_PAYMENT` 포함(2026-07-06 추가) — 위조 키 방어**: "존재하지 않는 결제"(위조·오타 paymentKey)는 결제 객체 자체가 없어 **돈이 빠질 수가 없는 확정 거절**이라 `REJECT_CODES`에 포함한다. 넣지 않으면 confirm이 InDoubt로 접혀 IN_DOUBT 행이 생기고, 이후 해소 조회도 계속 404라 **무한 재시도 + 핫딜 재고 영구 잠금**(악용 벡터)이 된다. 분류 기준("돈 확실히 안 빠진 거절")에 정확히 부합하며, 정상 사용자는 위젯에서 유효 키를 받으므로 이 코드를 볼 일이 없다(정상 결제 오취소 위험 0). 이중 방어로 해소의 `findPayment` 404=`Optional.empty`도 실패 확정(터미널) 처리 — [system 설계](api-design-system.md) 해소 표.
+
 > **실토스 실측(2026-07-01, `TossPayments-Test-Code` 헤더로 코드별 확인)** — 아래는 거절이 아니라 처리오류/상태불명이라 `REJECT_CODES`에 없어 자동 `InDoubt`: `PROVIDER_ERROR`(**400**)·`FAILED_PAYMENT_INTERNAL_SYSTEM_PROCESSING`·`FAILED_INTERNAL_SYSTEM_PROCESSING`·`UNKNOWN_PAYMENT_ERROR`(500). `PROVIDER_ERROR`가 **400**인데 상태불명인 게 "상태값으로는 못 가른다"는 결정적 근거. `FDS_ERROR`(403, 위험거래 차단)는 돈 안 빠진 차단이라 `REJECT_CODES`에 포함.
 
-> **설계 노트 — 토스 원문 보관**: 해소·CS 증빙용 토스 응답 원문/토스 status는 B1 범위에서 **결과 타입에 최소 식별자(toss status·errorCode)만** 담는다. 수신 원문 누적 테이블(`payment_event`)은 B2 — IN_DOUBT 행에 `pgPaymentKey`(있으면)·`idempotencyKey`만 남겨 B2 해소가 토스 조회로 확정할 수 있게 한다.
+> **설계 노트 — 토스 원문 보관**: 해소·CS 증빙용 토스 응답 원문/토스 status는 B1 범위에서 **결과 타입에 최소 식별자(toss status·errorCode)만** 담는다. 수신 원문 누적 테이블(`payment_event`)은 B2 — IN_DOUBT 행에 `pgPaymentKey`(있으면)만 남겨 B2 해소가 토스 조회로 확정할 수 있게 한다.
 
 ### B1-3. 멱등 — 토스 멱등키 헤더 + `pgPaymentKey` UNIQUE 충돌
 
@@ -202,7 +203,7 @@
   - 같은 멱등키(paymentKey)로 confirm이 토스에 두 번 도달(네트워크 재전송) → 토스가 **같은 결과**를 반환(토스 멱등 보장) → 이중 출금이 토스 단에서 막힌다.
   - `pgPaymentKey` UNIQUE 충돌(같은 paymentKey로 Payment 이중 저장)은 **`markPaid` 방어(주문당 1회 조건부 전이)로 도달 불가능(unreachable)**하다 — 모든 재시도·동시 경로가 markPaid에서 먼저 409 CONFLICT로 걸려 Payment 저장까지 두 번 가지 않는다. 따라서 충돌 핸들링(catch→기존 반환)은 **죽은 코드 + 삼키기(방어를 뚫은 이상을 숨김)**라 넣지 않는다. UNIQUE 제약은 **최후 정합 안전망**으로 유지하고, 만에 하나 충돌하면 500으로 드러낸다.
 
-> **설계 노트 — idempotency_key 칼럼**: 멱등키로 paymentKey를 재사용하므로 별도 `idempotency_key` 칼럼·인덱스는 B1에서 쓰지 않는다(`Payment.idempotencyKey`는 null로 남김 — 향후 별도 멱등키 정책이 필요해지면 B2에서 재검토). 토스 멱등은 `Idempotency-Key: paymentKey` 헤더로, 내부 이중 저장 방지는 `markPaid` 조건부 전이로 각각 담당한다.
+> **설계 노트 — 멱등키 칼럼 없음**: 멱등키로 paymentKey를 재사용하므로 별도 `idempotency_key` 칼럼·필드·인덱스는 두지 않는다(`Payment`에 멱등키 칼럼 자체가 없다 — 향후 별도 멱등키 정책이 필요해지면 재검토). 토스 멱등은 `Idempotency-Key: paymentKey` 헤더로, 내부 이중 저장 방지는 `markPaid` 조건부 전이로 각각 담당한다.
 
 > **검토·기각(2026-07-04) — 같은 paymentKey 재요청에 저장 결과 재반환(자기 API 멱등 재응답)**: 응답 유실 후 재시도가 409로 끝나는 것을 "저장된 Payment(DONE/IN_DOUBT) 재반환"으로 바꾸는 안을 구현까지 했다가 기각했다. 이 시스템의 confirm 클라이언트는 결제위젯 리다이렉트 흐름의 브라우저뿐이라, **409(이미 처리된 주문) → 안내 후 주문 내역 확인**이 더 단순하고 충분한 계약이다 — 재응답은 프론트에 "새 승인 vs 재응답" 구분 없는 200 경로를 늘릴 뿐이다. 서버-투-서버 클라이언트나 자동 재시도 계층이 생기면 재검토한다(그때의 구현 방향: markPaid 충돌 시 orderId+paymentKey 로 Payment 조회 → DONE/IN_DOUBT 재반환, 키 불일치·부재는 409 유지).
 

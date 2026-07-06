@@ -1,7 +1,7 @@
 # 커머스 핫딜 — 백엔드 설계
 
 > 트래픽이 한순간에 몰리는 **핫딜 선착순 구매**를, 재고보다 많이 팔리는 일(오버셀) 0건으로 막고 토스 결제까지 정합성 있게 잇는 백엔드 프로젝트. 넓은 기능 대신 **이 한 흐름을 끝까지 깊게** 판다(적은 API + 깊이).
-> 상태: 인증(JWT·RTR)·회원 → 핫딜 등록/조회·주문·만료·결제(슬라이스 0~4) → 동시성 벤치마크·운영 전략 확정(Phase A, [ADR-0010](adr/0010-concurrency-strategy-selection.md)) → 토스 실연동(Phase B1) → IN_DOUBT 해소 스케줄러(Phase B2) **완료**. 다음: 결제 후속 부분 MSA 분리 → 대용량 조회·캐싱.
+> 상태: 인증(JWT·RTR)·회원 → 핫딜 등록·주문·만료·결제(슬라이스 0~4) → 동시성 벤치마크·운영 전략 확정(Phase A, [ADR-0010](adr/0010-concurrency-strategy-selection.md)) → 토스 실연동(Phase B1) → IN_DOUBT 해소 스케줄러(Phase B2) **완료**. 다음: 결제 후속 부분 MSA 분리 → 대용량 조회·캐싱.
 
 ## 이 프로젝트가 내린 핵심 결정 (한 줄 + 왜)
 
@@ -22,7 +22,7 @@
 - ✅ 인증(JWT·RTR·tokenVersion), 회원(User)
 - ✅ 핫딜 설계 확정 — [가설 PRD](design/hotdeal-prd.md) · [기술 가설](design/hotdeal-purchase-hypothesis.md) · [ERD](design/erd.md) · [ADR](adr/README.md)
 - ✅ 엔티티+마이그레이션 — 상품·핫딜·재고·주문·결제 (V2~V6, FK 제약 미사용·활성 유니크·CHECK 5종)
-- ✅ 슬라이스 0~4 — 핫딜 등록/조회 · 주문(선점·활성 유니크) · 미결제 만료 스케줄러 · 결제 승인 (vertical TDD)
+- ✅ 슬라이스 0~4 — 핫딜 등록 · 주문(선점·활성 유니크) · 미결제 만료 스케줄러 · 결제 승인 (vertical TDD). 핫딜 단건 조회는 설계만(미구현)
 - ✅ Phase A — 동시성 벤치마크(낙관락·조건부·Redis) → 운영 전략 조건부 UPDATE 확정 ([ADR-0010](adr/0010-concurrency-strategy-selection.md))
 - ✅ Phase B1 — 토스 실연동: TX 경계 분리 · sealed 4결과 분류 · IN_DOUBT 보존
 - ✅ Phase B2 — IN_DOUBT 해소 스케줄러 (토스 재조회 → DONE 확정 / 실패 확정 + 재고 방출)

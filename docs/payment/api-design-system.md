@@ -30,15 +30,16 @@
 
 **스케줄러**(`@Scheduled`, 예: **1분마다**) 매 회차:
 
-1. `IN_DOUBT` 결제 중 **생성 후 grace(예: 1분) 경과**한 것을 조회한다(방금 생긴 건 토스가 아직 처리 중일 수 있어 헛조회 방지).
-2. 각 건을 **결제 조회**(`GET /v1/payments/{paymentKey}`)해 실제 status로 분기.
+1. `IN_DOUBT` 결제 중 **생성 후 grace(1분) 경과**한 것을 **한 회차 최대 500건**(오래된 순) 조회한다(방금 생긴 건 토스가 아직 처리 중일 수 있어 헛조회 방지 + 회차당 상한). 조회는 `idx_payments_status_created_at`(status+created_at) 인덱스를 탄다.
+2. 각 건을 **결제 조회**(`findPayment(paymentKey)` → `GET /v1/payments/{paymentKey}`, 반환 `Optional<PgPayment>`)해 실제 status로 분기.
 
-| 결제 조회 status | 의미 | 우리 처리 |
+| 결제 조회 결과 | 의미 | 우리 처리 |
 |---|---|---|
 | `DONE` | 승인 완료(돈 나감) — confirm이 실제론 성공했고 응답만 유실 | Payment `IN_DOUBT→DONE` 조건부 전이. 주문 PAID·재고 유지 |
 | `IN_PROGRESS` | **인증은 됐는데 우리 confirm이 미완성**(돈 안 나감) — 고객은 사려던 상태 | **confirm 멱등 재시도로 완성 시도**(매출 복구). 성공→DONE, 또 미확정→다음 회차, 실패→아래 실패 처리 |
 | `EXPIRED` / `ABORTED` / `CANCELED` | 실패·만료 확정(돈 안 나감) | Payment `IN_DOUBT→FAILED` + 주문 `PAID→CANCELED` + **재고 복원**(`restoreSale`) |
-| `READY` | 인증 전(비정상 — 우리 IN_DOUBT과 안 맞음) | 변경 없음, 다음 회차/로깅 |
+| **빈 결과(404 — 토스에 결제 없음)** | 위조 키 등으로 매입이 발생한 적 없음 확정 | Payment `IN_DOUBT→FAILED` + 주문 `PAID→CANCELED` + 재고 복원 — **잔여 무한 재시도 차단**(confirm 단계에서 `NOT_FOUND_PAYMENT`를 이미 거절로 막지만, 타임아웃 조합 잔여의 최후 종결자) |
+| `READY` / 그 외 | 인증 전(비정상 — 우리 IN_DOUBT과 안 맞음) | 변경 없음, 다음 회차/로깅 |
 
 > **설계 노트 — IN_PROGRESS는 "실패"가 아니라 "우리가 마무리 못 한 매출"**: IN_PROGRESS로 남은 건 고객이 인증까지 다 했는데 우리 confirm이 안 들어간(또는 미완성) **우리 쪽 실패**다 — 카드 거절이 아니다. 그래서 만료로 죽이기 전에 **confirm을 멱등 재시도**(멱등키=paymentKey)해 고객이 원한 결제를 **완성**시킨다. 토스가 타임아웃 시 권장한 "멱등 재시도"가 정확히 이 경우다. 재시도는 **10분 창이 자연 상한**(그 뒤엔 EXPIRED라 재시도 대상이 아님)이라 별도 횟수 카운터가 없어도 폭주하지 않는다.
 
@@ -110,6 +111,8 @@ flowchart TD
 | 15 | `스케줄러_양쪽_해소_호출` | runResolution이 IN_DOUBT 해소와 PAID 고아 해소를 모두 호출 | ✅ Pass | 2026-07-04 |
 | 16 | `토스_주문번호조회_DONE_매핑` | (단위) `GET /v1/payments/orders/{orderId}` 200 → `PgPayment`(paymentKey 포함) 매핑 | ✅ Pass | 2026-07-04 |
 | 17 | `토스_주문번호조회_404_빈결과` | (단위) 404(결제 없음) → `Optional.empty` — 매입 미발생 신호 | ✅ Pass | 2026-07-04 |
+| 18 | `해소_빈결과_실패확정` | 결제 조회 빈 결과(404) → Payment FAILED·주문 CANCELED — 위조 키 IN_DOUBT 잔여 루프 종결 | ✅ Pass | 2026-07-06 |
+| 19 | `토스_NOT_FOUND_PAYMENT_Rejected_매핑` | (단위) confirm 시 `NOT_FOUND_PAYMENT`(존재하지 않는 결제=돈 안 빠짐) → Rejected — 위조 키 즉시 실패 확정 | ✅ Pass | 2026-07-06 |
 
 ## 계층
 
@@ -118,22 +121,22 @@ flowchart TD
 | 스케줄러 | `PaymentResolutionScheduler` | `@Scheduled` — IN_DOUBT 목록 조회 후 건별 Facade 위임(로직 0). order 만료 스케줄러와 같은 패턴 |
 | Facade | `PaymentResolutionFacade` | 건별: 결제 조회 → status 분기 → 확정/재시도/실패 조합(Payment·Order·Stock). 메서드 `@Transactional` |
 | Service | `CommonPaymentService`(전이)·`CommonOrderService`(PAID→CANCELED)·`ProductStockService`(restoreSale) | 자기 도메인 조건부 전이 |
-| 게이트웨이 | `PaymentGatewayClient.getPayment(paymentKey)` + `findPaymentByOrderId(orderId)`(v0.3) + `confirm(...)`(B1 재사용) → `TossPaymentClient` → `TossHttpClient` | 결제 조회 GET 2종(paymentKey·주문번호), IN_PROGRESS 재시도는 기존 confirm 재사용 |
+| 게이트웨이 | `PaymentGatewayClient.findPayment(paymentKey)` + `findPaymentByOrderId(orderId)`(v0.3) + `confirm(...)`(B1 재사용) → `TossPaymentClient` → `TossHttpClient` | 결제 조회 GET 2종(paymentKey·주문번호) 모두 404=`Optional.empty`(매입 미발생), IN_PROGRESS 재시도는 기존 confirm 재사용 |
 
 ### 결제 조회 게이트웨이 규약 (신설)
 
 B1의 3층(계약/어댑터/전송)을 확장한다.
 
 ```java
-// 계약 — 실제 상태 재확인 (paymentKey 기준 + 주문번호 기준·v0.3, 404=빈 결과)
-PgPayment getPayment(String paymentKey);
+// 계약 — 실제 상태 재확인 (paymentKey 기준 + 주문번호 기준·v0.3). 둘 다 404=Optional.empty(매입 미발생)
+Optional<PgPayment> findPayment(String paymentKey);
 Optional<PgPayment> findPaymentByOrderId(String orderId);
 
 // 결과 — 토스가 확정한 상태 최소 식별자 (paymentKey는 고아 복구의 Payment 행 생성에 필요·v0.3)
 record PgPayment(String paymentKey, PgPaymentStatus status, BigDecimal totalAmount, LocalDateTime approvedAt) {}
 enum PgPaymentStatus { DONE, IN_PROGRESS, EXPIRED, ABORTED, CANCELED, READY, WAITING_FOR_DEPOSIT, UNKNOWN }
 
-// 전송 — @HttpExchange
+// 전송 — @HttpExchange (404는 어댑터가 Optional.empty로 접음)
 @GetExchange("/v1/payments/{paymentKey}")
 TossConfirmResponse getPayment(@PathVariable String paymentKey);   // 조회 응답은 confirm과 같은 Payment 객체라 재사용
 @GetExchange("/v1/payments/orders/{orderId}")
@@ -143,13 +146,16 @@ TossConfirmResponse getPaymentByOrderId(@PathVariable String orderId);
 ## 쿼리 설계
 
 ```java
-// IN_DOUBT + 생성 후 grace 경과 (조건부 조회, 페이지/배치)
+// IN_DOUBT + 생성 후 grace 경과 (오래된 순 + 회차 상한 Limit) — idx_payments_status_created_at 사용
 @Query("""
     SELECT p FROM Payment p
-    WHERE p.status = 'IN_DOUBT' AND p.createdAt <= :threshold
+    WHERE p.status = 'IN_DOUBT' AND p.createdAt < :threshold
+    ORDER BY p.createdAt ASC
 """)
-List<Payment> findInDoubtBefore(@Param("threshold") LocalDateTime threshold);
+List<Payment> findInDoubtCreatedBefore(@Param("threshold") LocalDateTime threshold, Limit limit);
 ```
+
+> **스케줄러 스레드 격리**: 만료·결제해소 스케줄러가 Spring 기본 단일 스레드를 공유하면, 해소가 토스 장애로 장기 점유할 때 만료(재고 방출)가 멈춘다. `SchedulingConfig`의 `ThreadPoolTaskScheduler`(pool size 2)로 분리한다. IN_DOUBT·고아 스캔 모두 회차 상한(500) + 인덱스로 한 회차 비용을 묶는다.
 
 ## 후속 (B3+)
 

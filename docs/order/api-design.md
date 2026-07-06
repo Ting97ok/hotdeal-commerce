@@ -51,9 +51,8 @@
 |------|------|------|
 | hotDealId | Long | 핫딜 ID (논리 참조, 1:1, UNIQUE) |
 | remainingQuantity | int | 잔여 수량 (0 이상, 구매가 차감) |
-| version | Long | 낙관락 버전 (`@Version` — 구매 차감 경합 제어) |
 
-> **차감 동시성 = 낙관락(@Version)**: 구매는 `findByHotDealId`로 재고 행을 PC(JPA가 객체를 추적하는 메모리 공간)에 올려 version을 추적하고, 엔티티 `deduct(quantity)`로 잔여를 줄인 뒤, 트랜잭션 커밋 flush에서 version을 비교한다. 충돌 시 `ObjectOptimisticLockingFailureException` → `CONCURRENT_UPDATE_CONFLICT`(409), 서버 재시도는 하지 않는다([ADR-0006](../adr/0006-correctness-invariants-defense-layers.md)). 핫딜 등록의 `ProductStock` 차감(원자적 조건부 UPDATE)과 **메커니즘이 다르다** — 낙관락은 [ADR-0009](../adr/0009-stock-concurrency-design.md) 5방식 벤치마크의 출발점이다.
+> **차감 동시성 = 원자적 조건부 UPDATE** (2026-07 갱신 — 낙관락·`version` 제거, [ADR-0010](../adr/0010-concurrency-strategy-selection.md)): 구매는 `UPDATE ... SET remaining = remaining - :qty WHERE hot_deal_id = :id AND remaining >= :qty` 한 문장으로 차감한다. affected==0(잔여 부족)이면 `SOLD_OUT`, 서버 재시도는 하지 않는다([ADR-0006](../adr/0006-correctness-invariants-defense-layers.md)). 핫딜 등록의 `ProductStock` 차감과 **같은 메커니즘**으로 통일됐다 — 벤치마크 경위는 [ADR-0009](../adr/0009-stock-concurrency-design.md)·[ADR-0010](../adr/0010-concurrency-strategy-selection.md).
 
 ---
 
@@ -91,14 +90,14 @@
 
 ### 주문 ExceptionCode
 
-실패 응답의 `error.code`는 enum 이름과 같다. 구매 흐름의 거절 사유는 order, 재고 부족·정보 없음은 stock, 활성 핫딜·주문자·상품 부재는 각 도메인(hotdeal·user·product) 소속이고, 동시 갱신 충돌(낙관락)은 예외 타입만으로 도메인을 특정할 수 없어 도메인 무관 global(DomainExceptionCode) 소속이다 — 조회 Service가 없으면 자기 도메인 예외를 직접 던진다.
+실패 응답의 `error.code`는 enum 이름과 같다. 구매 흐름의 거절 사유는 order, 재고 부족·정보 없음은 stock, 활성 핫딜·주문자·상품 부재는 각 도메인(hotdeal·user·product) 소속이다. 재고 차감이 원자적 조건부 UPDATE로 바뀐 뒤(2026-07, [ADR-0010](../adr/0010-concurrency-strategy-selection.md)) 잔여 부족은 `SOLD_OUT`으로 갈리고, 낙관락 충돌(`CONCURRENT_UPDATE_CONFLICT`, DomainExceptionCode)은 구매 경로에서 더는 발생하지 않는다 — `@Version` 이 코드에서 제거돼 `ObjectOptimisticLockingFailureException` 핸들러는 전역 안전망으로만 남는다(도메인 무관 global 소속인 이유는 예외 타입만으로 도메인을 특정할 수 없어서). 조회 Service가 없으면 자기 도메인 예외를 직접 던진다.
 
 | ExceptionCode | 소속 enum | HttpStatus | 발생 |
 |---------------|-----------|:----------:|------|
 | NO_ACTIVE_DEAL | HotDealExceptionCode | 404 | 구매 — 상품에 현재 활성(판매기간 내 ACTIVE) 핫딜 없음 |
 | ALREADY_PURCHASED | OrderExceptionCode | 409 | 구매 — 같은 핫딜에 이미 살아 있는 주문 있음(계정당 1활성) |
 | EXCEEDS_PURCHASE_LIMIT | OrderExceptionCode | 400 | 구매 — `quantity > 핫딜 maxPerOrder` |
-| CONCURRENT_UPDATE_CONFLICT | DomainExceptionCode | 409 | 구매 — 재고 차감 낙관락 경합(동시 갱신 충돌, 도메인 무관 전역) |
+| CONCURRENT_UPDATE_CONFLICT | DomainExceptionCode | 409 | 낙관락 충돌(동시 갱신) 전역 안전망 — `@Version` 제거로 구매 경로에서는 미발생(잔여 부족은 `SOLD_OUT`), 핸들러만 잔존 |
 | SOLD_OUT | StockExceptionCode | 409 | 구매 — 핫딜 잔여 수량 < `quantity` |
 | STOCK_NOT_FOUND | StockExceptionCode | 404 | 구매 — 핫딜 재고 정보 없음(정상 운영 시 활성 핫딜엔 항상 존재, 방어) |
 | PRODUCT_NOT_FOUND | ProductExceptionCode | 404 | 구매 — productId 상품 없음 |

@@ -51,13 +51,15 @@ POST /api/payments/confirm
 | 주문 소유자 일치 | 비즈니스 검증 (order.validateOwnedBy — 토스 호출 전) | ORDER_NOT_FOUND (403 아님 — 존재 여부 은닉) |
 | 금액 일치 | 비즈니스 검증 (order.validatePaymentAmount) | AMOUNT_MISMATCH |
 | 핫딜 취소 여부 | 비즈니스 검증 (validateNotCanceledIfHotDeal) | HOTDEAL_CANCELED |
-| **조건부 상태 선점** | @Modifying UPDATE WHERE status='PENDING', affected==1 **(토스 호출 전)** | ORDER_STATUS_CONFLICT |
+| **조건부 상태 선점** | @Modifying UPDATE WHERE status='PENDING' **AND expiresAt > now**, affected==1 **(토스 호출 전)** | ORDER_STATUS_CONFLICT |
 | **재고 차감 선점** | @Modifying UPDATE WHERE reserved≥qty AND on_hand≥qty, affected==1 **(토스 호출 전, 선점 직후)** | PRODUCT_STOCK_INCONSISTENT |
 | 토스 승인 API 호출 | 토스 응답 처리 (TossPaymentClient, **선점·차감 성공 후**) | PAYMENT_GATEWAY_ERROR / PAYMENT_REJECTED |
 
 > **설계 노트 — 금액 검증 위치**: 토스 호출 전에 `order.orderAmount.compareTo(request.amount) == 0`을 서버가 비교한다. 토스도 금액 불일치 시 거부하지만, 우리가 먼저 잡으면 왕복 비용을 줄이고 400으로 명확한 에러를 반환할 수 있다.
 
 > **설계 노트 — 핫딜 취소 차단**: 토스 호출 전에 핫딜 status를 확인한다. CANCELED이면 돈이 움직이기 전에 거부([ADR-0007 결정2](../adr/0007-hotdeal-state-operations.md)). hotDeal은 order에 이미 연관 매핑돼 있으므로 `order.getHotDeal().getStatus()` LAZY 로드 1회로 처리한다.
+
+> **설계 노트 — markPaid 만료 가드(2026-07-06)**: 선점 조건에 `AND expiresAt > now`를 더해, 만료 시각이 지났지만 만료 스케줄러가 아직 못 쓸어간 PENDING 주문은 confirm이 affected==0으로 걸러 토스를 호출하지 않는다(만료된 결제창은 결제 불가). 이로써 "markPaid는 만료 전에만 성공"이 코드로 보장돼, 고아 해소의 유예 논증([system 설계](api-design-system.md))이 참이 된다.
 
 > **설계 노트 — 선점 순서(슬라이스4 재배치)**: 슬라이스3은 "토스 승인(돈 나감) → markPaid"였다. 슬라이스4에서 **markPaid 조건부 선점을 토스 승인 앞으로** 옮긴다. 주문을 먼저 `UPDATE ... WHERE status='PENDING'`으로 선점해 **affected==1일 때만** 토스를 호출한다. 그러면 ① 만료로 이미 CANCELED된 주문(만료↔결제 경합)과 ② 이미 PAID된 주문(이중 승인)이 **토스 호출 전에 affected==0으로 걸러져 돈이 나가지 않는다**. 토스가 거부하면 같은 트랜잭션이 롤백돼 선점한 PAID가 PENDING으로 자동 복귀하므로(우리 DB 안의 일이라 외부 보정 불필요), "돈만 나간 채 주문은 무효"인 상황 자체가 평상시 흐름에서 사라진다. 슬라이스3의 "토스 먼저 → 돈 나간 승인은 토스 취소 보정" 계획을 이 순서 재배치가 대체한다([ADR-0008](../adr/0008-payment-model-pg-boundary.md) "함께 묶이는 방어" 갱신).
 
@@ -159,7 +161,6 @@ public static Payment create(Order order, PgConfirmResult pgResult) {
         .amount(pgResult.amount())
         .status(PaymentStatus.DONE)
         .pgPaymentKey(pgResult.pgPaymentKey())
-        .idempotencyKey(pgResult.idempotencyKey())
         .approvedAt(pgResult.approvedAt())
         .build();
 }
@@ -208,7 +209,7 @@ int confirmSale(@Param("productId") Long productId, @Param("quantity") int quant
 | 토스 승인 거부 — **거절 코드 목록(`REJECT_CODES`)** (카드 거절·잔액부족·한도초과·FDS 차단 등) | `TossPaymentClient`가 `Rejected` 분류 | **실패 확정** 후 402 `PAYMENT_REJECTED` — 주문 `CANCELED(PAYMENT_FAILED)` + 핫딜·상품 재고 방출(핫딜 정책: 확정 실패는 즉시 방출, 재시도는 새 주문) |
 | 토스 통신 오류 — **응답을 못 받음**(connect 실패·DNS, 요청 미도달) | `TossPaymentClient`가 `GatewayError` 분류(예상 못한 예외는 그대로 전파=500) | **보상 롤백** 후 502 `PAYMENT_GATEWAY_ERROR` |
 | 토스 미확정 — **거절 코드가 아닌 응답 전부**(처리오류·모르는 code·5xx 포함) 또는 read 타임아웃·소켓 끊김 | `TossPaymentClient`가 `REJECT_CODES` 외는 전부 `InDoubt` 분류(상태값 안 봄) | **보상 안 함** — Payment `IN_DOUBT` 생성, 주문 PAID·재고 차감 유지(돈 나감 가능 → B2 해소로 확정) |
-| confirm 재시도 멱등(같은 주문·같은 멱등키 재호출) | 서버 생성 멱등키 재사용 + 토스 멱등 보장 + `pgPaymentKey` UNIQUE 충돌 핸들링 | 첫 결과 그대로 반환(중복 승인·이중 출금 방지) |
+| confirm 재시도 멱등(같은 주문·같은 paymentKey 재호출) | 멱등키=paymentKey 재사용 + 토스 멱등 보장 + `markPaid` 조건부 전이(주문당 PAID 1회). `pgPaymentKey` UNIQUE 충돌 핸들링은 없음 — markPaid 방어로 도달 불가([공통 정의 B1-3](api-design.md)) | 이중 승인·이중 출금은 토스 멱등이 차단. 저장 후 재요청은 409 유지(자기 API 멱등 재응답은 검토·기각 — [api-design.md](api-design.md)) |
 
 > **설계 노트 — 확정 실패 vs 미도달 vs 미확정 (세 갈래)**: ① **거절(확정 실패, 돈 안 나감)** → 핫딜 방향(실패 즉시 방출)에 따라 주문 `CANCELED(PAYMENT_FAILED)` 종료 + 재고 방출. 활성 유니크가 풀려 재시도는 새 주문으로. ② **통신오류(요청 미도달 — 우리/네트워크 문제, 사용자 잘못 아님)** → 주문을 죽이지 않고 PENDING 복귀 + 상품 재고 복원(만료가 백스톱). ③ **미확정(돈 나갔을 수 있음)** → 되돌리면 "돈 나감+재고 복원"이라는 더 나쁜 불일치 — 보상 없이 주문 PAID·재고 차감 유지한 채 IN_DOUBT 보존([ADR-0004 결정4](../adr/0004-stock-reservation-lifecycle.md)).
 
