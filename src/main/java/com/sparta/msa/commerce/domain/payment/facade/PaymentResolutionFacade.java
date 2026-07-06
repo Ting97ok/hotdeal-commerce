@@ -23,7 +23,9 @@ import org.springframework.transaction.support.TransactionTemplate;
 @RequiredArgsConstructor
 public class PaymentResolutionFacade {
 
+  private static final int IN_DOUBT_GRACE_MINUTES = 1;
   private static final int ORPHAN_GRACE_MINUTES = 5;
+  private static final int RESOLUTION_BATCH_SIZE = 500;
 
   private final PaymentService paymentService;
   private final PaymentGatewayClient paymentGatewayClient;
@@ -33,8 +35,8 @@ public class PaymentResolutionFacade {
   private final TransactionTemplate transactionTemplate;
 
   public void resolveInDoubt(LocalDateTime now) {
-    LocalDateTime graceThreshold = now.minusMinutes(1);
-    List<Payment> targets = paymentService.findInDoubtCreatedBefore(graceThreshold);
+    LocalDateTime graceThreshold = now.minusMinutes(IN_DOUBT_GRACE_MINUTES);
+    List<Payment> targets = paymentService.findInDoubtCreatedBefore(graceThreshold, RESOLUTION_BATCH_SIZE);
     if (targets.isEmpty()) {
       return;
     }
@@ -46,12 +48,16 @@ public class PaymentResolutionFacade {
 
   private void resolveOne(Payment payment) {
     try {
-      PgPayment pgPayment = paymentGatewayClient.getPayment(payment.getPgPaymentKey());
-      if (pgPayment.status() == PgPaymentStatus.IN_PROGRESS) {
+      Optional<PgPayment> pgPayment = paymentGatewayClient.findPayment(payment.getPgPaymentKey());
+      if (pgPayment.isEmpty()) {
+        transactionTemplate.executeWithoutResult(status -> failPayment(payment));   // 토스에 결제 없음(위조 키 등) — 실패 확정
+        return;
+      }
+      if (pgPayment.get().status() == PgPaymentStatus.IN_PROGRESS) {
         retryConfirm(payment);
         return;
       }
-      transactionTemplate.executeWithoutResult(status -> apply(payment, pgPayment));
+      transactionTemplate.executeWithoutResult(status -> apply(payment, pgPayment.get()));
     } catch (RuntimeException e) {
       log.warn("IN_DOUBT 해소 실패 — 다음 회차 재시도. paymentId={}, pgPaymentKey={}",
           payment.getId(), payment.getPgPaymentKey(), e);
@@ -88,7 +94,8 @@ public class PaymentResolutionFacade {
   }
 
   public void resolveOrphanedPaid(LocalDateTime now) {
-    List<Order> orphans = paymentService.findPaidOrdersWithoutPayment(now.minusMinutes(ORPHAN_GRACE_MINUTES));
+    List<Order> orphans = paymentService.findPaidOrdersWithoutPayment(
+        now.minusMinutes(ORPHAN_GRACE_MINUTES), RESOLUTION_BATCH_SIZE);
     if (orphans.isEmpty()) {
       return;
     }

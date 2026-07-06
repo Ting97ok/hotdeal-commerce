@@ -7,6 +7,7 @@ import com.sparta.msa.commerce.domain.payment.repository.PaymentRepository;
 import java.time.LocalDateTime;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Limit;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -17,12 +18,12 @@ public class PaymentService {
 
   private final PaymentRepository paymentRepository;
 
-  public List<Payment> findInDoubtCreatedBefore(LocalDateTime threshold) {
-    return paymentRepository.findInDoubtCreatedBefore(threshold);
+  public List<Payment> findInDoubtCreatedBefore(LocalDateTime threshold, int limit) {
+    return paymentRepository.findInDoubtCreatedBefore(threshold, Limit.of(limit));
   }
 
-  public List<Order> findPaidOrdersWithoutPayment(LocalDateTime threshold) {
-    return paymentRepository.findPaidOrdersWithoutPayment(threshold);
+  public List<Order> findPaidOrdersWithoutPayment(LocalDateTime threshold, int limit) {
+    return paymentRepository.findPaidOrdersWithoutPayment(threshold, Limit.of(limit));
   }
 
   @Transactional

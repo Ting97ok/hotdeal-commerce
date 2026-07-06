@@ -152,6 +152,21 @@ class TossPaymentClientTest {
   }
 
   @Test
+  @DisplayName("NOT_FOUND_PAYMENT(존재하지 않는 결제=돈 안 빠짐 확정)는 Rejected로 매핑한다 — 위조 키의 영구 IN_DOUBT 차단")
+  void mapsRejectedOnNotFoundPayment() {
+    server.enqueue(new MockResponse()
+        .setResponseCode(404)
+        .addHeader("Content-Type", "application/json")
+        .setBody("""
+            {"code":"NOT_FOUND_PAYMENT","message":"존재하지 않는 결제 입니다."}
+            """));
+
+    PgConfirmResult result = tossPaymentClient.confirm("fake_pk", "order-abc", new BigDecimal("19800"));
+
+    assertThat(result).isInstanceOf(PgConfirmResult.Rejected.class);
+  }
+
+  @Test
   @DisplayName("ALREADY_PROCESSED_PAYMENT(이미 결제됨=돈 빠짐)는 Rejected가 아니라 InDoubt로 매핑한다")
   void mapsInDoubtOnAlreadyProcessedPayment() {
     server.enqueue(new MockResponse()
@@ -217,7 +232,7 @@ class TossPaymentClientTest {
             {"paymentKey":"toss_pk_123","orderId":"order-abc","status":"DONE","totalAmount":19800,"approvedAt":"2026-07-02T10:00:00+09:00"}
             """));
 
-    PgPayment result = tossPaymentClient.getPayment("toss_pk_123");
+    PgPayment result = tossPaymentClient.findPayment("toss_pk_123").orElseThrow();
 
     assertThat(result.status()).isEqualTo(PgPaymentStatus.DONE);
   }
@@ -231,7 +246,7 @@ class TossPaymentClientTest {
         .addHeader("Content-Type", "application/json")
         .setBody("{\"paymentKey\":\"toss_pk_123\",\"orderId\":\"order-abc\",\"status\":\"" + tossStatus + "\",\"totalAmount\":19800}"));
 
-    PgPayment result = tossPaymentClient.getPayment("toss_pk_123");
+    PgPayment result = tossPaymentClient.findPayment("toss_pk_123").orElseThrow();
 
     assertThat(result.status().name()).isEqualTo(tossStatus);
   }
@@ -279,7 +294,7 @@ class TossPaymentClientTest {
             {"paymentKey":"toss_pk_123","orderId":"order-abc","status":"SOME_NEW_STATUS","totalAmount":19800}
             """));
 
-    PgPayment result = tossPaymentClient.getPayment("toss_pk_123");
+    PgPayment result = tossPaymentClient.findPayment("toss_pk_123").orElseThrow();
 
     assertThat(result.status()).isEqualTo(PgPaymentStatus.UNKNOWN);
   }

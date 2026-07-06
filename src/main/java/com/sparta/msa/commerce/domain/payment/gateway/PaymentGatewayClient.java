@@ -7,7 +7,7 @@ public interface PaymentGatewayClient {
 
   PgConfirmResult confirm(String paymentKey, String orderId, BigDecimal amount);
 
-  PgPayment getPayment(String paymentKey);
+  Optional<PgPayment> findPayment(String paymentKey);
 
   Optional<PgPayment> findPaymentByOrderId(String orderId);
 }

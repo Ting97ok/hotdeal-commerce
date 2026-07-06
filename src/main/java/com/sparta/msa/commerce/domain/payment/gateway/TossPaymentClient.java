@@ -8,6 +8,7 @@ import java.net.UnknownHostException;
 import java.net.http.HttpConnectTimeoutException;
 import java.util.Optional;
 import java.util.Set;
+import java.util.function.Supplier;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -51,6 +52,7 @@ public class TossPaymentClient implements PaymentGatewayClient {
       "NOT_AVAILABLE_BANK",
       "NOT_AVAILABLE_PAYMENT",
       "FDS_ERROR",
+      "NOT_FOUND_PAYMENT",
       "NOT_FOUND_PAYMENT_SESSION");
 
   private final TossHttpClient tossHttpClient;
@@ -78,17 +80,21 @@ public class TossPaymentClient implements PaymentGatewayClient {
   }
 
   @Override
-  public PgPayment getPayment(String paymentKey) {
-    return toPgPayment(tossHttpClient.getPayment(paymentKey));
+  public Optional<PgPayment> findPayment(String paymentKey) {
+    return findAndMap(() -> tossHttpClient.getPayment(paymentKey));
   }
 
   @Override
   public Optional<PgPayment> findPaymentByOrderId(String orderId) {
+    return findAndMap(() -> tossHttpClient.getPaymentByOrderId(orderId));
+  }
+
+  private Optional<PgPayment> findAndMap(Supplier<TossConfirmResponse> call) {
     try {
-      return Optional.of(toPgPayment(tossHttpClient.getPaymentByOrderId(orderId)));
+      return Optional.of(toPgPayment(call.get()));
     } catch (HttpStatusCodeException e) {
       if (e.getStatusCode().isSameCodeAs(HttpStatus.NOT_FOUND)) {
-        return Optional.empty();
+        return Optional.empty();   // 토스에 결제 없음 = 매입 미발생 확정 (위조 키 등)
       }
       throw e;
     }

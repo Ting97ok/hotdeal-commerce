@@ -91,7 +91,7 @@ class PaymentResolutionIntegrationTest {
         new CreateHotDealRequest(product.getId(), new BigDecimal("19800"), 100, 5, start, end), product));
     hotDealStockRepository.save(HotDealStock.create(hotDeal.getId(), 99));
     Order order = orderRepository.save(Order.create(user, hotDeal, product, 1, Duration.ofMinutes(10)));
-    commonOrderService.markPaid(order);
+    commonOrderService.markPaid(order, LocalDateTime.now());
     return order;
   }
 
@@ -99,8 +99,8 @@ class PaymentResolutionIntegrationTest {
   @DisplayName("결제 조회가 DONE이면 IN_DOUBT을 DONE으로 확정한다")
   void resolvesToDoneWhenGatewayDone() {
     Payment payment = saveInDoubtPayment("toss_pk_x");
-    given(paymentGatewayClient.getPayment("toss_pk_x"))
-        .willReturn(new PgPayment("toss_pk_x", PgPaymentStatus.DONE, new BigDecimal("19800"), LocalDateTime.now()));
+    given(paymentGatewayClient.findPayment("toss_pk_x"))
+        .willReturn(Optional.of(new PgPayment("toss_pk_x", PgPaymentStatus.DONE, new BigDecimal("19800"), LocalDateTime.now())));
 
     paymentResolutionFacade.resolveInDoubt(LocalDateTime.now().plusMinutes(5));
 
@@ -112,8 +112,8 @@ class PaymentResolutionIntegrationTest {
   @DisplayName("결제 조회가 EXPIRED이면 Payment FAILED·주문 CANCELED·재고를 복원한다")
   void resolvesToFailedWhenGatewayExpired() {
     Payment payment = saveInDoubtPayment("toss_pk_y");
-    given(paymentGatewayClient.getPayment("toss_pk_y"))
-        .willReturn(new PgPayment("toss_pk_y", PgPaymentStatus.EXPIRED, null, null));
+    given(paymentGatewayClient.findPayment("toss_pk_y"))
+        .willReturn(Optional.of(new PgPayment("toss_pk_y", PgPaymentStatus.EXPIRED, null, null)));
 
     paymentResolutionFacade.resolveInDoubt(LocalDateTime.now().plusMinutes(5));
 
@@ -135,8 +135,8 @@ class PaymentResolutionIntegrationTest {
   void retriesConfirmWhenGatewayInProgress() {
     Payment payment = saveInDoubtPayment("toss_pk_p");
     Order order = orderRepository.findById(payment.getOrderId()).orElseThrow();
-    given(paymentGatewayClient.getPayment("toss_pk_p"))
-        .willReturn(new PgPayment("toss_pk_inq", PgPaymentStatus.IN_PROGRESS, null, null));
+    given(paymentGatewayClient.findPayment("toss_pk_p"))
+        .willReturn(Optional.of(new PgPayment("toss_pk_inq", PgPaymentStatus.IN_PROGRESS, null, null)));
     given(paymentGatewayClient.confirm("toss_pk_p", order.getOrderNo(), payment.getAmount()))
         .willReturn(new PgConfirmResult.Approved("toss_pk_p", payment.getAmount(), LocalDateTime.now()));
 
@@ -151,8 +151,8 @@ class PaymentResolutionIntegrationTest {
   void failsWhenRetriedConfirmRejected() {
     Payment payment = saveInDoubtPayment("toss_pk_q");
     Order order = orderRepository.findById(payment.getOrderId()).orElseThrow();
-    given(paymentGatewayClient.getPayment("toss_pk_q"))
-        .willReturn(new PgPayment("toss_pk_inq", PgPaymentStatus.IN_PROGRESS, null, null));
+    given(paymentGatewayClient.findPayment("toss_pk_q"))
+        .willReturn(Optional.of(new PgPayment("toss_pk_inq", PgPaymentStatus.IN_PROGRESS, null, null)));
     given(paymentGatewayClient.confirm("toss_pk_q", order.getOrderNo(), payment.getAmount()))
         .willReturn(new PgConfirmResult.Rejected());
 
@@ -176,8 +176,8 @@ class PaymentResolutionIntegrationTest {
   void keepsInDoubtWhenRetriedConfirmUnresolved() {
     Payment payment = saveInDoubtPayment("toss_pk_r");
     Order order = orderRepository.findById(payment.getOrderId()).orElseThrow();
-    given(paymentGatewayClient.getPayment("toss_pk_r"))
-        .willReturn(new PgPayment("toss_pk_inq", PgPaymentStatus.IN_PROGRESS, null, null));
+    given(paymentGatewayClient.findPayment("toss_pk_r"))
+        .willReturn(Optional.of(new PgPayment("toss_pk_inq", PgPaymentStatus.IN_PROGRESS, null, null)));
     given(paymentGatewayClient.confirm("toss_pk_r", order.getOrderNo(), payment.getAmount()))
         .willReturn(new PgConfirmResult.GatewayError());
 
@@ -191,14 +191,28 @@ class PaymentResolutionIntegrationTest {
   }
 
   @Test
+  @DisplayName("결제 조회가 빈 결과(토스에 결제 없음=404)면 Payment FAILED·주문 CANCELED로 확정한다 — 위조 키 잔여 루프 차단")
+  void resolvesToFailedWhenGatewayHasNoPayment() {
+    Payment payment = saveInDoubtPayment("toss_pk_fake");
+    given(paymentGatewayClient.findPayment("toss_pk_fake")).willReturn(Optional.empty());
+
+    paymentResolutionFacade.resolveInDoubt(LocalDateTime.now().plusMinutes(5));
+
+    Payment resolved = paymentRepository.findById(payment.getId()).orElseThrow();
+    assertThat(resolved.getStatus()).isEqualTo(PaymentStatus.FAILED);
+    Order order = orderRepository.findById(payment.getOrderId()).orElseThrow();
+    assertThat(order.getStatus()).isEqualTo(OrderStatus.CANCELED);
+  }
+
+  @Test
   @DisplayName("한 건의 토스 조회가 예외로 실패해도 나머지 IN_DOUBT은 해소된다")
   void resolvesRemainingWhenOneInquiryFails() {
     Payment poison = saveInDoubtPayment("toss_pk_poison");
     Payment healthy = saveInDoubtPayment("toss_pk_ok");
-    given(paymentGatewayClient.getPayment("toss_pk_poison"))
+    given(paymentGatewayClient.findPayment("toss_pk_poison"))
         .willThrow(new RestClientException("toss inquiry failed"));
-    given(paymentGatewayClient.getPayment("toss_pk_ok"))
-        .willReturn(new PgPayment("toss_pk_x", PgPaymentStatus.DONE, new BigDecimal("19800"), LocalDateTime.now()));
+    given(paymentGatewayClient.findPayment("toss_pk_ok"))
+        .willReturn(Optional.of(new PgPayment("toss_pk_x", PgPaymentStatus.DONE, new BigDecimal("19800"), LocalDateTime.now())));
 
     paymentResolutionFacade.resolveInDoubt(LocalDateTime.now().plusMinutes(5));
 
@@ -215,6 +229,7 @@ class PaymentResolutionIntegrationTest {
 
     paymentResolutionFacade.resolveInDoubt(LocalDateTime.now());
 
+    then(paymentGatewayClient).should(never()).findPayment(payment.getPgPaymentKey());
     Payment kept = paymentRepository.findById(payment.getId()).orElseThrow();
     assertThat(kept.getStatus()).isEqualTo(PaymentStatus.IN_DOUBT);
   }
