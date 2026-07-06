@@ -6,8 +6,9 @@ CREATE TABLE payments (
     pg_payment_key  VARCHAR(200)   NULL COMMENT 'PG 거래 키',
     approved_at     DATETIME(6)    NULL COMMENT '승인 시각',
     created_at      DATETIME(6)    NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
-    updated_at      DATETIME(6)    NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+    updated_at      DATETIME(6)    NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
     PRIMARY KEY (id),
     UNIQUE KEY uk_payments_pg_payment_key (pg_payment_key),
-    KEY idx_payments_order_id (order_id)
+    KEY idx_payments_order_id (order_id),
+    KEY idx_payments_status_created_at (status, created_at)
 ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4;

@@ -9,7 +9,7 @@ CREATE TABLE hot_deals (
     status         VARCHAR(20)    NOT NULL COMMENT '상태 (ACTIVE/CANCELED)',
     canceled_at    DATETIME(6)    NULL COMMENT '긴급 중단 시각 (취소 시만)',
     created_at     DATETIME(6)    NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
-    updated_at     DATETIME(6)    NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+    updated_at     DATETIME(6)    NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
     PRIMARY KEY (id),
     KEY idx_hot_deals_product_id (product_id),
     CONSTRAINT ck_hot_deals_total_quantity CHECK (total_quantity > 0),

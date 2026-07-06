@@ -11,7 +11,7 @@ CREATE TABLE orders (
     expires_at    DATETIME(6)    NOT NULL COMMENT '미결제 만료 시각',
     is_active     TINYINT GENERATED ALWAYS AS (IF(status IN ('PENDING', 'PAID'), 1, NULL)) STORED COMMENT '활성 유니크용 (PENDING/PAID=1, 그 외 NULL)',
     created_at    DATETIME(6)    NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
-    updated_at    DATETIME(6)    NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+    updated_at    DATETIME(6)    NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
     PRIMARY KEY (id),
     UNIQUE KEY uk_orders_order_no (order_no),
     UNIQUE KEY uk_orders_active (user_id, hot_deal_id, is_active),
