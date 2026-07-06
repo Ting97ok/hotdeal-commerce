@@ -17,8 +17,8 @@ public interface OrderRepository extends JpaRepository<Order, Long> {
   Optional<Order> findByOrderNo(String orderNo);
 
   @Modifying
-  @Query("UPDATE Order o SET o.status = 'PAID' WHERE o = :order AND o.status = 'PENDING'")
-  int markPaid(@Param("order") Order order);
+  @Query("UPDATE Order o SET o.status = 'PAID' WHERE o = :order AND o.status = 'PENDING' AND o.expiresAt > :now")
+  int markPaid(@Param("order") Order order, @Param("now") LocalDateTime now);
 
   @Modifying
   @Query("UPDATE Order o SET o.status = 'PENDING' WHERE o = :order AND o.status = 'PAID'")

@@ -14,8 +14,10 @@ import com.sparta.msa.commerce.domain.payment.service.PaymentService;
 import com.sparta.msa.commerce.domain.stock.service.HotDealStockService;
 import com.sparta.msa.commerce.domain.stock.service.ProductStockService;
 import com.sparta.msa.commerce.global.exception.DomainException;
+import java.time.LocalDateTime;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.jspecify.annotations.Nullable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.support.TransactionTemplate;
 
@@ -34,21 +36,18 @@ public class PaymentFacade {
   private final TransactionTemplate transactionTemplate;
 
   public ConfirmPaymentResponse confirm(Long userId, ConfirmPaymentRequest request) {
-    Order order = transactionTemplate.execute(status -> {
-      Order preempted = commonOrderService.getOrderForPayment(request.orderId(), request.amount(), userId);
-      commonHotDealService.validateNotCanceledIfHotDeal(preempted.getHotDeal());
-      commonOrderService.markPaid(preempted);
-      productStockService.confirmSale(preempted.getProductId(), preempted.getQuantity());
-      return preempted;
-    });
-
+    Order order = preemptOrder(userId, request);
     PgConfirmResult result = paymentGatewayClient.confirm(request.paymentKey(), request.orderId(), request.amount());
+    Payment payment = createPayment(request, result, order);
+    return paymentMapper.toConfirmResponse(payment);
+  }
 
-    Payment payment = switch (result) {
+  private Payment createPayment(ConfirmPaymentRequest request, PgConfirmResult result, Order order) {
+    return switch (result) {
       case PgConfirmResult.Approved approved -> paymentService.createPayment(order, approved);
       case PgConfirmResult.InDoubt inDoubt -> {
         log.warn("결제 미확정 — IN_DOUBT 보존, 해소 스케줄러가 확정. orderId={}, paymentKey={}",
-            order.getId(), request.paymentKey());
+          order.getId(), request.paymentKey());
         yield paymentService.createInDoubtPayment(order, request.paymentKey());
       }
       case PgConfirmResult.Rejected rejected -> {
@@ -60,8 +59,16 @@ public class PaymentFacade {
         throw new DomainException(PaymentExceptionCode.PAYMENT_GATEWAY_ERROR);
       }
     };
+  }
 
-    return paymentMapper.toConfirmResponse(payment);
+  private Order preemptOrder(Long userId, ConfirmPaymentRequest request) {
+    return transactionTemplate.execute(status -> {
+      Order preempted = commonOrderService.getOrderForPayment(request.orderId(), request.amount(), userId);
+      commonHotDealService.validateNotCanceledIfHotDeal(preempted.getHotDeal());
+      commonOrderService.markPaid(preempted, LocalDateTime.now());
+      productStockService.confirmSale(preempted.getProductId(), preempted.getQuantity());
+      return preempted;
+    });
   }
 
   private void failPreemption(Order order) {

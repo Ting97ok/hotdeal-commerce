@@ -340,7 +340,7 @@ class OrderExpiryIntegrationTest {
       Thread payer = new Thread(() -> {
         try {
           txTemplate.executeWithoutResult(status -> {
-            commonOrderService.markPaid(order);
+            commonOrderService.markPaid(order, LocalDateTime.now());
             paidLocked.countDown();
             awaitQuietly(allowCommit);
           });

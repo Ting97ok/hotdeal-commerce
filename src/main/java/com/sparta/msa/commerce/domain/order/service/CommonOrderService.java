@@ -43,8 +43,8 @@ public class CommonOrderService {
   }
 
   @Transactional
-  public void markPaid(Order order) {
-    if (orderRepository.markPaid(order) == 0) {
+  public void markPaid(Order order, LocalDateTime now) {
+    if (orderRepository.markPaid(order, now) == 0) {
       throw new DomainException(ORDER_STATUS_CONFLICT);
     }
   }

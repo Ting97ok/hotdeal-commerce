@@ -155,6 +155,37 @@ class ConfirmPaymentIntegrationTest {
   class ExpiryRace {
 
     @Test
+    @DisplayName("만료 시각이 지난 PENDING 주문(만료 스케줄러 지연)은 토스 호출 없이 409 — markPaid 만료 가드")
+    void rejectsConfirmOnOverduePendingOrder() throws Exception {
+      User user = userRepository.save(
+          User.create("buyer@test.com", passwordEncoder.encode("pass"), "구매자", UserRole.USER));
+      Product product = createProductWithStock();
+      LocalDateTime start = LocalDateTime.now().minusHours(2);
+      LocalDateTime end = LocalDateTime.now().plusHours(1);
+      HotDeal hotDeal = hotDealRepository.save(HotDeal.create(
+          new CreateHotDealRequest(product.getId(), new BigDecimal("19800"), 100, 5, start, end),
+          product));
+      hotDealStockRepository.save(HotDealStock.create(hotDeal.getId(), 99));
+      Order order = orderRepository.save(
+          Order.create(user, hotDeal, product, 1, Duration.ofMinutes(-1)));   // 만료 시각이 이미 지난 PENDING
+
+      ConfirmPaymentRequest request = new ConfirmPaymentRequest(
+          "toss_pk_abc123", order.getOrderNo(), order.getOrderAmount());
+
+      mockMvc.perform(post("/api/payments/confirm")
+              .header(AUTHORIZATION, "Bearer " + tokenIssuer.createAccessToken(user.getId(), UserRole.USER))
+              .contentType(APPLICATION_JSON)
+              .content(objectMapper.writeValueAsString(request)))
+          .andExpect(status().isConflict())
+          .andExpect(jsonPath("$.error.code").value("ORDER_STATUS_CONFLICT"));
+
+      then(paymentGatewayClient).should(never()).confirm(any(), any(), any());
+      assertThat(orderRepository.findById(order.getId()).orElseThrow().getStatus())
+          .isEqualTo(OrderStatus.PENDING);
+      assertThat(paymentRepository.findAll()).isEmpty();
+    }
+
+    @Test
     @DisplayName("만료로 CANCELED된 주문에 결제 승인이 들어오면 토스 호출 없이 409 ORDER_STATUS_CONFLICT를 반환하고 Payment 행이 생성되지 않는다")
     void rejectsConfirmOnExpiredOrder() throws Exception {
       User user = userRepository.save(
@@ -211,7 +242,7 @@ class ConfirmPaymentIntegrationTest {
       Order order = orderRepository.save(
           Order.create(user, hotDeal, product, 1, Duration.ofMinutes(10)));
 
-      commonOrderService.markPaid(order);
+      commonOrderService.markPaid(order, LocalDateTime.now());
 
       ConfirmPaymentRequest request = new ConfirmPaymentRequest(
           "toss_pk_abc123", order.getOrderNo(), order.getOrderAmount());
