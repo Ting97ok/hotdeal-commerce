@@ -33,7 +33,7 @@ Spring Boot 3.5.13 + Java 21 **모놀리식** 커머스(핫딜) 시스템 — �
 ### 도메인 구조
 
 단일 모듈(`rootProject.name = 'commerce'`), 패키지 `com.sparta.msa.commerce.domain.{도메인}`.
-도메인: **auth, user** (이후 핫딜·주문·결제 등 추가 예정).
+도메인: **auth·user·product·stock·hotdeal·order·payment**.
 
 ## 아키텍처
 
@@ -54,7 +54,7 @@ controller/ → facade/ → service/ → repository/
 - Entity: `{Domain}`(단순명) / Repository: `{Domain}Repository`(+`{Domain}RepositoryCustom`/`...CustomImpl`)
 - Exception: 단일 `DomainException` + 도메인 `{Domain}ExceptionCode` enum
 - DTO(record): Request `{Action}{Domain}Request`, Response `{Action}{Domain}Response` / `{Domain}{용도}Response`
-- 외부 연동: 계약 인터페이스 `{역할}Client` / 어댑터 구현 `{벤더}{도메인}Client` / HTTP 전송 `{벤더}HttpClient` (예: `PaymentGatewayClient` / `TossPaymentClient` / `TossHttpClient`) — 역할·근거는 [docs/adr/0009](docs/adr/0008-payment-model-pg-boundary.md)
+- 외부 연동: 계약 인터페이스 `{역할}Client` / 어댑터 구현 `{벤더}{도메인}Client` / HTTP 전송 `{벤더}HttpClient` (예: `PaymentGatewayClient` / `TossPaymentClient` / `TossHttpClient`) — 역할·근거는 [docs/adr/0008](docs/adr/0008-payment-model-pg-boundary.md)
 - 변수: camelCase, 줄임말 지양. boolean `isXxx`, 컬렉션 `{타입}List`. 메서드 동사 시작.
 
 ## 코딩 컨벤션
@@ -81,7 +81,7 @@ Java 코드는 **공백 2칸** 들여쓰기로 고정한다(탭 금지). 루트 
 ### 공통 패턴
 
 - 엔티티/DTO/QueryDSL 상세는 `.claude/rules/` + `.claude/skills/api-impl/`.
-- 논리삭제는 도메인 선택(`isDeleted`, 현재 coupon), 기본은 상태 enum(`ProductStatus` 등).
+- 논리삭제는 도메인 선택(현재 사용 도메인 없음), 기본은 상태 enum(`ProductStatus` 등).
 - 엔티티는 정적 팩토리 `create(Request, 연관)` + 도메인 메서드 캡슐화. Response 변환은 MapStruct.
 
 ### 주석 — self-documenting 우선 (주석 최소화)

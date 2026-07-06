@@ -28,7 +28,7 @@
 
 5. **측정 확인**
    - k6 summary: `order_success` / `order_rejected` / `http_req_duration`(p95·p99)
-   - Grafana: `hikaricp_connections_active`·`_pending`(커넥션 풀 포화), 낙관락 충돌, 차감 UPDATE 지연
+   - Grafana: `hikaricp_connections_active`·`_pending`(커넥션 풀 포화), 차감 UPDATE 지연
 
 6. **2전략 반복** — 전략만 바꿔 2~5 재실행 → 결과는 [ADR-0010](../docs/adr/0010-concurrency-strategy-selection.md) 에 정리됨
 

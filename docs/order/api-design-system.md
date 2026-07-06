@@ -38,7 +38,7 @@
 | 만료 방식 | **DB 만료 스케줄러**(`@Scheduled`) | Redis 키 TTL은 만료 통보(키 만료 알림)가 재시작 유실·전달 비보장이라 정확성 경로엔 백업 만료 처리가 또 필요 → 방식은 어차피 주기 만료 처리. [리서치 9.2절](../design/research-flash-sale.md) |
 | 결제 제한시간 | **`PT10M` 확정** (`order.payment-timeout`) | 리서치 권장대역 5~15분 내, 고객 고지 제한시간. [ADR-0004](../adr/0004-stock-reservation-lifecycle.md) |
 | 만료 판정 기준 | **`order.expiresAt`만** (핫딜 `endAt` 무관) | 진입 고객은 자기 결제창 시간까지 보호("판매 종료는 새 주문에만"). 판매종료·관리자 중단 ↔ 결제 차단은 슬라이스3 결제 관문. [ADR-0007](../adr/0007-hotdeal-state-operations.md) |
-| 다중 서버 중복 | **잠금 없이 시작** | 여러 서버가 동시 만료 처리해도 **HotDealStock `@Version`(슬라이스1 낙관락)이 복원 1회를 보장**(두 번째 복원이 version 충돌→롤백, 동시성 테스트로 증명). 중복 만료 처리 비용은 부하 측정 후 필요 시 **Redis ShedLock**(정확성 아닌 **최적화** — @Version이 정확성 보장)으로 추가. 스케일아웃 트레이드오프 인지. [ADR-0006](../adr/0006-correctness-invariants-defense-layers.md) |
+| 다중 서버 중복 | **잠금 없이 시작** | 여러 서버가 동시 만료 처리해도 복원 1회 보장(슬라이스2 당시엔 `@Version` 낙관락, **2026-07 현행은 `markExpired` 조건부 전이 관문** — version 제거, [ADR-0010](../adr/0010-concurrency-strategy-selection.md)). 중복 만료 처리 비용은 부하 측정 후 필요 시 **Redis ShedLock**(정확성 아닌 **최적화**)으로 추가. 스케일아웃 트레이드오프 인지. [ADR-0006](../adr/0006-correctness-invariants-defense-layers.md) |
 
 > **설계 노트 — 만료 처리가 조금 늦어도 안전한 이유**: 만료 처리는 주기적으로 돌므로 `expiresAt`(만료 시각)과 실제 CANCELED 사이에 시간 차(갭)가 생긴다. 하지만 이 갭이 늦추는 건 **재고를 다시 풀어주는 시점**뿐이고(10분 창에 수십 초 더라 미미), 정확성과는 무관하다. '이 주문 지금 결제할 수 있나?'처럼 **즉시 정확해야 하는 판정**은, 만료를 주기 작업이 처리하길 기다리지 않고 **결제 요청이 들어온 바로 그 순간에** `expiresAt`를 직접 확인해서 막는다(슬라이스3 결제 관문). 그래서 만료 처리가 늦게 취소하더라도 "만료됐는데 결제되는" 창은 생기지 않는다. 정리하면 — **즉시 정확해야 하는 판정은 요청이 들어온 그 순간에**, **조금 늦어도 되는 재고 회수는 주기 만료 처리에** 나눠 맡긴 설계다.
 
@@ -46,14 +46,14 @@
 
 | 불변식 | 방어 | 비고 |
 |--------|------|------|
-| **복원 정확히 1회** | 결제·만료 **양방향** 조건부 전이(`markPaid`/`markExpired`, `WHERE status='PENDING'`) 영향 행 1 관문 — affected==1인 1건만 복원. `@Version`은 잠재 안전망 | 슬라이스4에서 만료 쪽 `markExpired` 도입으로 만료끼리·만료↔결제 모두 조건부로 복원 1회(`version=1`, 충돌 없음). 주문엔 @Version 없어 조건부 전이가 정본 관문 |
+| **복원 정확히 1회** | 결제·만료 **양방향** 조건부 전이(`markPaid`/`markExpired`, `WHERE status='PENDING'`) 영향 행 1 관문 — affected==1인 1건만 복원 | 슬라이스4에서 만료 쪽 `markExpired` 도입으로 만료끼리·만료↔결제 모두 조건부로 복원 1회. 조건부 전이가 유일한 관문(당시 잠재 안전망이던 `@Version`은 2026-07 제거 — [ADR-0010](../adr/0010-concurrency-strategy-selection.md)) |
 | 오버셀 0 + 정합 | 정합 검증식 `총 수량 = 남은 재고 + 살아있는 주문 수량 합` | 안전망 — 오버복원 탐지 ([ADR-0006](../adr/0006-correctness-invariants-defense-layers.md) · [가설 4절](../design/hotdeal-purchase-hypothesis.md)) |
 
-> **설계 노트 — 슬라이스2 복원 1회는 @Version, 양쪽 조건부 관문은 슬라이스3·4**: 슬라이스2의 동시 만료 처리(같은 주문을 여러 서버가 취소)는 둘 다 **HotDealStock을 복원**하므로, 슬라이스1의 `@Version`(낙관락)이 두 번째 복원을 충돌→롤백시켜 **복원 1회**를 보장한다 — 동시성 테스트가 `version=1` + `ObjectOptimisticLockingFailureException`으로 증명. 그래서 슬라이스2엔 주문 쪽 `affected==1` 관문이 필요 없다. **그 관문은 만료↔결제(슬라이스3·4)에서 필요**해진다: 같은 **주문**에서 취소(만료) vs 결제(PAID)가 부딪히는데 **주문엔 @Version이 없어서**, 결제·만료 **양쪽** `WHERE status='PENDING'` 조건부 전이라야 "결제됐는데 만료로 취소"를 막는다. 슬라이스3에서는 결제 쪽 `markPaid`만 조건부로 들어가고 만료 쪽 `expire`는 변경 감지(dirty checking)로 남아 **한쪽만 방어**됐다 — 결제가 먼저 PAID로 커밋해도 만료가 무조건 CANCELED로 덮어써, "돈 낸 주문이 만료 취소되고 재고가 남에게 복원"되는 경합이 운영에서만 조용히 터질 수 있었다. **슬라이스4에서 만료 쪽도 `markExpired` 조건부 전이로 바꿔 양쪽을 맞춘다**. 그 경합은 서버 1대 dev/test는 통과하는 종류라 동시성 테스트로 못 박는다. 이 변경의 부수 효과로 **만료끼리 동시 처리도 `markExpired` affected==1인 1건만 복원**하게 돼 `@Version` 충돌이 더는 발생하지 않는다 — 복원 1회 보장 주체가 `@Version`에서 조건부 전이로 이동하고, `@Version`은 잠재 안전망으로 남는다(동시성 테스트 #3도 "충돌 없음"으로 갱신).
+> **설계 노트 — 슬라이스2 복원 1회는 @Version, 양쪽 조건부 관문은 슬라이스3·4**: 슬라이스2의 동시 만료 처리(같은 주문을 여러 서버가 취소)는 둘 다 **HotDealStock을 복원**하므로, 슬라이스1의 `@Version`(낙관락)이 두 번째 복원을 충돌→롤백시켜 **복원 1회**를 보장한다 — 동시성 테스트가 `version=1` + `ObjectOptimisticLockingFailureException`으로 증명. 그래서 슬라이스2엔 주문 쪽 `affected==1` 관문이 필요 없다. **그 관문은 만료↔결제(슬라이스3·4)에서 필요**해진다: 같은 **주문**에서 취소(만료) vs 결제(PAID)가 부딪히는데 **주문엔 @Version이 없어서**, 결제·만료 **양쪽** `WHERE status='PENDING'` 조건부 전이라야 "결제됐는데 만료로 취소"를 막는다. 슬라이스3에서는 결제 쪽 `markPaid`만 조건부로 들어가고 만료 쪽 `expire`는 변경 감지(dirty checking)로 남아 **한쪽만 방어**됐다 — 결제가 먼저 PAID로 커밋해도 만료가 무조건 CANCELED로 덮어써, "돈 낸 주문이 만료 취소되고 재고가 남에게 복원"되는 경합이 운영에서만 조용히 터질 수 있었다. **슬라이스4에서 만료 쪽도 `markExpired` 조건부 전이로 바꿔 양쪽을 맞춘다**. 그 경합은 서버 1대 dev/test는 통과하는 종류라 동시성 테스트로 못 박는다. 이 변경의 부수 효과로 **만료끼리 동시 처리도 `markExpired` affected==1인 1건만 복원**하게 돼 `@Version` 충돌이 더는 발생하지 않는다 — 복원 1회 보장 주체가 `@Version`에서 조건부 전이로 이동하고, `@Version`은 잠재 안전망으로 남는다(동시성 테스트 #3도 "충돌 없음"으로 갱신). **(2026-07 갱신: 벤치마크 확정 후 낙관락·`version` 칼럼 자체가 제거돼 — [ADR-0010](../adr/0010-concurrency-strategy-selection.md) — 위 "잠재 안전망" 문구는 슬라이스 당시 기록이며, 현행 보장 주체는 조건부 전이 단독.)**
 
 **새 ExceptionCode**
 
-없음. 백그라운드 작업이라 사용자에게 직접 응답하지 않고, 재고 복원이 낙관락 경합으로 실패하면 트랜잭션을 롤백해 **다음 주기에 다시 시도**한다(만료 = 다음 주기 재시도 — [가설 8절](../design/hotdeal-purchase-hypothesis.md)).
+없음. 백그라운드 작업이라 사용자에게 직접 응답하지 않고, 건별 처리가 실패하면 그 건만 롤백해 **다음 주기에 다시 시도**한다(만료 = 다음 주기 재시도 — [가설 8절](../design/hotdeal-purchase-hypothesis.md)).
 
 **테스트 리스트**
 
@@ -63,11 +63,11 @@
 |---|---------------|----------|------|--------|
 | 1 | `expireOverdueOrder` | 결제 제한시간 지난 PENDING → 만료 처리 시 CANCELED(EXPIRED) + 핫딜 재고 복원 | ✅ Pass | 2026-06-23 |
 | 2 | `notYetExpiredOrderIsPreserved` | 만료 안 된 PENDING은 만료 처리해도 PENDING 유지 + 재고 불변 | ✅ Pass | 2026-06-23 |
-| 3 | `concurrentSweepRestoresStockOnce` | 같은 만료 주문 동시 N건 만료 처리 → `markExpired` 조건부 affected==1로 재고 1회만 복원(version=1), 낙관락 충돌 없음 | ✅ Pass | 2026-06-25 |
+| 3 | `concurrentSweepRestoresStockOnce` | 같은 만료 주문 동시 N건 만료 처리 → `markExpired` 조건부 affected==1로 재고 1회만 복원(잔여 수량 단언 — 구 명세의 version=1 단언은 낙관락 제거로 삭제, [ADR-0010](../adr/0010-concurrency-strategy-selection.md)) | ✅ Pass | 2026-06-25 |
 | 4 | `canRepurchaseAfterExpiry` | 만료(CANCELED) 후 같은 회원이 같은 핫딜 재구매 성공(`is_active` 해제) | ✅ Pass | 2026-06-24 |
 | 5 | `paidOrderIsNotOverwrittenByExpirySweep` | 결제로 PAID 전이된 주문을 만료 처리가 CANCELED로 덮지 않고 재고도 복원 안 함 — `markExpired` 조건부, 결제 미커밋 행잠금 인터리빙으로 결정론적 재현 | ✅ Pass | 2026-06-25 |
 | 6 | `isolatesFailurePerOrder` | 한 건의 재고 복원 실패(예외 주입) → 그 건만 롤백·PENDING 유지(다음 회차 재시도), 나머지는 CANCELED·복원 계속 — "주문 1건 = 트랜잭션 1개" 이행 | ✅ Pass | 2026-07-04 |
-| 7 | `processesUpToLimitPerSweep` | 만료 3건 + LIMIT 2 → 한 회차에 2건만 처리하고 나머지는 다음 회차로 — 후보 조회 LIMIT(기본 500, `order.expiry-scheduler.batch-size`) 이행 | ✅ Pass | 2026-07-04 |
+| 7 | `processesUpToLimitPerSweep` | 만료 3건 + LIMIT 2 → 한 회차에 2건만 처리하고 나머지는 다음 회차로 — 후보 조회 LIMIT(스케줄러 상수 500) 이행 | ✅ Pass | 2026-07-04 |
 
 **구현 로직**
 
@@ -80,9 +80,9 @@ flowchart TD
     D --> E[조건부 전이\nUPDATE SET CANCELED, EXPIRED\nWHERE id=? AND status='PENDING']:::process
     E --> F{영향 행 = 1?}:::decision
     F -- 0행 --> H[복원 건너뜀\n이미 PAID·CANCELED]:::process
-    F -- 1행 --> G[핫딜 재고 복원\n잔여 += 수량 · 낙관락]:::process
-    G --> I{복원 경합?\n낙관락 version}:::decision
-    I -- 충돌 --> J[/트랜잭션 롤백\n다음 주기 재시도/]:::error
+    F -- 1행 --> G[핫딜 재고 복원\n잔여 += 수량 · 조건부 UPDATE]:::process
+    G --> I{처리 실패?\n건별 격리}:::decision
+    I -- 실패 --> J[/그 건만 롤백\n다음 주기 재시도/]:::error
     I -- 성공 --> K[커밋\n선점 해제 완료]:::success
     H --> L{배치에 후보 더 있음?}:::decision
     K --> L
@@ -129,8 +129,8 @@ List<ExpiredOrderView> findExpiredPending(@Param("now") LocalDateTime now, Pagea
 @Query("UPDATE Order o SET o.status = 'CANCELED', o.cancelReason = 'EXPIRED' WHERE o = :order AND o.status = 'PENDING'")
 int markExpired(@Param("order") Order order);
 
-// HotDealStockRepository — 복원 위해 행을 로드 (낙관락 version 추적, 기존 메서드 재사용)
+// HotDealStockRepository — 조회·검증용 (구 명세는 낙관락 복원용 로드 — 2026-07 현행 복원은 조건부 UPDATE, 전략 빈 HotDealStockService.restore 경유)
 Optional<HotDealStock> findByHotDealId(Long hotDealId);
 ```
 
-> **설계 노트 — 일괄 UPDATE와 낙관락 복원을 한 트랜잭션에서**: `markExpired`는 영속성 컨텍스트(JPA가 객체를 추적하는 메모리 공간)를 거치지 않는 일괄 UPDATE라 빠르지만, 같은 주문을 다시 읽지 않으므로 값이 어긋날 일이 없다. 재고 복원은 `findByHotDealId`로 `HotDealStock`을 영속성 컨텍스트에 올려 `restore`로 바꾸고, 커밋할 때 DB에 반영하며 version을 비교한다(낙관락). 둘이 한 트랜잭션이라, 복원이 낙관락 충돌로 실패하면 `markExpired`까지 함께 롤백돼 주문이 PENDING으로 남고 다음 주기가 다시 시도한다(전이·복원 원자성).
+> **설계 노트 — 전이와 복원을 한 트랜잭션에서 (2026-07 갱신)**: `markExpired`는 영속성 컨텍스트(JPA가 객체를 추적하는 메모리 공간)를 거치지 않는 일괄 UPDATE라 빠르지만, 같은 주문을 다시 읽지 않으므로 값이 어긋날 일이 없다. 재고 복원도 **원자적 조건부 UPDATE**(`잔여 += 수량`, 전략 빈 경유 — 구 명세의 낙관락 로드·version 비교는 [ADR-0010](../adr/0010-concurrency-strategy-selection.md)으로 제거)다. 둘이 한 트랜잭션이라, 복원이 실패하면 `markExpired`까지 함께 롤백돼 주문이 PENDING으로 남고 다음 주기가 다시 시도한다(전이·복원 원자성 — 건별 격리 테스트 #6이 증명).

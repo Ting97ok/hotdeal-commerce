@@ -57,8 +57,8 @@
 2. **외부 결제 호출 ↔ DB 트랜잭션 분리** → 토스 호출은 트랜잭션 밖, 어댑터 구조 ([ADR-0008](adr/0008-payment-model-pg-boundary.md))
 3. **결제 실패·취소 → 재고 복원** → 조건부 상태 전이가 성공한 1회에만 복원 ([ADR-0004](adr/0004-stock-reservation-lifecycle.md))
 4. **멱등성 2레이어** → 내부 = 활성 유니크([ADR-0005](adr/0005-one-per-user-active-unique.md)) / 외부 = 토스 멱등키
-5. **금액 위변조 방지** → 주문 시점 금액 저장 + 서버 검증 (웹훅 서명 검증은 결제 슬라이스에서)
-6. **결과 확정** → 동기 승인 + 조회 보정(만료 중 결제 발견 = 인정, [ADR-0004](adr/0004-stock-reservation-lifecycle.md)) + 웹훅 보정(결제 슬라이스)
+5. **금액 위변조 방지** → 주문 시점 금액 저장 + 서버 검증 (웹훅 서명 검증은 폐기 — 해소는 결제 조회 재확인 방식, [payment system 설계](payment/api-design-system.md))
+6. **결과 확정** → 동기 승인 + **해소 스케줄러**(IN_DOUBT·PAID 고아를 토스 재조회로 확정 — Phase B2 구현 완료). 웹훅은 후속 최적화(B3+, 해소 대체 아님)
 
 ---
 
@@ -66,7 +66,7 @@
 
 - **A. 셋업 + 기반**: ✅ 셋업(Spring Boot 3.5.13/Java 21/MySQL 8.4+Flyway/Redis/Docker) · ✅ 회원 로그인(JWT·RTR·tokenVersion) · ✅ 상품·재고 엔티티·시드 (상품 조회 API 는 고트래픽 조회 D 에서)
 - **B+C. 핫딜 본편 (쓰기 · 1차 주연)**: ⓪ 등록/조회 → ① 구매(재고 선점+PENDING, 낙관락) → ② 만료 복원 → ③ 토스 결제 승인 → 재고 동시성 5방식(낙관/비관/Redis/분산락/원자적 조건부 UPDATE) 벤치마크 + k6 → 운영 전략 확정 — **확정 슬라이스·스키마는 [기술 가설 9](design/hotdeal-purchase-hypothesis.md)·[ERD](design/erd.md) 기준**
-  - **현황(2026-06-29)**: ⓪ 등록 ✅(상세 조회 미구현) · ① 구매 ✅ · ② 만료 복원 ✅(스케줄러) · ③ 결제 승인 ✅(흐름·동시성 방어·통합 테스트 완료, **토스 실제 연동만 남음** — 현재 어댑터 stub) · 동시성 벤치마크 ✅(3방식 측정 — 비관락·Redisson 이론 배제, **조건부 UPDATE 채택** [ADR-0010](adr/0010-concurrency-strategy-selection.md)). **남은 본편**: 핫딜 상세 조회·핫딜 취소(설계 완료·구현 대기) · 토스 실제 연동(웹훅 포함).
+  - **현황(2026-07-06)**: ⓪ 등록 ✅(상세 조회 미구현) · ① 구매 ✅ · ② 만료 복원 ✅(스케줄러, 건별 트랜잭션+LIMIT) · ③ 결제 승인 ✅ · 동시성 벤치마크 ✅(3방식 측정, **조건부 UPDATE 채택** [ADR-0010](adr/0010-concurrency-strategy-selection.md)) · **토스 실연동 ✅(Phase B1)** · **IN_DOUBT·PAID 고아 해소 스케줄러 ✅(Phase B2)**. **남은 본편**: 핫딜 상세 조회 · 핫딜 취소(정책만 확정 — [ADR-0007](adr/0007-hotdeal-state-operations.md), 설계 문서·구현 대기).
 - **D. 고트래픽 상품 조회 (읽기 · 2차)**: 목록 조회(페이징/필터) · 인덱스 설계 + 쿼리 최적화(실행계획) · Redis 캐싱 + 무효화 · k6
 - **E. v2 결제 후속 MSA 전환**: 경계 분리 · Kafka 프로듀서/컨슈머(멱등) · Saga 보상 · DLT · Before/After 다이어그램
 - **F. 관측/마무리**: 메트릭(Micrometer)/로그/알람 · README · ADR

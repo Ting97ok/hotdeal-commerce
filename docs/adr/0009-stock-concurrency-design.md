@@ -1,6 +1,6 @@
 # ADR-0009. 재고 동시성 설계 — HotDealStock 분리·5방식·잠금 규율
 
-- 상태: 확정 (운영 전략 최종 선정은 ADR-0010 예정 — 벤치마크 후) · 작성: 2026-06-11 · 갱신: 2026-06-20 (원자적 조건부 UPDATE 를 5번째 벤치마크 방식으로 추가 — [ADR-0011](0011-product-inventory-reservation.md) 결정 4) · 갱신: 2026-06-27 (측정 범위 5방식 → **3방식** 축소, 비관락·Redisson 은 이론 예상으로 배제 — [ADR-0013](0013-load-test-tool-k6.md) 부하 도구 확정과 함께)
+- 상태: 확정 (운영 전략 최종 선정 완료 — [ADR-0010](0010-concurrency-strategy-selection.md) 조건부 UPDATE) · 작성: 2026-06-11 · 갱신: 2026-06-20 (원자적 조건부 UPDATE 를 5번째 벤치마크 방식으로 추가 — [ADR-0011](0011-product-inventory-reservation.md) 결정 4) · 갱신: 2026-06-27 (측정 범위 5방식 → **3방식** 축소, 비관락·Redisson 은 이론 예상으로 배제 — [ADR-0013](0013-load-test-tool-k6.md) 부하 도구 확정과 함께)
 - 관련 규칙: [가설 3·8](../design/hotdeal-purchase-hypothesis.md) · [erd 5](../design/erd.md) · [ADR-0011](0011-product-inventory-reservation.md)(이 분리 원칙을 상품 재고로 일반화 + `Stock`→`HotDealStock` 리네임)
 
 ## 컨텍스트

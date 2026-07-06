@@ -113,7 +113,7 @@
 | 주문→재고 순서 | 한 트랜잭션에서 주문 INSERT를 재고 차감 UPDATE보다 먼저. Hibernate 기본 flush 순서와 일치(우회 불필요). | [ADR-0009](../adr/0009-stock-concurrency-design.md) 결정4 |
 | 만료시각 외부화 | `expiresAt = 주문시각 + order.payment-timeout`(application.yml, **`PT10M` 확정** — 슬라이스2). | [ADR-0004](../adr/0004-stock-reservation-lifecycle.md) |
 | 결제 범위 밖 | 결제 승인·PAID 확정은 슬라이스3. 슬라이스2는 미결제 만료(PENDING→CANCELED + 재고 복원)까지. payment 미접촉. | — |
-| 미결제 만료 처리 | `expiresAt` 지난 PENDING → CANCELED(`EXPIRED`) + 핫딜 재고 복원. **DB 만료 스케줄러**, **잠금 없이**(HotDealStock @Version이 복원 1회 보장), 판정 기준 = **`expiresAt`만**. 상세 → [api-design-system.md](api-design-system.md). | [ADR-0004](../adr/0004-stock-reservation-lifecycle.md) |
+| 미결제 만료 처리 | `expiresAt` 지난 PENDING → CANCELED(`EXPIRED`) + 핫딜 재고 복원. **DB 만료 스케줄러**, **잠금 없이**(`markExpired` 조건부 전이가 복원 1회 보장 — 2026-07 갱신, 구 명세는 @Version), 판정 기준 = **`expiresAt`만**. 상세 → [api-design-system.md](api-design-system.md). | [ADR-0004](../adr/0004-stock-reservation-lifecycle.md) |
 | 구매 인증 | 회원 전용. `SecurityConfig`의 `anyRequest().authenticated()`가 커버(비회원 401) — 별도 규칙 불필요. | — |
 | 마이그레이션 변경 없음 | `orders`·`hot_deal_stock` 스키마가 슬라이스1 필요분 완비(작업1 ADR-0011 반영). 새 V 파일·기존 V 수정 모두 없음. | [ADR-0011](../adr/0011-product-inventory-reservation.md) |
 | DB CHECK 최후 방어 | 서비스 검증이 뚫려도 데이터 오염을 막는 안전망 — `ck_orders_quantity`(>=1) · `ck_orders_order_amount`(>=0) · `ck_hot_deal_stock_remaining`(remaining_quantity >= 0). | [ADR-0006](../adr/0006-correctness-invariants-defense-layers.md) |
