@@ -30,7 +30,7 @@
 
 ## 어디부터 읽나
 
-**문서 체계**: [가설 PRD](design/hotdeal-prd.md)(무엇을 약속하나) → [기술 가설](design/hotdeal-purchase-hypothesis.md)(어떤 규칙으로 지키나) → [ERD](design/erd.md)(데이터 모양) → [ADR](adr/README.md)(왜 그렇게 정했나). 근거 사례는 [리서치](design/research-flash-sale.md).
+**문서 체계**: [가설 PRD](design/hotdeal-prd.md)(무엇을 약속하나) → [기술 가설](design/hotdeal-purchase-hypothesis.md)(어떤 규칙으로 지키나) → [ERD](design/erd.md)(데이터 모양) → [ADR](adr/README.md)(왜 그렇게 정했나). 비기능 수치 집약은 [nfr](design/nfr.md), 근거 사례는 [리서치](design/research-flash-sale.md).
 
 **5분 코스 (전체 그림)**: 위 "핵심 결정" 표 → [가설 PRD](design/hotdeal-prd.md) 2장(검수 지표)·5장(요구 18건) → [기술 가설](design/hotdeal-purchase-hypothesis.md) 4장(불변식)·9장(슬라이스).
 
@@ -45,7 +45,7 @@
 | 5 | [ADR](adr/README.md) → 관심 결정 | 각 결정의 대안·트레이드오프. 추천: [0004 선점·복원](adr/0004-stock-reservation-lifecycle.md) · [0006 불변식·방어](adr/0006-correctness-invariants-defense-layers.md) · [0009 동시성](adr/0009-stock-concurrency-design.md) · [0010 전략 선정·벤치마크](adr/0010-concurrency-strategy-selection.md) · [0008 결제·어댑터](adr/0008-payment-model-pg-boundary.md) |
 | 6 | [리서치](design/research-flash-sale.md) | 실무 주장의 출처(궁금할 때 진입) — 신뢰 등급 구분 표기 |
 
-참고: 인증 설계는 [auth.md](design/auth.md) (핫딜과 독립적으로 완결된 선행 작업).
+참고: 인증 설계는 [auth.md](design/auth.md) (핫딜과 독립적으로 완결된 선행 작업). 비기능 요구(트래픽·응답·가용성·데이터·일관성·운영부담)의 숫자 집약은 [nfr.md](design/nfr.md) — 여러 ADR·PRD에 흩어진 수치를 6슬롯으로 모은 참조 문서.
 
 ## 읽을 때 약속
 

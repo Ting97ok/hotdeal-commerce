@@ -3,6 +3,15 @@
 - 상태: 확정 (운영 전략 최종 선정 완료 — [ADR-0010](0010-concurrency-strategy-selection.md) 조건부 UPDATE) · 작성: 2026-06-11 · 갱신: 2026-06-20 (원자적 조건부 UPDATE 를 5번째 벤치마크 방식으로 추가 — [ADR-0011](0011-product-inventory-reservation.md) 결정 4) · 갱신: 2026-06-27 (측정 범위 5방식 → **3방식** 축소, 비관락·Redisson 은 이론 예상으로 배제 — [ADR-0013](0013-load-test-tool-k6.md) 부하 도구 확정과 함께)
 - 관련 규칙: [가설 3·8](../design/hotdeal-purchase-hypothesis.md) · [erd 5](../design/erd.md) · [ADR-0011](0011-product-inventory-reservation.md)(이 분리 원칙을 상품 재고로 일반화 + `Stock`→`HotDealStock` 리네임)
 
+## 결정 요약
+
+- **무엇을**: 재고를 **HotDealStock 별도 행**으로 떼어 5방식 중 **3방식 실측**(낙관락·조건부 UPDATE·Redis), 비관락·Redisson은 이론 예상으로 배제. 비관락 대기는 즉시 실패(NOWAIT)가 출발값.
+- **왜**: 수천 동시 구매가 한 행을 차감 = TOCTOU(두 요청이 같은 값 읽고 둘 다 통과) 직렬화 문제. 재고를 정보 행에 섞으면 낙관락 가짜 충돌(무관한 수정이 진행 중 구매를 다 실패)·잠금 줄 오염이 생긴다.
+- **버린 대안**: JVM 잠금(`synchronized` — 서버 1대 안에서만 직렬화, 다중 서버 오버셀 → 후보 아님) / 5방식 전부 측정(비관락·Redisson은 이론 예측 가능 — 측정 한계효용 낮음, 취사선택 자체가 판단)
+- **범위 밖(Non-Goal)**: JVM 잠금 실측 시연(자명 — 문서로 확정), 상품 재고 행 고경합(일반 판매 경로 없음 — [ADR-0011](0011-product-inventory-reservation.md)), 운영 전략 최종 선정(→ [ADR-0010](0010-concurrency-strategy-selection.md))
+- **트레이드오프**: 얻음 = 경합 격리(한 점 집중) · 벤치마크 순수성(잠금만 교체) · "정확성만 쉽다 vs 정확성+성능 어렵다" 서사 ↔ 잃음 = 테이블/조회 한 번 추가
+- **가역성**: 재고 별도 테이블 분리는 **Type1**(스키마), 운영 잠금 방식은 **Type2**(전략 프로퍼티 교체 — [ADR-0010](0010-concurrency-strategy-selection.md)에서 조건부 확정). "무엇으로 차감하나"는 되돌리기 쉽고, "재고를 어디 두나"는 어렵다.
+
 ## 컨텍스트
 
 수천 동시 구매가 한 핫딜의 재고 한 줄을 차감한다. 본질은 확인-결정-쓰기(TOCTOU — 두 요청이 같은 값을 읽고 둘 다 통과) 경합의 직렬화([리서치 2](../design/research-flash-sale.md))이고, 배포 전제는 서버 여러 대(JVM 잠금 무효)다.
