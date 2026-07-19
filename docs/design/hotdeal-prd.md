@@ -1,6 +1,6 @@
 # 핫딜 선착순 이벤트 — 가설 PRD
 
-> **가설 PRD**(hypothetical PRD — 실측 데이터 없이 가정 위에 세운 PRD): 실무 PRD(Product Requirements Document — 배경·목표·시나리오·요구·정책을 담는 기획 문서) 형식을 따르되, 측정 불가한 사업 수치는 전부 **"가정"** 으로 라벨링한다.
+> **가설 PRD** — 실측 데이터 없이 가정 위에 세운 PRD. 실무 PRD 형식을 따르되, 측정 불가한 사업 수치는 전부 **"가정"** 으로 라벨링한다.
 > 기술 번역: [기술 가설](hotdeal-purchase-hypothesis.md) · 결정 근거: [ADR](../adr/README.md) · 데이터: [ERD](erd.md) · 실측 사례: [리서치](research-flash-sale.md)
 > 20년차 PO 관점 리뷰(갭 10건) 반영: 2026-06-11 · 결제 실패·보정 정책 현행화(슬라이스4·Phase B1 반영): 2026-07-19
 
