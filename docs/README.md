@@ -49,6 +49,7 @@
 
 ## 읽을 때 약속
 
+- **결정 파악(30초)**: ADR 은 머리 **결정 요약**만 읽으면 무엇을/왜/버린 대안/Non-Goal/트레이드오프/가역성 Type 이 잡히고, 본문은 그 근거(설계노트 = RFC 역할). 비기능 수치는 [nfr](design/nfr.md) 6슬롯, 피한 안티패턴·되돌리는 절차는 [adr/README](adr/README.md) 하단 색인. 상세 정책은 [adr/README 상단 "RFC↔ADR 역할"](adr/README.md).
 - **용어**: 각 문서 첫 등장에 한 줄 풀이 병기.
 - **신뢰 등급**: 리서치 1~7(적대 검증 통과) > 10(공식·1차 보강) > 9(1차 인용, 미검증) — 인용 시 등급 구분 표기.
 - **미결정**: "모른다"가 아니라 "언제 정한다"로 관리 — [PRD 7장 오픈 이슈](design/hotdeal-prd.md), [가설 11장 보류](design/hotdeal-purchase-hypothesis.md).
