@@ -24,6 +24,7 @@ COMPOSE="docker compose -f docker-compose.multi.yml"
 mkdir -p "$RESULTS"
 mysql_exec() { $COMPOSE exec -T mysql mysql -uroot -proot commerce "$@"; }
 redis_exec() { $COMPOSE exec -T redis redis-cli "$@"; }
+lock_stat() { mysql_exec -N -e "SHOW GLOBAL STATUS LIKE '$1';" 2>/dev/null | awk '{print $2}' | tr -d '[:space:]'; }
 
 cleanup() { echo "[정리] 컨테이너·볼륨 삭제"; $COMPOSE down -v --remove-orphans >/dev/null 2>&1 || true; rm -f nginx.conf; }
 trap cleanup EXIT
@@ -72,15 +73,16 @@ reset_stock() {   # $1 = STOCK — HotDealStock(경합 대상) 및 부수 재고
   redis_exec SET hotdeal:stock:1 "$1" >/dev/null
 }
 
-snapshot_conn() {   # $1=N $2=logfile — 인스턴스별 HikariCP active 합산 vs DB Threads
-  local i v h=0 tc tr
+snapshot_conn() {   # $1=N $2=logfile — 인스턴스별 HikariCP active 합산 vs DB Threads + 행 잠금 순간 대기
+  local i v h=0 tc tr rlw
   for i in $(seq 1 "$1"); do
     v=$(curl -s "http://localhost:1808$i/actuator/prometheus" 2>/dev/null | grep '^hikaricp_connections_active' | awk '{print $2}' | cut -d. -f1)
     h=$((h + ${v:-0}))
   done
   tc=$(mysql_exec -N -e "SHOW STATUS LIKE 'Threads_connected';" 2>/dev/null | awk '{print $2}')
   tr=$(mysql_exec -N -e "SHOW STATUS LIKE 'Threads_running';" 2>/dev/null | awk '{print $2}')
-  echo "t=$(date +%s) hikari_active_sum=${h} db_threads_connected=${tc:-?} db_threads_running=${tr:-?}" >> "$2"
+  rlw=$(lock_stat Innodb_row_lock_current_waits)
+  echo "t=$(date +%s) hikari_active_sum=${h} db_threads_connected=${tc:-?} db_threads_running=${tr:-?} innodb_row_lock_current_waits=${rlw:-?}" >> "$2"
 }
 
 parse_result() {   # $1 = k6 로그 -> SUCCESS P95 AVG
@@ -127,6 +129,7 @@ for STRATEGY in $STRATEGIES; do
       reset_stock "$STOCK"
       TAG="thr-${STRATEGY}-i${N}-vu${VU}"
       OUT="$RESULTS/$TAG.log"
+      LW0=$(lock_stat Innodb_row_lock_waits); LT0=$(lock_stat Innodb_row_lock_time)
       if [ "$N" = "3" ] && [ "$VU" = "$CONN_VU" ]; then
         CONN="$RESULTS/conn-${STRATEGY}-i${N}-vu${VU}.log"; : > "$CONN"
         k6 run -e ACCOUNTS="$VU" -e PRODUCT_ID=1 -e BASE_URL="$BASE_URL" "$K6_SCRIPT" > "$OUT" 2>&1 &
@@ -136,10 +139,12 @@ for STRATEGY in $STRATEGIES; do
       else
         k6 run -e ACCOUNTS="$VU" -e PRODUCT_ID=1 -e BASE_URL="$BASE_URL" "$K6_SCRIPT" > "$OUT" 2>&1 || true
       fi
+      LW1=$(lock_stat Innodb_row_lock_waits); LT1=$(lock_stat Innodb_row_lock_time)
+      LWD=$(( ${LW1:-0} - ${LW0:-0} )); LTD=$(( ${LT1:-0} - ${LT0:-0} ))
       parse_result "$OUT"
       OV=$(check_oversell "$STRATEGY" "$STOCK")
-      THR+=("$STRATEGY|$N|$VU|$SUCCESS|$OV|$P95|$AVG")
-      echo "  [$TAG] 성공=$SUCCESS/$VU 오버셀=$OV p95=$P95 avg=$AVG"
+      THR+=("$STRATEGY|$N|$VU|$SUCCESS|$OV|$P95|$AVG|$LWD|$LTD")
+      echo "  [$TAG] 성공=$SUCCESS/$VU 오버셀=$OV p95=$P95 avg=$AVG 행잠금대기=${LWD}회/${LTD}ms"
     done
   done
 done
@@ -159,8 +164,8 @@ done
 
 echo ""
 echo "======== 측정 A: 처리량/역전 (재고=VU×2 전원차감) ========"
-printf "%-12s %-5s %-6s %-10s %-14s %-9s %-9s\n" 전략 인스 VU 성공 오버셀 p95 avg
-for r in "${THR[@]}"; do IFS='|' read -r s n vu su ov p a <<<"$r"; printf "%-12s %-5s %-6s %-10s %-14s %-9s %-9s\n" "$s" "$n" "$vu" "$su" "$ov" "$p" "$a"; done
+printf "%-12s %-5s %-6s %-8s %-8s %-9s %-9s %-16s\n" 전략 인스 VU 성공 오버셀 p95 avg 행잠금대기
+for r in "${THR[@]}"; do IFS='|' read -r s n vu su ov p a lwd ltd <<<"$r"; printf "%-12s %-5s %-6s %-8s %-8s %-9s %-9s %-16s\n" "$s" "$n" "$vu" "$su" "$ov" "$p" "$a" "${lwd}회/${ltd}ms"; done
 
 echo ""
 echo "======== 측정 B: 오버셀0 (재고 $OVERSELL_STOCK, 품절 경합) ========"
