@@ -114,6 +114,33 @@ flowchart TD
 | 18 | `해소_빈결과_실패확정` | 결제 조회 빈 결과(404) → Payment FAILED·주문 CANCELED — 위조 키 IN_DOUBT 잔여 루프 종결 | ✅ Pass | 2026-07-06 |
 | 19 | `토스_NOT_FOUND_PAYMENT_Rejected_매핑` | (단위) confirm 시 `NOT_FOUND_PAYMENT`(존재하지 않는 결제=돈 안 빠짐) → Rejected — 위조 키 즉시 실패 확정 | ✅ Pass | 2026-07-06 |
 
+## 다중 인스턴스 — 해소 처리권 (설계 확정 · 구현 대기)
+
+배포 전제가 서버 여러 대라 **모든 인스턴스가 같은 주기로 이 스케줄러를 실행**한다. 만료 스케줄러와 달리 해소는 **외부(토스) API 를 호출**하므로 중복의 성격이 다르다.
+
+| 스케줄러 | 중복 실행 시 | 판정 |
+|---|---|---|
+| 만료 | N개가 같은 후보를 SELECT → `markExpired` affected==1 인 1개만 처리 | **수용** — DB 안에서 끝나는 헛 SELECT 비용이라 분산 잠금(ShedLock) 도입이 더 비싸다 |
+| **해소** | N개가 같은 IN_DOUBT 를 **각각 토스에 조회**, IN_PROGRESS 면 confirm 재시도까지 N번 | **대응 필요** — 평시엔 IN_DOUBT 가 드물어 무해하나, **토스 장애로 IN_DOUBT 가 몰리는 순간 외부 호출 N배**가 상황을 악화시킨다. 멱등키는 이중 출금을 막을 뿐 호출 자체는 못 막는다 |
+
+**대안 비교**
+
+| 대안 | 평가 |
+|---|---|
+| 중복 수용 | 가장 단순하나, 장애 구간에서 외부 API 를 N배로 때린다 — 기각 |
+| 한 인스턴스만 실행(환경변수·프로파일) | 단순하나 그 인스턴스가 죽으면 해소가 멈춘다(단일 장애점) — 기각 |
+| **조건부 전이로 처리권 선점 (채택)** | 결제·만료 경합에 이미 쓰는 패턴 그대로라 **외부 의존성 0**, 모든 인스턴스가 참여해 장애에 강하다 |
+
+```sql
+UPDATE payments SET status = 'RESOLVING'
+ WHERE id = :id AND status = 'IN_DOUBT'
+-- affected == 1 인 인스턴스만 토스 조회·재시도를 진행
+```
+
+- 처리 후 결과대로 `RESOLVING → DONE / FAILED` 로 확정하고, 여전히 미확정이면 `IN_DOUBT` 로 되돌려 다음 회차가 잡게 한다.
+- **좀비 선점 회수**: RESOLVING 인 채 인스턴스가 죽을 수 있으므로, 해소 대상 조회에 "RESOLVING 으로 일정 시간(예: 5분) 이상 머문 건"을 포함한다.
+- 구현(`PaymentStatus.RESOLVING` · 조건부 전이 쿼리 · 스케줄러 분기)은 각 요소를 실패 테스트로 정당화하는 vertical TDD 사이클에서 추가한다([commit-checkpoint](../../.claude/rules/commit-checkpoint.md)) — 본 절은 **설계 확정까지**.
+
 ## 계층
 
 | 층 | 클래스 | 책임 |

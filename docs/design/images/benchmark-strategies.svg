@@ -1,0 +1,36 @@
+<svg viewBox="0 0 820 460" xmlns="http://www.w3.org/2000/svg" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif">
+  <rect width="820" height="460" fill="#ffffff"/>
+  <text x="40" y="42" font-size="21" font-weight="700" fill="#0f172a">고경합 벤치마크 — 동시 1,000명 · 재고 2,000</text>
+  <text x="40" y="66" font-size="14" fill="#64748b">막대 = 주문 성공 건수 / 1,000 · 아래 라벨 = 지연 p95 (낮을수록 빠름)</text>
+
+  <line x1="90" y1="380" x2="760" y2="380" stroke="#cbd5e1" stroke-width="1"/>
+  <text x="80" y="385" font-size="12" fill="#94a3b8" text-anchor="end">0</text>
+  <line x1="90" y1="307.5" x2="760" y2="307.5" stroke="#e2e8f0" stroke-width="1"/>
+  <text x="80" y="312" font-size="12" fill="#94a3b8" text-anchor="end">250</text>
+  <line x1="90" y1="235" x2="760" y2="235" stroke="#e2e8f0" stroke-width="1"/>
+  <text x="80" y="240" font-size="12" fill="#94a3b8" text-anchor="end">500</text>
+  <line x1="90" y1="162.5" x2="760" y2="162.5" stroke="#e2e8f0" stroke-width="1"/>
+  <text x="80" y="167" font-size="12" fill="#94a3b8" text-anchor="end">750</text>
+  <line x1="90" y1="90" x2="760" y2="90" stroke="#e2e8f0" stroke-width="1"/>
+  <text x="80" y="95" font-size="12" fill="#94a3b8" text-anchor="end">1000</text>
+
+  <rect x="185" y="332.7" width="110" height="47.3" fill="#dc2626"/>
+  <text x="240" y="324" font-size="19" font-weight="700" fill="#dc2626" text-anchor="middle">163</text>
+  <text x="240" y="352" font-size="12" fill="#ffffff" text-anchor="middle">탈락</text>
+
+  <rect x="375" y="90" width="110" height="290" fill="#1d4ed8"/>
+  <text x="430" y="118" font-size="19" font-weight="700" fill="#ffffff" text-anchor="middle">1000</text>
+  <text x="430" y="140" font-size="12" fill="#dbeafe" text-anchor="middle">채택</text>
+
+  <rect x="565" y="90" width="110" height="290" fill="#94a3b8"/>
+  <text x="620" y="118" font-size="19" font-weight="700" fill="#ffffff" text-anchor="middle">1000</text>
+
+  <text x="240" y="404" font-size="14" font-weight="600" fill="#334155" text-anchor="middle">낙관락</text>
+  <text x="240" y="424" font-size="12" fill="#64748b" text-anchor="middle">p95 1.44s</text>
+  <text x="430" y="404" font-size="14" font-weight="600" fill="#334155" text-anchor="middle">조건부 UPDATE</text>
+  <text x="430" y="424" font-size="12" fill="#64748b" text-anchor="middle">p95 1.37s</text>
+  <text x="620" y="404" font-size="14" font-weight="600" fill="#334155" text-anchor="middle">Redis+Lua</text>
+  <text x="620" y="424" font-size="12" fill="#64748b" text-anchor="middle">p95 1.48s</text>
+
+  <text x="40" y="452" font-size="12.5" fill="#475569">낙관락은 버전 충돌로 성공 163 — 정확하나 비실용(탈락). 조건부·Redis 는 1,000 동률, 조건부가 p95 최저·쿼리 1문으로 가장 단순해 운영 채택.</text>
+</svg>
