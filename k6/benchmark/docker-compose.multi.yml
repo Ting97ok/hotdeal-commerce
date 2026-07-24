@@ -1,0 +1,77 @@
+# 다중 인스턴스 동시성 벤치마크 스택 — 단일 스택(docker-compose.yml)과 격리.
+# run-multi.sh 가 오케스트레이션: 인프라 up -> nginx upstream 생성 -> app1..N 재기동 + k6 -> down -v.
+# app1..3 은 부하가 아니라 관측(actuator)용으로만 호스트 포트(18081~18083)를 연다. 부하는 nginx(18080)만 경유.
+name: commerce-bench-multi
+
+x-app: &app
+  build:
+    context: ../..
+    dockerfile: Dockerfile
+  image: commerce-bench-app:latest
+  environment:
+    SPRING_DATASOURCE_URL: "jdbc:mysql://mysql:3306/commerce?serverTimezone=Asia/Seoul&characterEncoding=UTF-8"
+    SPRING_DATASOURCE_USERNAME: commerce
+    SPRING_DATASOURCE_PASSWORD: commerce
+    SPRING_DATA_REDIS_HOST: redis
+    SPRING_DATA_REDIS_PORT: "6379"
+    STOCK_DEDUCT_STRATEGY: "${STRATEGY:-conditional}"
+    ORDER_EXPIRY_SCHEDULER_ENABLED: "false"
+    PAYMENT_RESOLUTION_SCHEDULER_ENABLED: "false"
+    LOGGING_LEVEL_ORG_HIBERNATE_SQL: "WARN"
+  depends_on:
+    mysql:
+      condition: service_healthy
+    redis:
+      condition: service_healthy
+
+services:
+  mysql:
+    image: mysql:8.4
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_DATABASE: commerce
+      MYSQL_USER: commerce
+      MYSQL_PASSWORD: commerce
+    ports:
+      - "13306:3306"
+    tmpfs:
+      - /var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-uroot", "-proot"]
+      interval: 3s
+      timeout: 5s
+      retries: 30
+
+  redis:
+    image: redis:7
+    ports:
+      - "16379:6379"
+    tmpfs:
+      - /data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 3s
+      timeout: 5s
+      retries: 30
+
+  app1:
+    <<: *app
+    ports:
+      - "18081:8080"
+  app2:
+    <<: *app
+    ports:
+      - "18082:8080"
+  app3:
+    <<: *app
+    ports:
+      - "18083:8080"
+
+  nginx:
+    image: nginx:1.27-alpine
+    ports:
+      - "18080:80"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - app1
