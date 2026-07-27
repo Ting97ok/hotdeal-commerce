@@ -1,0 +1,46 @@
+<svg viewBox="0 0 820 470" xmlns="http://www.w3.org/2000/svg" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif">
+  <rect width="820" height="470" fill="#ffffff"/>
+  <text x="40" y="42" font-size="21" font-weight="700" fill="#0f172a">스케일아웃해도 재고 병목은 안 풀린다 — 인스턴스 1 → 3</text>
+  <text x="40" y="66" font-size="14" fill="#64748b">선 = 주문 지연 p95 (낮을수록 빠름) · 앱을 늘려 단일 행 압력을 3배로</text>
+
+  <line x1="130" y1="380" x2="730" y2="380" stroke="#cbd5e1" stroke-width="1"/>
+  <text x="120" y="385" font-size="12" fill="#94a3b8" text-anchor="end">0s</text>
+  <line x1="130" y1="322" x2="730" y2="322" stroke="#e2e8f0" stroke-width="1"/>
+  <text x="120" y="327" font-size="12" fill="#94a3b8" text-anchor="end">1s</text>
+  <line x1="130" y1="264" x2="730" y2="264" stroke="#e2e8f0" stroke-width="1"/>
+  <text x="120" y="269" font-size="12" fill="#94a3b8" text-anchor="end">2s</text>
+  <line x1="130" y1="206" x2="730" y2="206" stroke="#e2e8f0" stroke-width="1"/>
+  <text x="120" y="211" font-size="12" fill="#94a3b8" text-anchor="end">3s</text>
+  <line x1="130" y1="148" x2="730" y2="148" stroke="#e2e8f0" stroke-width="1"/>
+  <text x="120" y="153" font-size="12" fill="#94a3b8" text-anchor="end">4s</text>
+  <line x1="130" y1="90" x2="730" y2="90" stroke="#e2e8f0" stroke-width="1"/>
+  <text x="120" y="95" font-size="12" fill="#94a3b8" text-anchor="end">5s</text>
+
+  <text x="250" y="400" font-size="14" font-weight="600" fill="#334155" text-anchor="middle">1 인스턴스</text>
+  <text x="610" y="400" font-size="14" font-weight="600" fill="#334155" text-anchor="middle">3 인스턴스</text>
+
+  <!-- 동률 출발점 (i1: 순위 요동, ~1.4~1.5s) -->
+  <text x="250" y="278" font-size="12.5" font-weight="600" fill="#64748b" text-anchor="middle">≈ 동률 (순위 요동)</text>
+
+  <!-- conditional (빨강): 동률 → 급증 -->
+  <line x1="250" y1="296" x2="610" y2="125" stroke="#dc2626" stroke-width="3"/>
+  <circle cx="250" cy="296" r="6" fill="#dc2626"/>
+  <circle cx="610" cy="125" r="6" fill="#dc2626"/>
+  <text x="626" y="120" font-size="16" font-weight="700" fill="#dc2626">4.4s</text>
+
+  <!-- redis (파랑): 동률 → 완만 -->
+  <line x1="250" y1="296" x2="610" y2="229" stroke="#1d4ed8" stroke-width="3"/>
+  <circle cx="610" cy="229" r="6" fill="#1d4ed8"/>
+  <text x="626" y="234" font-size="16" font-weight="700" fill="#1d4ed8">2.6s</text>
+
+  <!-- 격차 강조 -->
+  <line x1="600" y1="125" x2="600" y2="229" stroke="#0f172a" stroke-width="1" stroke-dasharray="3 3"/>
+  <text x="626" y="182" font-size="13.5" font-weight="700" fill="#0f172a">1.7배 격차</text>
+
+  <rect x="250" y="424" width="16" height="4" fill="#dc2626"/>
+  <text x="274" y="429" font-size="13" fill="#334155">conditional (DB 단일 행)</text>
+  <rect x="470" y="424" width="16" height="4" fill="#1d4ed8"/>
+  <text x="494" y="429" font-size="13" fill="#334155">redis (메모리 차감)</text>
+
+  <text x="40" y="458" font-size="12.5" fill="#475569">1인스턴스선 동률(측정마다 순위 요동) → 3인스턴스서 conditional 만 급증, redis 와 격차가 벌어진다. 단 로컬 1머신이라 원인(한 줄 병목 vs CPU 경합)은 미분리.</text>
+</svg>
