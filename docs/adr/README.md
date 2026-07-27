@@ -55,8 +55,8 @@
 
 | 결정 | Type | 틀렸다는 신호 | 되돌리는·전환 절차 |
 |---|:---:|---|---|
-| 재고 조건부 UPDATE ([0010](0010-concurrency-strategy-selection.md)) | Type2 | 폭주 p95 > 2s(SLA 위반) — 단일 행 UPDATE 천장 초과 | 프로퍼티 `stock.deduct.strategy=redis` 교체 + Redis→DB 정합 구현 / 또는 재고 버킷 분산 |
-| 재고 한 행 ([0011](0011-product-inventory-reservation.md)) | Type1 | 단일 행 쓰기 ~500 QPS 천장 도달 | 재고를 여러 버킷(여러 행)으로 분산(Alibaba·Shopify 방식) |
+| 재고 조건부 UPDATE ([0010](0010-concurrency-strategy-selection.md)) | Type2 | 폭주 p95 > 2s(SLA 위반) — 단일 행 **한 줄 병목** 초과 | 프로퍼티 `stock.deduct.strategy=redis` 교체 + Redis→DB 정합 구현 / 또는 재고를 여러 행으로 분산 |
+| 재고 한 행 ([0011](0011-product-inventory-reservation.md)) | Type1 | 단일 행 쓰기 **한 줄 병목** 도달(~500 QPS 는 [0009](0009-stock-concurrency-design.md) 예상 표의 **예상치** — 미실측) | 재고를 여러 행으로 분산 — 버킷 분산(Alibaba) · 단위별 1행 + MySQL `SKIP LOCKED`([Shopify](https://shopify.engineering/scaling-inventory-reservations)). 본 프로젝트 **미측정** |
 | FK 미사용 ([0003](0003-no-db-fk-constraints.md)) | Type2 | 참조 무결성을 DB 강제로 필요 | `ALTER TABLE ADD CONSTRAINT`(기존 데이터 정합 검증 후) |
 | 활성 유니크 ([0005](0005-one-per-user-active-unique.md)) | Type1(비대칭) | 총량 상한(maxPerAccount) 필요 | `is_active` PENDING만으로 재정의 + 잠금 카운트 / PostgreSQL 이행 시 부분 유니크로 단순화. 제거는 `DROP INDEX`(온라인 DDL) |
 | 증량 금지 ([0007](0007-hotdeal-state-operations.md)) | Type2 | 진행 중 딜 증량 실무 필요 | `totalQuantity += N`·`remaining += N` 한 트랜잭션 API 추가("등록 후 불변" 해제) |
