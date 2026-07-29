@@ -4,7 +4,8 @@
 > 문서 체계: [가설 PRD](../design/hotdeal-prd.md)(사업 언어의 요구·정책) → [기술 가설](../design/hotdeal-purchase-hypothesis.md)·[ERD](../design/erd.md)(결정된 규칙) → **ADR(결정의 고민 전부)**.
 > **살아 있는 문서** — 결정이 바뀌면 새 번호로 대체하지 않고 **그 문서를 직접 최신화**한다. 변경 이력은 git 이 관리하므로 빈 번호(결번)를 두지 않는다.
 >
-> **RFC ↔ ADR 역할** — 본 저장소는 RFC(결정 *전* 토론용 긴 캔버스)를 별도 파일로 두지 않는다. ADR 하나가 두 역할을 겸한다: 머리의 **결정 요약**(무엇을 / 왜 / 버린 대안 / Non-Goal(범위 밖) / 트레이드오프 / 가역성 Type — 1페이지, "6개월 뒤 30초 파악")과, 그 아래 **컨텍스트·대안·설계노트**(왜 그 결정인지 고민 전부 보존 — RFC 역할). 요약만 읽으면 결정 결과, 본문까지 읽으면 결정 과정. **"6개월 뒤 새 멤버가 'X 왜 썼어요?' 물을 결정은 전부 ADR"** 이 이 폴더의 수록 기준이다. (요약 헤더 포맷은 0002·0004·0005·0008·0009·0010·0011·0012·0013 에 적용 — 짧고 자명한 0001·0003·0006·0007 은 본문이 곧 1페이지라 생략.)
+> **ADR 과 RFC** — ADR 은 주제 하나를 한 파일로 묶고, 결정마다 **무엇을 했고 · 왜 그랬고 · 되돌리기가 얼마나 어려운지**를 적는다. 그 "왜"가 길어 파일을 따로 열 만할 때만 [RFC](../rfc/)로 분리해 근거와 실측을 보존한다(지금은 동시성 벤치마크 한 편). 짧으면 ADR 안에 그대로 두고, 링크는 ADR → RFC 한 방향만 건다.
+> 수록 기준은 **"6개월 뒤 새 멤버가 'X 왜 썼어요?' 물을 결정"** 이다. (주제 단위로 전환 중 — 재고 동시성이 새 형식이고 나머지 번호 문서는 순차 전환.)
 
 ## ADR 문서
 
@@ -18,9 +19,7 @@
 | [0006](0006-correctness-invariants-defense-layers.md) | 정확성 불변식·방어 계층 | **오버셀 0 + 거짓 성공 0 = 절대, 덜 팔림은 허용**. 방어는 중복이 아니라 층별 **분업** | 확정 |
 | [0007](0007-hotdeal-state-operations.md) | 핫딜 상태·운영 정책 | 진행/매진은 상태값 대신 **기간+재고로 판단**, 진행 중 수정 대신 **새 회차**, 기간 겹침 등록 금지, **핫딜=단일 상품 단위**(이벤트 범위 밖·확장 경로) | 확정 |
 | [0008](0008-payment-model-pg-boundary.md) | 결제 모델·PG 경계 | 결제는 **시도(paymentKey)마다 1행**, 토스 의존은 **어댑터 한 곳**에 격리 | 확정 |
-| [0009](0009-stock-concurrency-design.md) | 재고 동시성 설계 | 재고를 **별도 행**으로 떼어 5방식 비교, 비관락은 **커넥션 풀 보호**로 즉시 실패(NOWAIT) | 확정 |
-| [0010](0010-concurrency-strategy-selection.md) | 동시성 운영 전략 선정 | 격리 측정: 고경합서도 조건부 ≈ Redis(호스트 측정의 Redis 역전은 SQL 로깅 오염), 셋 다 오버셀 0 — **조건부 채택** | 확정 |
-| [0011](0011-product-inventory-reservation.md) | 상품 재고·핫딜 예약 | 재고는 **상품에 원본 보관**(`ProductStock` 실물·예약·가용), 핫딜은 거기서 예약. 경합 격리(재고 전용 테이블)를 상품 레벨로 일반화 | 확정 |
+| [재고 동시성](concurrency.md) | 재고를 어디 두고 무엇으로 차감하나 | 재고는 **전용 테이블**(`ProductStock` 원본 · `HotDealStock` 핫딜 몫), 차감은 3방식 실측으로 고른 **원자적 조건부 UPDATE** — 측정은 [벤치마크](../rfc/concurrency-benchmark.md) | 확정 |
 | [0012](0012-context-map-module-boundaries.md) | 경계 맥락 지도 | 경계 맥락은 **변경 이유**로 가른다(카디널리티 ❌). 구매 코어 1 + 결제 후속 1, 핫딜·재고는 **독립 모듈**이되 다 구매 코어 — 패키지 위치는 MSA 분리와 무관, 부채 방지선은 **모듈 간 의존 규칙**(코어 내부 동기 / 후속은 이벤트) | 확정 |
 | [0013](0013-load-test-tool-k6.md) | 부하 테스트 도구 | 락 3방식 **동일 조건 반복 측정** + 서버 메트릭 통합 시각화로 **k6** 선정 | 확정 |
 
@@ -28,7 +27,7 @@
 
 | 결정 | 내용 | 근거 위치 |
 |---|---|---|
-| 구매 흐름·상품 재고 | Product 가 재고 원본 보관(`ProductStock` 실물·예약·가용) → 핫딜은 거기서 예약. 구매 API 는 **상품 주소**(`POST /api/orders {productId}` — 서버가 활성 핫딜 해소), 주문 모델은 **상품 참조 + 적용 핫딜 기록**(표준). 슬라이스 1 확정(2026-06-20 상품 주소로 전환) | [ADR-0011](0011-product-inventory-reservation.md) |
+| 구매 흐름·상품 재고 | Product 가 재고 원본 보관(`ProductStock` 실물·예약·가용) → 핫딜은 거기서 예약. 구매 API 는 **상품 주소**(`POST /api/orders {productId}` — 서버가 활성 핫딜 해소), 주문 모델은 **상품 참조 + 적용 핫딜 기록**(표준). 슬라이스 1 확정(2026-06-20 상품 주소로 전환) | [재고 동시성 ADR](concurrency.md) |
 | **주문 식별자** | 공개 카탈로그(상품·핫딜)는 순번 id 노출 / 민감 리소스(주문)는 불투명 `order_no`(UUID, UNIQUE) — 권한 검증 실수의 안전망 + 주문량(사업 지표) 은닉 + 토스 주문번호 겸용. PK 는 순번 유지(UUID 를 PK 로 쓰면 InnoDB 삽입 성능 저하). BaseEntity 공통 UUID 는 5개 테이블 낭비라 미채택 | [erd 4·6](../design/erd.md) |
 | **금액 타입** | 전 금액 칼럼 `DECIMAL(12,0)` / JPA `BigDecimal` — 금액은 정확 십진수가 원칙(부동소수점 금지), BIGINT 대비 소수 확장(할인율·수수료)이 자릿수 변경으로 끝나고 스키마에 "돈" 의미가 드러남. (KRW 전용은 BIGINT 도 정당 — 의미·확장성으로 DECIMAL 선택) | [erd 6](../design/erd.md) |
 | 범위 밖 묶음 | 대기열·어뷰징 방어 / 승인 후 환불 / 주문 내역 조회·이어서 결제(만료 후 재구매로 갈음) / 다중 PG 일반화 / **멀티상품 이벤트**(핫딜=단일 상품 — 확장 경로 [0007](0007-hotdeal-state-operations.md) 결정6) | 가설 2 |
@@ -42,8 +41,8 @@
 
 | 안티패턴 | 증상 | 이 프로젝트가 피한 방식 | 근거 |
 |---|---|---|---|
-| **Resume-driven design** | "이력서에 쓰려고" 도구 도입 — 문제가 도구를 부르지 않고 도구가 문제를 찾음 | "적은 API + 깊이" 정체성 · 전면 MSA 미채택("정당성 없는 분리는 감점") · 5방식 전부 구현 대신 3측정 + 2이론배제("취사선택이 판단력") · k6도 이력서용 아닌 측정 목적(재현성·서버 메트릭)으로 근거 | [0002](0002-monolith-first-partial-msa.md) · [0009](0009-stock-concurrency-design.md) · [0013](0013-load-test-tool-k6.md) |
-| **Premature abstraction** | "나중에 바꿀 수도" 인터페이스 남발 — 안 바뀌고 디버깅만 어려워짐 | 어댑터는 인터페이스 1개(비용 ~0)만, "교체 보장 아닌 교체 지점 격리" · 다중 PG는 둘째 PG 필요 시 · 안전재고·다중 창고 스코프 밖 · 가용은 계산(저장 안 함) | [0008](0008-payment-model-pg-boundary.md) · [0011](0011-product-inventory-reservation.md) |
+| **Resume-driven design** | "이력서에 쓰려고" 도구 도입 — 문제가 도구를 부르지 않고 도구가 문제를 찾음 | "적은 API + 깊이" 정체성 · 전면 MSA 미채택("정당성 없는 분리는 감점") · 5방식 전부 구현 대신 3측정 + 2이론배제("취사선택이 판단력") · k6도 이력서용 아닌 측정 목적(재현성·서버 메트릭)으로 근거 | [0002](0002-monolith-first-partial-msa.md) · [재고 동시성](concurrency.md) · [0013](0013-load-test-tool-k6.md) |
+| **Premature abstraction** | "나중에 바꿀 수도" 인터페이스 남발 — 안 바뀌고 디버깅만 어려워짐 | 어댑터는 인터페이스 1개(비용 ~0)만, "교체 보장 아닌 교체 지점 격리" · 다중 PG는 둘째 PG 필요 시 · 안전재고·다중 창고 스코프 밖 · 가용은 계산(저장 안 함) | [0008](0008-payment-model-pg-boundary.md) · [재고 동시성](concurrency.md) |
 | **Distributed monolith** | MSA로 쪼갰는데 동기로 강결합 — 모놀리스 단점 다, MSA 장점 0 | 구매 코어 → 결제 후속은 **이벤트만**(동기 금지, "이 한 선이 미래 분리 지점을 살린다") · 재고는 분리 안 함(최고 결합, 강한 일관성 유지) · 참조 방향 단방향 | [0012](0012-context-map-module-boundaries.md) 결정3 · [0002](0002-monolith-first-partial-msa.md) |
 | **Shared mutable database** | 서비스는 쪼개졌는데 DB 하나 — 한쪽 스키마 변경이 다른 쪽 깸 | 결제 분리 시 별도 DB · FK 미사용("경계 넘는 FK 어차피 불가 — 미리 같은 규율") · 참조 방향 단방향(카탈로그는 주문을 모름) | [0002](0002-monolith-first-partial-msa.md) · [0003](0003-no-db-fk-constraints.md) · [0012](0012-context-map-module-boundaries.md) |
 | **Silent failure** | try/catch로 다 삼킴 — "에러가 안 보여요"가 가장 위험, 실패가 침묵하면 학습이 멈춤 | 예상 못한 예외는 **삼키지 않고 전파(500)**("catch-all은 버그를 미확정으로 위장하는 안티패턴") · 미확정(IN_DOUBT)은 삼키지 않고 보존→해소가 확정 · 정직한 실패("다시 시도", 서버 몰래 재시도 금지) | [payment B1](../payment/api-design.md) · [0006](0006-correctness-invariants-defense-layers.md) |
@@ -51,16 +50,16 @@
 
 ## 결정을 되돌리는 법 — 전환 경로 색인
 
-"No rollback path"를 피하려면 결정마다 **틀렸다는 신호 + 되돌리는 절차**가 있어야 한다(RFC 의 Risks·Rollout 슬롯). 이 저장소는 이미 배포된 완성본이라 "단계적 rollout" 대신 슬라이스로 자랐고, 여기 모으는 건 각 결정의 **되돌리기·전환 경로**다. Type2(되돌리기 쉬움)는 절차가 가볍고, Type1(어려움)은 애초에 신중히 결정한 이유가 여기 드러난다.
+결정마다 **틀렸다는 신호와 되돌리는 절차**를 함께 남긴다. 되돌리기 쉬운 결정은 절차가 가볍고, 어려운 결정은 애초에 신중히 정한 이유가 여기 드러난다.
 
-| 결정 | Type | 틀렸다는 신호 | 되돌리는·전환 절차 |
+| 결정 | 되돌리기 | 틀렸다는 신호 | 되돌리는·전환 절차 |
 |---|:---:|---|---|
-| 재고 조건부 UPDATE ([0010](0010-concurrency-strategy-selection.md)) | Type2 | 폭주 p95 > 2s(SLA 위반) — 단일 행 **한 줄 병목** 초과 | 프로퍼티 `stock.deduct.strategy=redis` 교체 + Redis→DB 정합 구현 / 또는 재고를 여러 행으로 분산 |
-| 재고 한 행 ([0011](0011-product-inventory-reservation.md)) | Type1 | 단일 행 쓰기 **한 줄 병목** 도달(~500 QPS 는 [0009](0009-stock-concurrency-design.md) 예상 표의 **예상치** — 미실측) | 재고를 여러 행으로 분산 — 버킷 분산(Alibaba) · 단위별 1행 + MySQL `SKIP LOCKED`([Shopify](https://shopify.engineering/scaling-inventory-reservations)). 본 프로젝트 **미측정** |
-| FK 미사용 ([0003](0003-no-db-fk-constraints.md)) | Type2 | 참조 무결성을 DB 강제로 필요 | `ALTER TABLE ADD CONSTRAINT`(기존 데이터 정합 검증 후) |
-| 활성 유니크 ([0005](0005-one-per-user-active-unique.md)) | Type1(비대칭) | 총량 상한(maxPerAccount) 필요 | `is_active` PENDING만으로 재정의 + 잠금 카운트 / PostgreSQL 이행 시 부분 유니크로 단순화. 제거는 `DROP INDEX`(온라인 DDL) |
-| 증량 금지 ([0007](0007-hotdeal-state-operations.md)) | Type2 | 진행 중 딜 증량 실무 필요 | `totalQuantity += N`·`remaining += N` 한 트랜잭션 API 추가("등록 후 불변" 해제) |
-| 부분 MSA ([0002](0002-monolith-first-partial-msa.md)) | Type1 | (분리 자체가 순방향 결정) | 되돌리기 비쌈(DB·이벤트 계약) — **그래서** 본편 완수 후 착수, 정당성 있는 경계만 |
-| PG 어댑터 ([0008](0008-payment-model-pg-boundary.md)) | Type1 | 둘째 PG 실제 필요 | 어댑터 1곳에 PG별 구현 추가 + 공통 에러 정규화·라우팅(교체 지점이 이미 격리됨) |
+| 재고 조건부 UPDATE ([재고 동시성](concurrency.md)) | 쉬움 | 폭주 p95가 SLA 2초를 넘음 | 프로퍼티 `stock.deduct.strategy=redis` 교체 + Redis→DB 정합 구현 / 또는 재고를 여러 행으로 분산 |
+| 재고 한 행 ([재고 동시성](concurrency.md)) | 어려움 | 단일 행 순차 처리가 한계에 도달 — **어느 지점인지는 미측정** | 재고를 여러 행으로 분산 — 버킷 분산 · 단위별 1행 + MySQL `SKIP LOCKED`([Shopify](https://shopify.engineering/scaling-inventory-reservations)) |
+| FK 미사용 ([0003](0003-no-db-fk-constraints.md)) | 쉬움 | 참조 무결성을 DB 강제로 필요 | `ALTER TABLE ADD CONSTRAINT`(기존 데이터 정합 검증 후) |
+| 활성 유니크 ([0005](0005-one-per-user-active-unique.md)) | 비대칭 | 총량 상한(maxPerAccount) 필요 | `is_active` PENDING만으로 재정의 + 잠금 카운트 / PostgreSQL 이행 시 부분 유니크로 단순화. 제거는 `DROP INDEX`(온라인 DDL) |
+| 증량 금지 ([0007](0007-hotdeal-state-operations.md)) | 쉬움 | 진행 중 딜 증량 실무 필요 | `totalQuantity += N`·`remaining += N` 한 트랜잭션 API 추가("등록 후 불변" 해제) |
+| 부분 MSA ([0002](0002-monolith-first-partial-msa.md)) | 어려움 | (분리 자체가 순방향 결정) | 되돌리기 비쌈(DB·이벤트 계약) — **그래서** 본편 완수 후 착수, 정당성 있는 경계만 |
+| PG 어댑터 ([0008](0008-payment-model-pg-boundary.md)) | 어려움 | 둘째 PG 실제 필요 | 어댑터 1곳에 PG별 구현 추가 + 공통 에러 정규화·라우팅(교체 지점이 이미 격리됨) |
 
 > **시니어 설계 프레임과의 대응**: 이 프로젝트의 몇 결정은 공개된 시니어 설계 사례와 같은 프레임을 탄다 — 결제 TX 분리([0008](0008-payment-model-pg-boundary.md))는 **"사용자가 화면에서 기다리는가?"** 로 동기/비동기를 가르는 판단(재고 확인·주문 ID 는 동기, 결제 호출·알림·영수증은 화면 밖)이고, 부분 MSA([0002](0002-monolith-first-partial-msa.md))는 **"팀이 서로 막나 / 한 모듈만 폭주하나 / 도메인 경계 정말 있나"** 3신호로 분리를 판단한 결과(기본값은 모듈러 모놀리스, 신호 켜진 결제 경계만 분리)다. 다음 작업인 고트래픽 상품 조회 최적화는 **검색·조회 인덱스 결정**을 새 ADR로 남기는 지점이 된다.
