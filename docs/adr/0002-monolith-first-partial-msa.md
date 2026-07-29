@@ -41,8 +41,8 @@
 | 주문↔결제 상태 전파 | **최종 일관성 허용** — 확정 전 구간은 "결제 확인 중" 파생 상태로 노출(업계 표준: Adobe Commerce "Payment Review" 계열) | 이벤트(Kafka + Outbox) + 멱등 소비 |
 
 - **재고는 분리하지 않는다**: 재고는 주문 생성(선점)·결제 승인(확정 차감)·만료/해소(복원) 세 흐름 모두와 원자성으로 묶인 최고 결합 도메인 — 강한 일관성 영역의 분산 전환은 부적합하다는 일반 지침과 일치([삼성SDS MSA 설계 고려사항](https://www.samsungsds.com/kr/insights/1239180_4627.html)). 분리 가능성만 이음새로 유지(재고 접근은 Service 경유·타 도메인 JOIN 금지·FK 값 참조 — [ADR-0003](0003-no-db-fk-constraints.md)).
-- **주문 선생성(PENDING) 유지**: 분리 후에도 주문이 saga 의 상태 앵커다 — [microservices.io Create Order Saga](https://microservices.io/patterns/data/saga.html)가 정확히 "Order 를 PENDING 으로 먼저 생성"하는 구조([ADR-0004](0004-stock-reservation-lifecycle.md) 결정 1 이 분산 환경에서도 유효).
-- **기존 정합 장치가 분산 방어로 승계**: 조건부 상태 전이(`UPDATE ... WHERE status=...`)는 그대로 **멱등 이벤트 소비자**가 된다(중복·지연 전달에 전이 1회 보장). 만료↔결제 역전 규칙은 [ADR-0004 결정 4](0004-stock-reservation-lifecycle.md)(재확보 되살림, 충돌 시 취소+보상)가 담당.
+- **주문 선생성(PENDING) 유지**: 분리 후에도 주문이 saga 의 상태 앵커다 — [microservices.io Create Order Saga](https://microservices.io/patterns/data/saga.html)가 정확히 "Order 를 PENDING 으로 먼저 생성"하는 구조([주문 ADR 1절](order.md) 결정 1 이 분산 환경에서도 유효).
+- **기존 정합 장치가 분산 방어로 승계**: 조건부 상태 전이(`UPDATE ... WHERE status=...`)는 그대로 **멱등 이벤트 소비자**가 된다(중복·지연 전달에 전이 1회 보장). 만료↔결제 경합 규칙은 [주문 ADR 3절](order.md)(양쪽 다 조건부 전이, 진 쪽이 영향 행 0으로 사실을 앎)이 담당.
 
 전면 MSA 미채택 이유는 초안과 동일 — 분리를 정당화하는 경계만 전환한다. **정당성 없는 분리는 감점**이다.
 

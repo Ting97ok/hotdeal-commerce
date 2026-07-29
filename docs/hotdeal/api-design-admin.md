@@ -59,7 +59,7 @@ POST /api/admin/hotdeals
 | 같은 상품 ACTIVE 핫딜과 기간 겹침 | 비즈니스 검증 (Service) | HOTDEAL_PERIOD_OVERLAP |
 | 상품 가용 재고 충분 (가용 ≥ 총 한정 수량) | 비즈니스 검증 (productStockService 예약, stock 도메인) | INSUFFICIENT_PRODUCT_STOCK |
 
-> **설계 노트 — maxPerOrder(1주문 최대 수량)**: 1인 구매 제한의 주문당 상한([ADR-0005 결정2](../adr/0005-one-per-user-active-unique.md)). 등록 시 핫딜에 저장만 하고, 구매 시 `quantity ≤ maxPerOrder` 검증(`EXCEEDS_PURCHASE_LIMIT`)은 슬라이스1이다. `totalQuantity`와 독립 축이라 교차검증을 두지 않는다 — `maxPerOrder > totalQuantity`여도 구매 차감이 `HotDealStock`(잔여=`totalQuantity`) 기준이라 오버셀 불변식엔 무해([ADR-0006](../adr/0006-correctness-invariants-defense-layers.md)).
+> **설계 노트 — maxPerOrder(1주문 최대 수량)**: 1인 구매 제한의 주문당 상한([주문 ADR 5절](../adr/order.md)). 등록 시 핫딜에 저장만 하고, 구매 시 `quantity ≤ maxPerOrder` 검증(`EXCEEDS_PURCHASE_LIMIT`)은 슬라이스1이다. `totalQuantity`와 독립 축이라 교차검증을 두지 않는다 — `maxPerOrder > totalQuantity`여도 구매 차감이 `HotDealStock`(잔여=`totalQuantity`) 기준이라 오버셀 불변식엔 무해([주문 ADR 6절](../adr/order.md)).
 >
 > **설계 노트 — dealPrice 검증**: 1 이상(`@DecimalMin("1")`) · 정수(`@Digits(fraction=0)` — 원화는 소수점이 없어 `DECIMAL(12,0)`을 입력 단계에서 미러, 미적용 시 소수가 DB에서 조용히 반올림됨) · 정가 미만(엔티티 `create()` → `INVALID_DEAL_PRICE`). 0원·음수·소수점은 입력 단계에서 `VALIDATION_ERROR`(400)로 거른다.
 >

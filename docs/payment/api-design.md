@@ -54,7 +54,7 @@
 | PENDING → PAID | 결제 선점 (토스 승인 앞) | `@Modifying UPDATE WHERE status='PENDING'`, affected==1 관문 |
 | PENDING → CANCELED | 만료 스케줄러 | `@Modifying UPDATE WHERE status='PENDING'`, affected==1일 때만 재고 복원 |
 
-> **양방향 조건부 전이**: Order에 `@Version`이 없으므로 결제(PAID)·만료(CANCELED) **둘 다** `UPDATE ... WHERE status='PENDING'` 조건부 전이로 경합을 처리한다([ADR-0004 결정3](../adr/0004-stock-reservation-lifecycle.md)). 확인(WHERE)과 쓰기(SET)가 한 문장이라 어느 쪽이 먼저 커밋하든 진 쪽이 affected==0으로 그 사실을 안다. 결제 선점이 affected==0이면 만료로 CANCELED됐거나 중복 승인 → `ORDER_STATUS_CONFLICT`(409). 슬라이스4에서 **만료 쪽도 조건부 전이로 정합화**한다 — 슬라이스2 구현이 변경 감지(dirty checking)로 단순화돼 만료 쪽이 무조건 덮어쓰던 것을 바로잡아, 결제 PAID를 만료가 덮는 경합을 막는다([order System 설계](../order/api-design-system.md)).
+> **양방향 조건부 전이**: Order에 `@Version`이 없으므로 결제(PAID)·만료(CANCELED) **둘 다** `UPDATE ... WHERE status='PENDING'` 조건부 전이로 경합을 처리한다([주문 ADR 3절](../adr/order.md)). 확인(WHERE)과 쓰기(SET)가 한 문장이라 어느 쪽이 먼저 커밋하든 진 쪽이 affected==0으로 그 사실을 안다. 결제 선점이 affected==0이면 만료로 CANCELED됐거나 중복 승인 → `ORDER_STATUS_CONFLICT`(409). 슬라이스4에서 **만료 쪽도 조건부 전이로 정합화**한다 — 슬라이스2 구현이 변경 감지(dirty checking)로 단순화돼 만료 쪽이 무조건 덮어쓰던 것을 바로잡아, 결제 PAID를 만료가 덮는 경합을 막는다([order System 설계](../order/api-design-system.md)).
 
 ---
 
@@ -119,7 +119,7 @@
 | 승인 흐름 | 클라이언트 confirm 방식 — 프론트가 토스 successUrl에서 paymentKey·orderId·amount를 받아 우리 서버에 전달, 서버가 토스 confirm API 호출 | 토스 공식 권장 |
 | PG 어댑터 | PaymentFacade → PaymentGatewayClient(계약) → TossPaymentClient(어댑터·분류) → TossHttpClient(전송) | [ADR-0008](../adr/0008-payment-model-pg-boundary.md) 결정3 |
 | 트랜잭션 경계 | **Phase B1 교정** — 단일 TX 폐기. 토스 호출(외부 I/O)은 DB TX **밖**에서 수행, 그 앞뒤만 짧은 TX로 닫는다: TX1(선점+재고차감 커밋) → 토스 호출(TX 밖) → TX2(결과 반영). 아래 "Phase B1 — 토스 결제 실연동" 절 | [ADR-0008](../adr/0008-payment-model-pg-boundary.md) 결정3 + Phase B1 교정 |
-| 경합 처리 | 결제(PAID)·만료(CANCELED) **양방향** 조건부 전이(`WHERE status='PENDING'`, affected==1)로 직렬화 — 선점이 토스 앞이라 만료·이중 승인을 **토스 호출 전** 차단 | [ADR-0004 결정3](../adr/0004-stock-reservation-lifecycle.md) |
+| 경합 처리 | 결제(PAID)·만료(CANCELED) **양방향** 조건부 전이(`WHERE status='PENDING'`, affected==1)로 직렬화 — 선점이 토스 앞이라 만료·이중 승인을 **토스 호출 전** 차단 | [주문 ADR 3절](../adr/order.md) |
 | 금액 검증 | 서버가 order.orderAmount와 request.amount를 비교 — 토스 호출 전 400 AMOUNT_MISMATCH | [ADR-0008](../adr/0008-payment-model-pg-boundary.md) "서버가 주문 시점 저장 금액으로" |
 | 핫딜 취소 차단 | 승인 시점 핫딜 status==CANCELED이면 돈 움직이기 전 HOTDEAL_CANCELED(409) | [ADR-0007 결정2](../adr/0007-hotdeal-state-operations.md) |
 | 슬라이스 범위 | 슬라이스3=승인+PAID 전이. 슬라이스4=선점 순서 재배치 + 만료 조건부 정합화. 슬라이스5=결제 확정 ProductStock 차감. 결제 실패 이력(FAILED·CANCELED)·웹훅·해소는 다음 범위 | — |
@@ -159,7 +159,7 @@
 
 > **설계 노트 — 보상이 새로 필요한 이유(자동 롤백 상실)**: 기존 단일 TX에서는 토스 거부 시 같은 TX 롤백으로 선점한 PAID·재고차감이 **자동 복귀**했다. TX를 쪼개 TX1을 먼저 커밋하면 그 자동 복귀가 사라지므로, TX2에서 명시적으로 처리한다 — 거절(돈 안 나감 확정)은 **실패 확정**(주문 CANCELED(PAYMENT_FAILED) 조건부 전이 + 핫딜·상품 재고 방출, 재시도는 새 주문), 통신오류(요청 미도달)는 **명시적 보상**(주문 PENDING 복귀 = `markPending` 조건부 UPDATE, 재고 복원 = `confirmSale` 역연산). 이는 단일 TX가 공짜로 주던 원자성을 손으로 되살리는 비용이며, TX 경계 분리의 트레이드오프다.
 
-> **설계 노트 — 만료↔결제 동시성 정합이 새 경계 위에서 유지되는 방식**: 핵심 방어인 `markPaid` 조건부 전이(`UPDATE ... WHERE status='PENDING'`, affected==1)는 **여전히 TX1 안에서·토스 앞에** 있다. 따라서 ① 만료로 CANCELED된 주문·② 이미 PAID된 주문(이중 승인)은 TX1의 선점 단계에서 affected==0으로 걸러져 **토스를 호출하지 않는다** — 슬라이스4가 세운 "토스 호출 전 차단"이 그대로 성립한다. 바뀐 것은 토스 *이후*뿐이다: 슬라이스4에선 토스 거부가 단일 TX 롤백으로 PAID를 되돌렸으나, B1에선 TX1이 이미 커밋됐으므로 TX2가 명시적으로 확정한다(거절 = 실패 확정 CANCELED, 통신오류 = PENDING 복귀 보상). 만료 스케줄러와의 경합도 동일하게 행 잠금·조건부 전이로 직렬화되며(실패 확정의 `markPaymentFailed`·보상의 `markPending` 모두 `WHERE status='PAID'` 조건부 전이라 만료가 끼어들어도 affected로 사실을 안다), 미확정(IN_DOUBT) 시에는 주문을 PAID로 **유지**해 "돈 나갔는데 주문 PENDING"을 원천 차단한다([ADR-0004 결정4](../adr/0004-stock-reservation-lifecycle.md) "성공한 결제는 되살린다"와 정합).
+> **설계 노트 — 만료↔결제 동시성 정합이 새 경계 위에서 유지되는 방식**: 핵심 방어인 `markPaid` 조건부 전이(`UPDATE ... WHERE status='PENDING'`, affected==1)는 **여전히 TX1 안에서·토스 앞에** 있다. 따라서 ① 만료로 CANCELED된 주문·② 이미 PAID된 주문(이중 승인)은 TX1의 선점 단계에서 affected==0으로 걸러져 **토스를 호출하지 않는다** — 슬라이스4가 세운 "토스 호출 전 차단"이 그대로 성립한다. 바뀐 것은 토스 *이후*뿐이다: 슬라이스4에선 토스 거부가 단일 TX 롤백으로 PAID를 되돌렸으나, B1에선 TX1이 이미 커밋됐으므로 TX2가 명시적으로 확정한다(거절 = 실패 확정 CANCELED, 통신오류 = PENDING 복귀 보상). 만료 스케줄러와의 경합도 동일하게 행 잠금·조건부 전이로 직렬화되며(실패 확정의 `markPaymentFailed`·보상의 `markPending` 모두 `WHERE status='PAID'` 조건부 전이라 만료가 끼어들어도 affected로 사실을 안다), 미확정(IN_DOUBT) 시에는 주문을 PAID로 **유지**해 "돈 나갔는데 주문 PENDING"을 원천 차단한다([주문 ADR 3절](../adr/order.md) "성공한 결제는 되살린다"와 정합).
 
 ### B1-2. `PgConfirmResult` 결과 모델 확장 — 성공/거절/통신오류/미확정 4결과
 

@@ -43,7 +43,7 @@
 | createdAt | LocalDateTime | 생성일시 (BaseEntity) |
 | updatedAt | LocalDateTime | 수정일시 (BaseEntity) |
 
-> **is_active (생성 칼럼, 엔티티 비매핑)**: `orders`에 `is_active = IF(status IN ('PENDING','PAID'), 1, NULL)` 저장 생성 칼럼이 있고 `uk_orders_active(user_id, hot_deal_id, is_active)` 유니크가 걸려 있다 — 계정당 같은 핫딜에 살아 있는 주문 1건만 허용([ADR-0005 결정1](../adr/0005-one-per-user-active-unique.md)). JPA가 생성 칼럼에 쓰기를 시도하는 함정을 피하려 엔티티에 매핑하지 않는다(DDL 전용).
+> **is_active (생성 칼럼, 엔티티 비매핑)**: `orders`에 `is_active = IF(status IN ('PENDING','PAID'), 1, NULL)` 저장 생성 칼럼이 있고 `uk_orders_active(user_id, hot_deal_id, is_active)` 유니크가 걸려 있다 — 계정당 같은 핫딜에 살아 있는 주문 1건만 허용([주문 ADR 4절](../adr/order.md)). JPA가 생성 칼럼에 쓰기를 시도하는 함정을 피하려 엔티티에 매핑하지 않는다(DDL 전용).
 
 #### HotDealStock (핫딜 예약 재고) — 차감 대상
 
@@ -52,7 +52,7 @@
 | hotDealId | Long | 핫딜 ID (논리 참조, 1:1, UNIQUE) |
 | remainingQuantity | int | 잔여 수량 (0 이상, 구매가 차감) |
 
-> **차감 동시성 = 원자적 조건부 UPDATE** (2026-07 갱신 — 낙관락·`version` 제거, [재고 동시성 ADR](../adr/concurrency.md)): 구매는 `UPDATE ... SET remaining = remaining - :qty WHERE hot_deal_id = :id AND remaining >= :qty` 한 문장으로 차감한다. affected==0(잔여 부족)이면 `SOLD_OUT`, 서버 재시도는 하지 않는다([ADR-0006](../adr/0006-correctness-invariants-defense-layers.md)). 핫딜 등록의 `ProductStock` 차감과 **같은 메커니즘**으로 통일됐다 — 벤치마크 경위는 [재고 동시성 ADR](../adr/concurrency.md)·[재고 동시성 ADR](../adr/concurrency.md).
+> **차감 동시성 = 원자적 조건부 UPDATE** (2026-07 갱신 — 낙관락·`version` 제거, [재고 동시성 ADR](../adr/concurrency.md)): 구매는 `UPDATE ... SET remaining = remaining - :qty WHERE hot_deal_id = :id AND remaining >= :qty` 한 문장으로 차감한다. affected==0(잔여 부족)이면 `SOLD_OUT`, 서버 재시도는 하지 않는다([주문 ADR 6절](../adr/order.md)). 핫딜 등록의 `ProductStock` 차감과 **같은 메커니즘**으로 통일됐다 — 벤치마크 경위는 [재고 동시성 ADR](../adr/concurrency.md).
 
 ---
 
@@ -109,11 +109,11 @@
 
 | 항목 | 내용 | 근거 |
 |------|------|------|
-| 1인 1활성주문 | `uk_orders_active`(생성 칼럼)가 계정당 살아 있는 주문 1건을 강제. 사전 가드(existsActiveOrder)로 친절 거절 + 유니크로 동시 중복 최종 차단(방어 분업). | [ADR-0005](../adr/0005-one-per-user-active-unique.md) · [ADR-0006](../adr/0006-correctness-invariants-defense-layers.md) |
+| 1인 1활성주문 | `uk_orders_active`(생성 칼럼)가 계정당 살아 있는 주문 1건을 강제. 사전 가드(existsActiveOrder)로 친절 거절 + 유니크로 동시 중복 최종 차단(방어 분업). | [주문 ADR 4·7절](../adr/order.md) |
 | 주문→재고 순서 | 한 트랜잭션에서 주문 INSERT를 재고 차감 UPDATE보다 먼저. Hibernate 기본 flush 순서와 일치(우회 불필요). | [재고 동시성 ADR 6절](../adr/concurrency.md) |
-| 만료시각 외부화 | `expiresAt = 주문시각 + order.payment-timeout`(application.yml, **`PT10M` 확정** — 슬라이스2). | [ADR-0004](../adr/0004-stock-reservation-lifecycle.md) |
+| 만료시각 외부화 | `expiresAt = 주문시각 + order.payment-timeout`(application.yml, **`PT10M` 확정** — 슬라이스2). | [주문 ADR 1절](../adr/order.md) |
 | 결제 범위 밖 | 결제 승인·PAID 확정은 슬라이스3. 슬라이스2는 미결제 만료(PENDING→CANCELED + 재고 복원)까지. payment 미접촉. | — |
-| 미결제 만료 처리 | `expiresAt` 지난 PENDING → CANCELED(`EXPIRED`) + 핫딜 재고 복원. **DB 만료 스케줄러**, **잠금 없이**(`markExpired` 조건부 전이가 복원 1회 보장 — 2026-07 갱신, 구 명세는 @Version), 판정 기준 = **`expiresAt`만**. 상세 → [api-design-system.md](api-design-system.md). | [ADR-0004](../adr/0004-stock-reservation-lifecycle.md) |
+| 미결제 만료 처리 | `expiresAt` 지난 PENDING → CANCELED(`EXPIRED`) + 핫딜 재고 복원. **DB 만료 스케줄러**, **잠금 없이**(`markExpired` 조건부 전이가 복원 1회 보장 — 2026-07 갱신, 구 명세는 @Version), 판정 기준 = **`expiresAt`만**. 상세 → [api-design-system.md](api-design-system.md). | [주문 ADR 3절](../adr/order.md) |
 | 구매 인증 | 회원 전용. `SecurityConfig`의 `anyRequest().authenticated()`가 커버(비회원 401) — 별도 규칙 불필요. | — |
 | 마이그레이션 변경 없음 | `orders`·`hot_deal_stock` 스키마가 슬라이스1 필요분 완비(작업1 재고 동시성 ADR 반영). 새 V 파일·기존 V 수정 모두 없음. | [재고 동시성 ADR](../adr/concurrency.md) |
-| DB CHECK 최후 방어 | 서비스 검증이 뚫려도 데이터 오염을 막는 안전망 — `ck_orders_quantity`(>=1) · `ck_orders_order_amount`(>=0) · `ck_hot_deal_stock_remaining`(remaining_quantity >= 0). | [ADR-0006](../adr/0006-correctness-invariants-defense-layers.md) |
+| DB CHECK 최후 방어 | 서비스 검증이 뚫려도 데이터 오염을 막는 안전망 — `ck_orders_quantity`(>=1) · `ck_orders_order_amount`(>=0) · `ck_hot_deal_stock_remaining`(remaining_quantity >= 0). | [주문 ADR 7절](../adr/order.md) |

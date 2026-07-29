@@ -62,8 +62,8 @@
 |---|---|---|
 | 1 | 관리자 핫딜 등록 — 상품·특가·수량·기간, 등록 검증(기간 겹침·한계값) 포함, **상품 재고 원본(`ProductStock`) 가용 검사·예약** + 핫딜 재고(`HotDealStock`) 동시 생성 | 슬라이스 0 · [ADR-0007](../adr/0007-hotdeal-state-operations.md) · [재고 동시성](../adr/concurrency.md) |
 | 2 | 핫딜 조회 — 목록·상세, **잔여 수량 포함**, 시작 전 핫딜 노출(정시 오픈 트래픽의 전제) | 슬라이스 0 · 7장 오픈 이슈(노출 범위 상세) |
-| 3 | 구매 — 재고 선점 + 주문 생성(회원 전용, 상품 주소 `POST /api/orders {productId}` — 서버가 활성 핫딜 해소), 만료시각 부여 | 슬라이스 1 · [ADR-0004](../adr/0004-stock-reservation-lifecycle.md)·[0005](../adr/0005-one-per-user-active-unique.md)·[재고 동시성](../adr/concurrency.md) |
-| 4 | 미결제 주문 자동 만료 — 취소 + 재고 복원(정확히 한 번) | 슬라이스 2 · [ADR-0004](../adr/0004-stock-reservation-lifecycle.md) |
+| 3 | 구매 — 재고 선점 + 주문 생성(회원 전용, 상품 주소 `POST /api/orders {productId}` — 서버가 활성 핫딜 해소), 만료시각 부여 | 슬라이스 1 · [주문 ADR 1·4절](../adr/order.md)·[재고 동시성](../adr/concurrency.md) |
+| 4 | 미결제 주문 자동 만료 — 취소 + 재고 복원(정확히 한 번) | 슬라이스 2 · [주문 ADR 3절](../adr/order.md) |
 | 5 | 토스 결제 승인 → 주문 확정(PAID) — 금액 재검증·멱등 | 슬라이스 3 · [ADR-0008](../adr/0008-payment-model-pg-boundary.md) |
 | 6 | 결제 실패 처리 — **결과 분류별**(2026-07-03 확정): 거절(카드 거절·한도 초과 등 돈 안 나간 확정 거절) = **즉시 실패 확정**(취소 + 재고 방출, 재시도는 새 주문) / 통신오류(요청 미도달) = 같은 주문 유지(PENDING 복귀 + 재고 복원) / 결과 미확정 = IN_DOUBT 보존 후 해소 스케줄러가 확정 | [ADR-0008](../adr/0008-payment-model-pg-boundary.md) · [payment 설계 B1](../payment/api-design.md) |
 | 7 | 관리자 핫딜 긴급 중단 — 새 구매·결제 승인 차단, 중단 시각(canceled_at) 기록 | 슬라이스 0(중단)·3(승인 가드) · [ADR-0007](../adr/0007-hotdeal-state-operations.md) |
@@ -73,13 +73,13 @@
 
 | # | 정책 | 추적 |
 |---|---|---|
-| 9 | **1인 구매 제한** — 계정당 1활성주문 + 주문당 수량 상한(`maxPerOrder`), 취소 후 재구매 허용 (총량 누적 `maxPerAccount`는 결제단계) | [ADR-0005](../adr/0005-one-per-user-active-unique.md) · [리서치 10.2](research-flash-sale.md) |
-| 10 | **결제 제한시간** — 기본 10분(최종값은 슬라이스 2 확정 — 고객 고지 문구는 이 파라미터를 참조) | [ADR-0004](../adr/0004-stock-reservation-lifecycle.md) · [리서치 10.3](research-flash-sale.md) |
+| 9 | **1인 구매 제한** — 계정당 1활성주문 + 주문당 수량 상한(`maxPerOrder`), 취소 후 재구매 허용 (총량 누적 `maxPerAccount`는 결제단계) | [주문 ADR 4·5절](../adr/order.md) · [리서치 10.2](research-flash-sale.md) |
+| 10 | **결제 제한시간** — 기본 10분(최종값은 슬라이스 2 확정 — 고객 고지 문구는 이 파라미터를 참조) | [주문 ADR 1절](../adr/order.md) · [리서치 10.3](research-flash-sale.md) |
 | 11 | 진행 중 수정·증량 금지 — 변경은 취소 후 재등록, 추가 물량은 새 회차. **스코프 선택**(재입고 증량도 실무에 실재 — "품절 후 부활"은 만료 복원·회차가 재현, 전환 경로 있음) | [ADR-0007](../adr/0007-hotdeal-state-operations.md) · [리서치 9.5·10.5](research-flash-sale.md) |
 | 12 | 같은 상품의 판매 기간 겹침 등록 금지 | [ADR-0007](../adr/0007-hotdeal-state-operations.md) |
 | 13 | 취소된 핫딜의 기존 결제 완료 구매는 유효 — 환불은 토스 대시보드 수동 | [ADR-0007](../adr/0007-hotdeal-state-operations.md) |
 | 14 | 등록 한계값 — 특가 ≥ PG 최소 결제 금액(토스 테스트 모드 실측 후 확정) · 특가 < 상품 정가 · 수량 상한(가정 10만) · 과거 시작 시각 허용 여부 (슬라이스 0 확정) | 7장 오픈 이슈 |
-| 15 | 폭주 시 정직한 실패 — "다시 시도해 주세요" 응답, 서버 몰래 재시도 금지 | [ADR-0006](../adr/0006-correctness-invariants-defense-layers.md) · [리서치 1](research-flash-sale.md) |
+| 15 | 폭주 시 정직한 실패 — "다시 시도해 주세요" 응답, 서버 몰래 재시도 금지 | [주문 ADR 6절](../adr/order.md) · [리서치 1](research-flash-sale.md) |
 
 ### 비기능 요구
 

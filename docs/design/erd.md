@@ -99,7 +99,7 @@ erDiagram
 
 | 관계 | 카디널리티 | 비고 |
 |---|---|---|
-| User → Order | 1 : N | 같은 핫딜은 살아 있는 주문 1건 ([ADR-0005](../adr/0005-one-per-user-active-unique.md)) |
+| User → Order | 1 : N | 같은 핫딜은 살아 있는 주문 1건 ([주문 ADR 4절](../adr/order.md)) |
 | Product → ProductStock | 1 : 1 | 재고 원본 분리 — 경합 격리를 상품 레벨로 ([재고 동시성 ADR](../adr/concurrency.md)) |
 | Product → HotDeal | 1 : N | 회차(추가 물량 = 새 핫딜) 모델 지원. 판매 기간 겹침은 등록 검증으로 금지 ([ADR-0007](../adr/0007-hotdeal-state-operations.md)) |
 | Product → Order | 1 : N | 주문이 산 상품 참조(적용 핫딜은 `hot_deal`) ([재고 동시성 ADR](../adr/concurrency.md)) |
@@ -114,7 +114,7 @@ erDiagram
 | 가설 규칙 ([가설 4](hotdeal-purchase-hypothesis.md)) | 데이터 모델에서의 구현 위치 |
 |---|---|
 | 오버셀 0 + 거짓 성공 0 | `HotDealStock.remainingQuantity` 차감의 원자성(조건부 UPDATE — [재고 동시성 ADR](../adr/concurrency.md)) + CHECK(`remaining >= 0`, 최후 방어선). 거짓 성공은 "응답 = 커밋된 트랜잭션"으로 차단 |
-| 계정당 1활성주문 | `orders` 활성 유니크 — 생성 칼럼 (아래 '6. 물리 DDL 정책'). 주문당 `maxPerOrder`·총량 `maxPerAccount`는 [ADR-0005](../adr/0005-one-per-user-active-unique.md) |
+| 계정당 1활성주문 | `orders` 활성 유니크 — 생성 칼럼 (아래 '6. 물리 DDL 정책'). 주문당 `maxPerOrder`·총량 `maxPerAccount`는 [주문 ADR 4·5절](../adr/order.md) |
 | 선점 + 복원 정확히 한 번 | HotDealStock 차감과 `Order(PENDING)` 생성이 한 트랜잭션. 복원은 `PENDING→CANCELED` 조건부 갱신 성공(1행) 시에만 + `cancel_reason`. `expiresAt`(주문 생성 시 부여)으로 만료 추적 |
 | 금액 조작 방지 | `Order.orderAmount` 주문 시점 저장 — 결제 검증은 서버가 이 값으로 |
 | 멱등 2겹 | 내부 = 활성 유니크·조건부 전이(주문당 PAID 1회) / 외부 = 토스 `Idempotency-Key`(=paymentKey) 헤더 + `pg_payment_key` UNIQUE |
@@ -143,10 +143,10 @@ erDiagram
 - **상품 재고 시드** — `on_hand` 초기값은 시드/픽스처(운영 입고 API 는 스코프 밖 — [재고 동시성 ADR](../adr/concurrency.md) 보류). Product 생성 시 `product_stock` 행 동반 생성 — 핫딜 등록 가용검사가 의존하므로 "출처 없음" 재발 방지.
 - **orders 칼럼 확정** — `order_no CHAR(36)`(UUID v4) · `product_id BIGINT NOT NULL`(논리 참조 — 산 상품) · `hot_deal_id BIGINT NOT NULL`(논리 참조 — 적용 핫딜) · `expires_at DATETIME(6) NOT NULL`(임시 10분 — 최종값은 슬라이스 2) · `cancel_reason VARCHAR(30) NULL`(후보: PAYMENT_FAILED·EXPIRED).
 - **hot_deals 칼럼 추가** — `canceled_at DATETIME(6) NULL`(긴급 중단 시각 — 검수 쿼리가 "언제 중단됐나"에 답. 중단 사유 기록은 범위 밖 — 1인 운영).
-- **활성 유니크(계정당 1활성주문)** ([ADR-0005](../adr/0005-one-per-user-active-unique.md)):
+- **활성 유니크(계정당 1활성주문)** ([주문 ADR 4절](../adr/order.md)):
   `is_active TINYINT GENERATED ALWAYS AS (IF(status IN ('PENDING','PAID'), 1, NULL)) STORED`
-  + `UNIQUE KEY uk_orders_active (user_id, hot_deal_id, is_active)` — 취소 주문(is_active=NULL)은 유일성 검사 대상에서 제외되는데 이는 SQL 표준 NULL 의미론(PostgreSQL 동일 — [ADR-0005](../adr/0005-one-per-user-active-unique.md)). **엔티티에 매핑하지 않음(DDL 전용)**.
-- **제약명으로 예외 구분** — `uk_orders_active` 위반 = `ALREADY_PURCHASED` / `uk_orders_order_no` 위반 = UUID 충돌(사실상 불가, 재시도).
+  + `UNIQUE KEY uk_orders_active (user_id, hot_deal_id, is_active)` — 취소 주문(is_active=NULL)은 유일성 검사 대상에서 제외되는데 이는 SQL 표준 NULL 의미론(PostgreSQL 동일 — [주문 ADR 4절](../adr/order.md)). **엔티티에 매핑하지 않음(DDL 전용)**.
+- **유니크 위반은 제약명을 가리지 않는다** — 주문 저장의 `DataIntegrityViolationException` 은 전부 `ALREADY_PURCHASED` 로 나간다. `uk_orders_order_no`(UUID 충돌)만 따로 재시도하는 분기는 두지 않았다.
 - **CHECK 제약**(칼럼 값 조건을 테이블에 선언 — 위반 갱신은 DB 가 거부, MySQL 8 부터 실제 강제) — `hot_deal_stock.remaining_quantity >= 0` · `product_stock.on_hand_quantity >= 0` · `product_stock.reserved_quantity >= 0` · `product_stock.reserved_quantity <= on_hand_quantity`(가용 음수 방지) · `total_quantity > 0` · `start_at < end_at` · `quantity >= 1` · `order_amount >= 0`.
 - **인덱스** — 조회용은 api-design·4주차에서. 만료 처리용 `(status, expires_at)` 만 예약.
 
@@ -155,7 +155,7 @@ erDiagram
 ## 7. 범위 경계 / 후속
 
 - **Payment 컬럼·상태는 슬라이스 3(결제 승인)에서 확정** — 토스 응답 기준 + 어댑터 구조(PaymentGatewayClient / TossPaymentClient / TossHttpClient)·이중 승인 보정 포함 ([ADR-0008](../adr/0008-payment-model-pg-boundary.md)).
-- **만료 복원(슬라이스 2)** — 처리 방식(스케줄러 만료 처리 vs Redis 키 TTL)·만료시각 최종값 ([ADR-0004 보류](../adr/0004-stock-reservation-lifecycle.md)). 슬라이스 3부터 취소 전 토스 조회(보조) 추가 — 결제됨 발견 시 PAID 확정.
+- **만료 복원** — 스케줄러가 만료를 처리하고(Redis 키 TTL 미채택), 만료시각은 `order.payment-timeout`(10분) ([주문 ADR 3절](../adr/order.md)). 구상하던 "취소 전 토스 조회"는 결제 선점이 토스 승인 앞으로 옮겨지며 필요가 사라져 넣지 않았다.
 - **JPA 매핑 노트(api-design 에 반영)** — User 는 `getReferenceById`(SELECT 없이 참조만 — JWT 인증 통과 = 실존 보장, 탈퇴 도입 시 재검토) · HotDeal 은 `findById`(가드 검증 겸용) · `HotDealStock`·`ProductStock` 은 상위 엔티티와 독립적으로 차감되는 행이라 객체 연관 없이 전용 조회로 둔다(거창한 성능 결정이 아닌 단순 구현 선택 — 병목은 재고 차감 경합이지 조회가 아니므로 `@OneToOne` 단건 조회·Redis 교체 같은 근거는 들지 않는다). `ProductStock` 은 등록/결제확정 경로에서 **원자적 조건부 UPDATE**(`WHERE 가용 >= 수량`)로 예약·차감([재고 동시성 ADR 4절](../adr/concurrency.md)).
 - **구매 API(슬라이스 1)** — 상품 주소 `POST /api/orders {productId}`(서버가 활성 핫딜 해소), `Order` 는 `product`+`hot_deal` 참조 + 금액 스냅샷([재고 동시성 ADR](../adr/concurrency.md) 관련 방향).
 - **MSA 전환(v2, 스트레치) 경계 = 결제 후속 처리** ([ADR-0002](../adr/0002-monolith-first-partial-msa.md)).

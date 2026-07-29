@@ -23,7 +23,7 @@
 |---|---|---|:---:|---|
 | 1 | **트래픽** (평소/피크/폭발) | 평소 1일 1핫딜 / 피크 오픈 60초 동시 ~5,000명·구매 ~1,000 TPS / 폭발(측정) 동시 1,000 VU ≈ 700 RPS | 가정+실측 | [PRD 전제2·3](hotdeal-prd.md) · [RFC 벤치마크 8절](../rfc/concurrency-benchmark.md) |
 | 2 | **응답 시간** (p50/p95/p99) | 주문 생성 **p95 ≤ 2s(폭주)·≤ 500ms(평시)** / 상품 조회 p99 ≤ 200ms | 주문 실측·조회 가정 | [RFC 벤치마크 8절](../rfc/concurrency-benchmark.md) · [PRD 2장](hotdeal-prd.md) |
-| 3 | **가용성** (SLO/다운타임) | 피크 5xx **0%**(실측). 가용성 SLO·허용 다운타임은 **미설정** | 오류율 실측·SLO 미설정 | [RFC 벤치마크 6절](../rfc/concurrency-benchmark.md) · [ADR-0006](../adr/0006-correctness-invariants-defense-layers.md) |
+| 3 | **가용성** (SLO/다운타임) | 피크 5xx **0%**(실측). 가용성 SLO·허용 다운타임은 **미설정** | 오류율 실측·SLO 미설정 | [RFC 벤치마크 6절](../rfc/concurrency-benchmark.md) · [주문 ADR 6절](../adr/order.md) |
 | 4 | **데이터** (크기/증가율/보존) | 소규모(핫딜 1일 1개·재고 상한 10만). 보존: **논리삭제 없음**, 결제 실패 시도도 행 보존 | 보존 명시·크기 미측정 | [ERD 6](erd.md) · [ADR-0008](../adr/0008-payment-model-pg-boundary.md) |
 | 5 | **일관성** (즉시/결과적/약함) | 구매 코어 = **즉시(강한)** / 주문↔결제 전파·후속 = **결과적(최종)** | 경계별 명시 | [ADR-0012](../adr/0012-context-map-module-boundaries.md) · [ADR-0002](../adr/0002-monolith-first-partial-msa.md) |
 | 6 | **운영 부담** (알람/롤백/대시보드) | 대시보드 k6+Grafana(실측 시) · 롤백 전략 프로퍼티 교체(Type2) · 알람 **구상만** | 대시보드·롤백 있음·알람 미구현 | [ADR-0013](../adr/0013-load-test-tool-k6.md) · [재고 동시성 ADR 4절](../adr/concurrency.md) |
@@ -65,7 +65,7 @@
 | 가용성 SLO (99.9% 등) | **미설정** | — |
 | 허용 다운타임 | **미설정** | — |
 
-- **오버셀 0 · 거짓 성공 0 은 SLA가 아니라 절대 불변식**이다([ADR-0006](../adr/0006-correctness-invariants-defense-layers.md)) — 지연은 목표선(넘으면 조정)이지만, 정확성은 협상 대상이 아니다. 이 둘을 SLA 슬롯에 넣지 않는 게 정직하다.
+- **오버셀 0 · 거짓 성공 0 은 SLA가 아니라 절대 불변식**이다([주문 ADR 6절](../adr/order.md)) — 지연은 목표선(넘으면 조정)이지만, 정확성은 협상 대상이 아니다. 이 둘을 SLA 슬롯에 넣지 않는 게 정직하다.
 - **왜 SLO 미설정인가**: 가용성 SLO(월 43분 다운 허용 = 99.9%)는 **다중 노드·실트래픽·에러 예산 소진 추적**이 있어야 의미가 있다. 단일 로컬 환경·실사용자 없음에선 숫자를 지어내는 게 오히려 거짓이다. **언제 채우나** — 다중 노드 운영·실트래픽 확보 시([PRD 검수3](hotdeal-prd.md) 관측 최소판이 진입점).
 
 ### 4. 데이터 — 크기 / 증가율 / 보존
@@ -83,7 +83,7 @@
 
 | 경계 | 일관성 | 수단 |
 |---|---|---|
-| **구매 코어** (주문·재고 차감·결제 승인) | **즉시(강한)** — 오버셀 0은 한 트랜잭션 | 조건부 UPDATE·조건부 상태 전이([ADR-0006](../adr/0006-correctness-invariants-defense-layers.md)·[재고 동시성 ADR 4절](../adr/concurrency.md)) |
+| **구매 코어** (주문·재고 차감·결제 승인) | **즉시(강한)** — 오버셀 0은 한 트랜잭션 | 조건부 UPDATE·조건부 상태 전이([주문 ADR 7절](../adr/order.md)·[재고 동시성 ADR 4절](../adr/concurrency.md)) |
 | **주문 ↔ 결제 상태 전파** | **결과적(최종)** — 확정 전 "결제 확인 중" 파생 상태로 노출 | IN_DOUBT 보존 + 해소 스케줄러([ADR-0008 B1](../adr/0008-payment-model-pg-boundary.md)·[payment system 설계](../payment/api-design-system.md)) |
 | **결제 후속** (알림·정산 등) | **결과적(최종)** — MSA 분리 대비 | 이벤트(Kafka + Saga) — [ADR-0002](../adr/0002-monolith-first-partial-msa.md)·[ADR-0012](../adr/0012-context-map-module-boundaries.md) |
 
