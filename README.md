@@ -1,6 +1,6 @@
 # commerce — 핫딜 커머스 백엔드
 
-**선착순 한정 재고를 트래픽 폭주 속에서 초과 판매(오버셀) 0 으로 파는 백엔드.** 재고 동시성 3전략을 같은 워크로드로 벤치마크해 운영 전략을 실측으로 고르고, 토스 결제의 거절·통신오류·미확정까지 정합성 있게 처리한다.
+**선착순 한정 재고를 트래픽 폭주 속에서 초과 판매 0 으로 파는 백엔드.** 재고 동시성 3전략을 같은 워크로드로 벤치마크해 운영 전략을 실측으로 고르고, 토스 결제의 거절·통신오류·미확정까지 정합성 있게 처리한다.
 
 [![CI](https://github.com/Ting97ok/hotdeal-commerce/actions/workflows/ci.yml/badge.svg)](https://github.com/Ting97ok/hotdeal-commerce/actions/workflows/ci.yml) ![Java](https://img.shields.io/badge/Java-21-orange) ![Spring Boot](https://img.shields.io/badge/Spring%20Boot-3.5-6DB33F) ![oversell](https://img.shields.io/badge/oversell-0-brightgreen) ![tests](https://img.shields.io/badge/tests-3.5k%20lines-blue)
 
@@ -50,11 +50,11 @@ nginx 로드밸런서 뒤 앱을 1대→3대로 늘리고, 부하는 동시 1,00
 
 ### ② 전략 선정 — 같은 워크로드로 3전략 실측
 
-동시 1,000명이 재고 한 행을 다투는 오픈 스파이크를 낙관락 · 조건부 UPDATE · Redis+Lua 로 측정해 **원자적 조건부 UPDATE** 를 운영 전략으로 확정했다 — [재고 동시성 ADR](docs/adr/concurrency.md).
+동시 1,000명이 재고 한 행을 다투는 오픈 스파이크를 낙관적 락 · 조건부 UPDATE · Redis+Lua 로 측정해 **원자적 조건부 UPDATE** 를 운영 전략으로 확정했다 — [재고 동시성 ADR](docs/adr/concurrency.md).
 
-![고경합 3전략 벤치마크 — 낙관락 성공 163 탈락, 조건부·Redis 1000 동률](docs/design/images/benchmark-strategies.svg)
+![고경합 3전략 벤치마크 — 낙관적 락 성공 163 탈락, 조건부·Redis 1000 동률](docs/design/images/benchmark-strategies.svg)
 
-- 낙관락은 버전 충돌로 성공 163/1000 (정확하나 비실용, 탈락). 조건부·Redis 는 1,000 동률.
+- 낙관적 락은 버전 충돌로 성공 163/1000 (정확하나 비실용, 탈락). 조건부·Redis 는 1,000 동률.
 - 조건부가 p95 최저(1.37s)·쿼리 1문으로 가장 단순 → 채택. SLA: 폭주 p95 ≤ 2s · 평시 ≤ 500ms.
 
 ### ③ 측정 오염 발견이 결론을 바꿨다
@@ -63,12 +63,12 @@ nginx 로드밸런서 뒤 앱을 1대→3대로 늘리고, 부하는 동시 1,00
 
 ![측정 환경이 결론을 바꾼 사례 — 조건부 2.25s→1.37s 급락](docs/design/images/benchmark-measurement-pollution.svg)
 
-- 재현: `bash k6/benchmark/run.sh`(단일) · `bash k6/benchmark/run-multi.sh`(1 vs 3 인스턴스) — 일회용 컨테이너로 전략 순회 + 오버셀 검증 자동 ([k6/README.md](k6/README.md))
+- 재현: `bash k6/benchmark/run.sh`(단일) · `bash k6/benchmark/run-multi.sh`(1 vs 3 인스턴스) — 일회용 컨테이너로 전략 순회 + 초과 판매 검증 자동 ([k6/README.md](k6/README.md))
 
 ## 설계 하이라이트
 
 - **초과 판매 0 을 겹으로 방어** — 조건부 UPDATE(영향 행 수 관문) + DB CHECK 제약 + 장부 검증식 · [주문 ADR 7절](docs/adr/order.md)
-- **1인 1주문을 DB 가 직렬화** — MySQL 부분 유니크 부재를 저장 생성 칼럼(`is_active`)으로 우회한 활성 유니크 · [주문 ADR 4절](docs/adr/order.md)
+- **1인 1주문을 DB 가 직렬화** — MySQL 부분 유니크 부재를 저장 생성 컬럼(`is_active`)으로 우회한 활성 유니크 · [주문 ADR 4절](docs/adr/order.md)
 - **토스 호출은 트랜잭션 밖** — 선점(TX1) → confirm(TX 밖) → 결과 반영(TX2). 승인/거절/통신오류/미확정 sealed 4분기, 미확정(IN_DOUBT)은 해소 스케줄러가 토스 재조회로 확정 · [ADR-0008](docs/adr/0008-payment-model-pg-boundary.md)
 - **상태 전이 전부 조건부 UPDATE** — 결제↔만료 경합은 진 쪽이 영향 행 0 으로 그 사실을 안다 · [주문 ADR 3절](docs/adr/order.md)
 - 무상태 JWT + RTR(Redis GETDEL 원자 소비) · DB FK 제약 미사용 · [ADR-0003](docs/adr/0003-no-db-fk-constraints.md)
