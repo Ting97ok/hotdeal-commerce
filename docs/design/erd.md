@@ -60,7 +60,7 @@ erDiagram
         bigint   userId FK "논리 참조"
         bigint   hotDealId FK "논리 참조 — 적용 핫딜"
         bigint   productId FK "논리 참조 — 산 상품"
-        int      quantity "현 정책 1 고정(시그니처는 범용)"
+        int      quantity "1 이상, 상한은 핫딜 maxPerOrder"
         decimal  orderAmount "주문 시점 금액 저장(특가x수량)"
         string   status "PENDING / PAID / CANCELED"
         string   cancelReason "취소 시만 기록 (PAYMENT_FAILED / EXPIRED)"

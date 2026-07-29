@@ -48,7 +48,7 @@ public class Order extends BaseEntity {
   @Column(name = "order_no", nullable = false, unique = true, length = 36)
   String orderNo;
 
-  @Comment("주문 수량 (현재 1 고정)")
+  @Comment("주문 수량")
   @Column(nullable = false)
   int quantity;
 
