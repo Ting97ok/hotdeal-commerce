@@ -5,7 +5,7 @@
 > **살아 있는 문서** — 결정이 바뀌면 새 번호로 대체하지 않고 **그 문서를 직접 최신화**한다. 변경 이력은 git 이 관리하므로 빈 번호(결번)를 두지 않는다.
 >
 > **ADR 과 RFC** — ADR 은 주제 하나를 한 파일로 묶고, 결정마다 **무엇을 했고 · 왜 그랬고 · 되돌리기가 얼마나 어려운지**를 적는다. 그 "왜"가 길어 파일을 따로 열 만할 때만 [RFC](../rfc/)로 분리해 근거와 실측을 보존한다(지금은 동시성 벤치마크 한 편). 짧으면 ADR 안에 그대로 두고, 링크는 ADR → RFC 한 방향만 건다.
-> 수록 기준은 **"6개월 뒤 새 멤버가 'X 왜 썼어요?' 물을 결정"** 이다. (주제 단위로 전환 중 — 재고 동시성이 새 형식이고 나머지 번호 문서는 순차 전환.)
+> 수록 기준은 **"6개월 뒤 새 멤버가 'X 왜 썼어요?' 물을 결정"** 이다. (주제 단위로 전환 중 — 재고 동시성·주문이 새 형식이고 나머지 번호 문서는 순차 전환.)
 
 ## ADR 문서
 
@@ -14,9 +14,7 @@
 | [0001](0001-payment-gateway-toss.md) | 결제 PG | 사업자 없이 테스트 무료 + 예외·멱등 문서 품질로 **토스** 선정 | 확정 |
 | [0002](0002-monolith-first-partial-msa.md) | 모놀리식 + 부분 MSA | 전면 MSA 대신 **결제 도메인 한 경계만** 별도 서비스로 전환(2026-07-03 상향 — 후속 처리→결제 도메인, 새 레포=전환본·현 레포=스냅샷) — 정당성 없는 분리는 감점 | 확정 (본편 완료, 전환 착수) |
 | [0003](0003-no-db-fk-constraints.md) | DB FK 제약 미사용 | FK 안 걸기 — 폭주 쓰기의 부모 행 잠금 제거·MSA 대비, 무결성은 앱+테스트가 책임 | 확정 |
-| [0004](0004-stock-reservation-lifecycle.md) | 재고 선점·복원 생명주기 | 재고는 **주문 시 선점**(결제 후 차감은 선착순 의미 깨져 기각), 복원은 정확히 한 번, 성공 결제는 **재고 재확보로 되살림 우선 — 재확보 불가 충돌만 취소+환불+보상 통보**(무통보 환불 ❌, 2026-07-03 실무형 갱신) | 확정 |
-| [0005](0005-one-per-user-active-unique.md) | 1인 구매 제한 | 세 겹 — 계정당 1활성주문(활성 유니크) + 주문당 `maxPerOrder` + 총량 `maxPerAccount`(③결제단계). 슬라이스별 구현, 정책은 문서로 전부 정의 | 확정 |
-| [0006](0006-correctness-invariants-defense-layers.md) | 정확성 불변식·방어 계층 | **오버셀 0 + 거짓 성공 0 = 절대, 덜 팔림은 허용**. 방어는 중복이 아니라 층별 **분업** | 확정 |
+| [주문](order.md) | 재고를 언제 잡고 언제 놓나 | 재고는 **주문 만들 때 선점**(결제 후 차감은 선착순 의미가 깨져 기각), 놓는 일은 **조건부 상태 전이가 성공한 한 번**에만. 계정당 살아 있는 주문 1건은 **DB 활성 유니크**가 막고, 절대 지키는 것은 **초과 판매 0 + 거짓 성공 0** | 확정 |
 | [0007](0007-hotdeal-state-operations.md) | 핫딜 상태·운영 정책 | 진행/매진은 상태값 대신 **기간+재고로 판단**, 진행 중 수정 대신 **새 회차**, 기간 겹침 등록 금지, **핫딜=단일 상품 단위**(이벤트 범위 밖·확장 경로) | 확정 |
 | [0008](0008-payment-model-pg-boundary.md) | 결제 모델·PG 경계 | 결제는 **시도(paymentKey)마다 1행**, 토스 의존은 **어댑터 한 곳**에 격리 | 확정 |
 | [재고 동시성](concurrency.md) | 재고를 어디 두고 무엇으로 차감하나 | 재고는 **전용 테이블**(`ProductStock` 원본 · `HotDealStock` 핫딜 몫), 차감은 3방식 실측으로 고른 **원자적 조건부 UPDATE** — 측정은 [벤치마크](../rfc/concurrency-benchmark.md) | 확정 |
@@ -45,7 +43,7 @@
 | **Premature abstraction** | "나중에 바꿀 수도" 인터페이스 남발 — 안 바뀌고 디버깅만 어려워짐 | 어댑터는 인터페이스 1개(비용 ~0)만, "교체 보장 아닌 교체 지점 격리" · 다중 PG는 둘째 PG 필요 시 · 안전재고·다중 창고 스코프 밖 · 가용은 계산(저장 안 함) | [0008](0008-payment-model-pg-boundary.md) · [재고 동시성](concurrency.md) |
 | **Distributed monolith** | MSA로 쪼갰는데 동기로 강결합 — 모놀리스 단점 다, MSA 장점 0 | 구매 코어 → 결제 후속은 **이벤트만**(동기 금지, "이 한 선이 미래 분리 지점을 살린다") · 재고는 분리 안 함(최고 결합, 강한 일관성 유지) · 참조 방향 단방향 | [0012](0012-context-map-module-boundaries.md) 결정3 · [0002](0002-monolith-first-partial-msa.md) |
 | **Shared mutable database** | 서비스는 쪼개졌는데 DB 하나 — 한쪽 스키마 변경이 다른 쪽 깸 | 결제 분리 시 별도 DB · FK 미사용("경계 넘는 FK 어차피 불가 — 미리 같은 규율") · 참조 방향 단방향(카탈로그는 주문을 모름) | [0002](0002-monolith-first-partial-msa.md) · [0003](0003-no-db-fk-constraints.md) · [0012](0012-context-map-module-boundaries.md) |
-| **Silent failure** | try/catch로 다 삼킴 — "에러가 안 보여요"가 가장 위험, 실패가 침묵하면 학습이 멈춤 | 예상 못한 예외는 **삼키지 않고 전파(500)**("catch-all은 버그를 미확정으로 위장하는 안티패턴") · 미확정(IN_DOUBT)은 삼키지 않고 보존→해소가 확정 · 정직한 실패("다시 시도", 서버 몰래 재시도 금지) | [payment B1](../payment/api-design.md) · [0006](0006-correctness-invariants-defense-layers.md) |
+| **Silent failure** | try/catch로 다 삼킴 — "에러가 안 보여요"가 가장 위험, 실패가 침묵하면 학습이 멈춤 | 예상 못한 예외는 **삼키지 않고 전파(500)**("catch-all은 버그를 미확정으로 위장하는 안티패턴") · 미확정(IN_DOUBT)은 삼키지 않고 보존→해소가 확정 · 정직한 실패("다시 시도", 서버 몰래 재시도 금지) | [payment B1](../payment/api-design.md) · [주문](order.md) |
 | **No rollback path** | "잘 될 겁니다" 시나리오만, "안 되면 되돌리는 법" 없음 | TX 분리의 자동 롤백 상실을 **명시적 보상**(markPending·restoreSale)으로 대체 · 되돌리는 법을 결정마다 문서화(아래 전환 경로 색인) | [payment B1](../payment/api-design.md) · 아래 표 |
 
 ## 결정을 되돌리는 법 — 전환 경로 색인
@@ -57,7 +55,7 @@
 | 재고 조건부 UPDATE ([재고 동시성](concurrency.md)) | 쉬움 | 폭주 p95가 SLA 2초를 넘음 | 프로퍼티 `stock.deduct.strategy=redis` 교체 + Redis→DB 정합 구현 / 또는 재고를 여러 행으로 분산 |
 | 재고 한 행 ([재고 동시성](concurrency.md)) | 어려움 | 단일 행 순차 처리가 한계에 도달 — **어느 지점인지는 미측정** | 재고를 여러 행으로 분산 — 버킷 분산 · 단위별 1행 + MySQL `SKIP LOCKED`([Shopify](https://shopify.engineering/scaling-inventory-reservations)) |
 | FK 미사용 ([0003](0003-no-db-fk-constraints.md)) | 쉬움 | 참조 무결성을 DB 강제로 필요 | `ALTER TABLE ADD CONSTRAINT`(기존 데이터 정합 검증 후) |
-| 활성 유니크 ([0005](0005-one-per-user-active-unique.md)) | 비대칭 | 총량 상한(maxPerAccount) 필요 | `is_active` PENDING만으로 재정의 + 잠금 카운트 / PostgreSQL 이행 시 부분 유니크로 단순화. 제거는 `DROP INDEX`(온라인 DDL) |
+| 활성 유니크 ([주문](order.md)) | 비대칭 | 총량 상한(maxPerAccount) 필요 | `is_active` 를 PENDING만으로 재정의 + 락 아래 카운트 / PostgreSQL 이행 시 부분 유니크로 단순화. 제거는 `DROP INDEX`(온라인 DDL) |
 | 증량 금지 ([0007](0007-hotdeal-state-operations.md)) | 쉬움 | 진행 중 딜 증량 실무 필요 | `totalQuantity += N`·`remaining += N` 한 트랜잭션 API 추가("등록 후 불변" 해제) |
 | 부분 MSA ([0002](0002-monolith-first-partial-msa.md)) | 어려움 | (분리 자체가 순방향 결정) | 되돌리기 비쌈(DB·이벤트 계약) — **그래서** 본편 완수 후 착수, 정당성 있는 경계만 |
 | PG 어댑터 ([0008](0008-payment-model-pg-boundary.md)) | 어려움 | 둘째 PG 실제 필요 | 어댑터 1곳에 PG별 구현 추가 + 공통 에러 정규화·라우팅(교체 지점이 이미 격리됨) |
