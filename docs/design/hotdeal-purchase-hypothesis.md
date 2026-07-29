@@ -17,7 +17,7 @@
 
 | 구분 | 내용 |
 |---|---|
-| 구매 | **상품 주소 API** (`POST /api/orders {productId}` — 서버가 활성 핫딜 해소) — 주문은 상품(`product`)+적용 핫딜 참조, 재고 원본은 `ProductStock` ([ADR-0011](../adr/0011-product-inventory-reservation.md)) |
+| 구매 | **상품 주소 API** (`POST /api/orders {productId}` — 서버가 활성 핫딜 해소) — 주문은 상품(`product`)+적용 핫딜 참조, 재고 원본은 `ProductStock` ([재고 동시성 ADR](../adr/concurrency.md)) |
 | 가설 | **결제까지 완결** — 구현만 슬라이스(작업을 세로로 쪼갠 단위, API 하나 정도)로 나눠 쌓음 |
 | 본편 제외 | 대기열·봇/다계정 어뷰징(부정 구매) 방어 · 고트래픽 조회(4주차) · **승인 후 환불**(결제 전 이탈은 시간 초과 취소가 커버) · **주문 내역 조회·"이어서 결제"**(만료 후 재구매로 갈음) · 다중 PG 일반화 |
 
@@ -83,28 +83,28 @@
 | (결제 승인) 금액 불일치 | `AMOUNT_MISMATCH` (400) |
 | (결제 승인) 토스 거절 / 통신오류 | `PAYMENT_REJECTED` (402) / `PAYMENT_GATEWAY_ERROR` (502) |
 
-## 8. 동시성 — 5방식 벤치마크 + 잠금 규율 ([ADR-0009](../adr/0009-stock-concurrency-design.md))
+## 8. 동시성 — 5방식 벤치마크 + 잠금 규율 ([재고 동시성 ADR](../adr/concurrency.md))
 
-- 후보 5방식: **낙관락**(@Version — 잠그지 않고 진행, 저장 순간 버전 비교로 충돌 검출) · **비관락**(SELECT … FOR UPDATE — 먼저 잠그고 뒤는 대기) · **Redis 원자 연산** · **분산락**(Redisson) · **원자적 조건부 UPDATE**(`WHERE remaining >= qty` 조건부 차감 한 문장 — ProductStock 운영 채택 [ADR-0011](../adr/0011-product-inventory-reservation.md) 결정 4). **운영 선택은 1개, 나머지는 그 선택의 근거** — k6 실측은 **3방식**(낙관락·조건부 UPDATE·Redis), 비관락·Redisson 은 이론 예상으로 배제([ADR-0009](../adr/0009-stock-concurrency-design.md) 결정 2). README/ADR-0010 에 표기. `synchronized` 같은 JVM 잠금은 **후보가 아니다** — 서버 1대 안에서만 직렬화돼 다중 서버 경합을 못 막는다(3장 전제 · 상세 [ADR-0009](../adr/0009-stock-concurrency-design.md), 별도 시연 없이 문서로 확정).
+- 후보 5방식: **낙관락**(@Version — 잠그지 않고 진행, 저장 순간 버전 비교로 충돌 검출) · **비관락**(SELECT … FOR UPDATE — 먼저 잠그고 뒤는 대기) · **Redis 원자 연산** · **분산락**(Redisson) · **원자적 조건부 UPDATE**(`WHERE remaining >= qty` 조건부 차감 한 문장 — ProductStock 운영 채택 [재고 동시성 ADR 4절](../adr/concurrency.md)). **운영 선택은 1개, 나머지는 그 선택의 근거** — k6 실측은 **3방식**(낙관락·조건부 UPDATE·Redis), 비관락·Redisson 은 이론 예상으로 배제([재고 동시성 ADR 3절](../adr/concurrency.md)). README/재고 동시성 ADR 에 표기. `synchronized` 같은 JVM 잠금은 **후보가 아니다** — 서버 1대 안에서만 직렬화돼 다중 서버 경합을 못 막는다(3장 전제 · 상세 [재고 동시성 ADR](../adr/concurrency.md), 별도 시연 없이 문서로 확정).
 - 비관락 대기는 **즉시 실패(NOWAIT)가 출발값** (비교군 1초 — 3주차 실측).
 - **잠금 순서**: 주문·재고 두 테이블을 건드리는 모든 경로는 "주문 → 재고" 순서로 통일. 만료 일괄 처리는 주문 1건 = 트랜잭션 1개. 교착(deadlock — 서로의 잠금을 기다리는 고리, DB 가 즉시 한쪽을 강제 취소) 시: 구매 = `CONCURRENT_UPDATE_CONFLICT` / 만료 = 다음 주기 재시도. 비관락 벤치마크는 교착 허용 + 횟수 측정.
-- 방식별 "성공 수"는 비교 지표 — 예상(낙관락 < 10, 비관락/Redis = 10)이었고, 실측은 [ADR-0010](../adr/0010-concurrency-strategy-selection.md)(저경합에선 셋 다 10 도달, 고경합 1000명에선 낙관락 163/1000 vs 조건부·Redis 1000/1000).
+- 방식별 "성공 수"는 비교 지표 — 예상(낙관락 < 10, 비관락/Redis = 10)이었고, 실측은 [재고 동시성 ADR](../adr/concurrency.md)(저경합에선 셋 다 10 도달, 고경합 1000명에선 낙관락 163/1000 vs 조건부·Redis 1000/1000).
 
 ## 9. 만드는 순서 — 어느 시점에 멈춰도 시스템이 자기 완결
 
 | # | 슬라이스 | 핵심 | 설계 노트 |
 |---|---|---|---|
 | **기반** | 엔티티 + V2 마이그레이션 | User(기존)·**Product·ProductStock**·HotDeal·HotDealStock·Order·Payment 매핑 + Flyway V2 | Product·ProductStock(재고 원본)는 핫딜이 참조·예약해 **함께 생성**(on_hand 시드). FK 제약 없음·활성 유니크 생성 칼럼 등 [ERD 6](erd.md) |
-| **0** | 핫딜 등록(관리자) + 조회 | 등록 시 ProductStock 가용 검사·예약 + HotDealStock(1:1) 동시 생성 · 기간 겹침 검증 | 수정·수량 변경 API 없음 — [ADR-0007](../adr/0007-hotdeal-state-operations.md)·[0011](../adr/0011-product-inventory-reservation.md) |
+| **0** | 핫딜 등록(관리자) + 조회 | 등록 시 ProductStock 가용 검사·예약 + HotDealStock(1:1) 동시 생성 · 기간 겹침 검증 | 수정·수량 변경 API 없음 — [ADR-0007](../adr/0007-hotdeal-state-operations.md)·[재고 동시성](../adr/concurrency.md) |
 | **1** | 구매 — 재고 선점 차감 + 주문 PENDING | 오버셀 0건 (낙관락부터) | 상품 주소 `POST /api/orders {productId}`(서버가 활성 핫딜 해소) · 주문은 상품+핫딜 참조 · HotDealStock 한 행 차감 · 만료시각 부여(임시 10분) · 활성 유니크 · order_no · 정합 검증식 단언 |
 | **2** | 만료 복원 — 시간 지난 PENDING 자동 취소 | 조건부 전이(사유 EXPIRED) + 재고 복원 | 주문 1건=트랜잭션 1 · 잠금 순서 "주문→재고" · **이 시점부터 선점↔해제가 닫혀 상시 자기 완결** |
 | **3** | 토스 결제 승인 + PAID 확정 / 실패 CANCELED | 토스 호출 분리 · 금액 재검증 · 멱등 | 승인 가드(만료 주문·취소 핫딜 거부) · 이중 승인 방어 · 어댑터 구조(PaymentGatewayClient) · **결제 동시성 테스트**: 가짜 대역에 지연·중복 승인·응답 유실 주입으로 이중 승인·만료↔결제 경합 재현(외부 부하 없이) — [ADR-0004](../adr/0004-stock-reservation-lifecycle.md)·[ADR-0008](../adr/0008-payment-model-pg-boundary.md). 구상이던 "만료 처리 전 토스 조회 보조"는 **미구현 확정**(2026-07-19) — 선점 순서 재배치로 필요가 소멸, 잔여는 B2 해소가 담당 |
-| 3주차 | 5방식 비교 + k6(대량 가상 트래픽을 쏘는 부하 테스트 도구) | 성능/정확성 정량화 | 즉시 실패(NOWAIT) vs 1초 · 교착 횟수 측정 — [ADR-0009](../adr/0009-stock-concurrency-design.md), 결과는 ADR-0010 로 |
+| 3주차 | 5방식 비교 + k6(대량 가상 트래픽을 쏘는 부하 테스트 도구) | 성능/정확성 정량화 | 즉시 실패(NOWAIT) vs 1초 · 교착 횟수 측정 — [재고 동시성 ADR](../adr/concurrency.md), 결과는 재고 동시성 ADR 로 |
 | 이후 | 대기열(분산/엣지) · 고트래픽 조회 | 본편 완수 후 | |
 
 ## 10. 엔티티 (7개)
 
-**User · Product · ProductStock · HotDeal · HotDealStock · Order · Payment** — Product 가 재고 원본(`ProductStock` 실물·예약), 핫딜은 거기서 예약([ADR-0011](../adr/0011-product-inventory-reservation.md)). Order : Payment = **1 : N**, Payment 행 단위 = **paymentKey 1개** ([ADR-0008](../adr/0008-payment-model-pg-boundary.md)). 관계·제약은 [erd.md](erd.md).
+**User · Product · ProductStock · HotDeal · HotDealStock · Order · Payment** — Product 가 재고 원본(`ProductStock` 실물·예약), 핫딜은 거기서 예약([재고 동시성 ADR](../adr/concurrency.md)). Order : Payment = **1 : N**, Payment 행 단위 = **paymentKey 1개** ([ADR-0008](../adr/0008-payment-model-pg-boundary.md)). 관계·제약은 [erd.md](erd.md).
 
 ## 11. 남은 일 (보류 항목)
 

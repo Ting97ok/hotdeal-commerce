@@ -6,7 +6,7 @@
 
 - **슬라이스 3 범위**: 토스 결제 승인 + PENDING→PAID 전이 + 만료↔결제 경합 처리.
 - **슬라이스 4 범위**: 결제 승인 순서 정합화 — `markPaid` 선점을 토스 승인 앞으로 재배치(만료·이중 승인을 토스 호출 전 차단) + 만료 조건부 전이 구현 정합화([order System 설계](../order/api-design-system.md)).
-- **슬라이스 5 범위**: 결제 확정 시 ProductStock 실물·예약 차감(`confirmSale`) — `markPaid` 선점 직후·토스 앞에 재고 차감 선점 ([ADR-0011 결정3](../adr/0011-product-inventory-reservation.md) 누락 정합화).
+- **슬라이스 5 범위**: 결제 확정 시 ProductStock 실물·예약 차감(`confirmSale`) — `markPaid` 선점 직후·토스 앞에 재고 차감 선점 ([재고 동시성 ADR 2절](../adr/concurrency.md) 누락 정합화).
 - **Phase B1 범위**: 토스 결제 승인 **실연동** — `TossPaymentClient` 실HTTP 호출(stub 제거) + `TossHttpClient`(전송층) 신설. 외부 토스 호출을 DB 트랜잭션 **밖**으로 분리(TX 경계 교정), `PgConfirmResult`를 성공/거절/미확정(in-doubt) 세 결과로 확장, 미확정 결제를 `PaymentStatus.IN_DOUBT`로 보존, 토스 멱등키 헤더 전송 + `pgPaymentKey` UNIQUE 충돌 멱등 처리. (아래 "Phase B1 — 토스 결제 실연동" 절)
 - **후속 범위(B2/B3+)**: **B2** = **IN_DOUBT 해소 스케줄러** — IN_DOUBT 결제를 주기적으로 결제 조회해 확정(DONE 확정 / IN_PROGRESS는 confirm 멱등 재시도로 매출 복구 / 실패는 주문 CANCELED·재고 복원). 확정 주체는 토스(10분이면 자동 EXPIRED), 우리는 폴링으로 읽음 ([api-design-system.md](api-design-system.md)). **B3+** = 웹훅(해소보다 빠른 실시간 해소 최적화 — **해소 대체 아님**, 유실 가능)·넓은 해소(배민식 PG 전체 대조)·앱 밖 사후 취소/환불/분쟁. **이번 Phase B1 범위 밖** — IN_DOUBT 행은 B1에서 *생성·보존*까지만 하고, 그 *해소*는 B2 해소에서 다룬다.
 - **문서 구조**: User API(결제 승인) → [api-design-user.md](api-design-user.md).
@@ -19,7 +19,7 @@
 |------|------|------|
 | v0.1 | 2026-06-24 | 결제 승인 1개 API 설계 초안 (슬라이스 3) |
 | v0.2 | 2026-06-25 | 슬라이스 4 — `confirm` 흐름 재배치(`markPaid` 선점 → 토스), 만료↔결제 양방향 조건부 전이 정합화, 토스 취소 동기 보정 철회 |
-| v0.3 | 2026-06-25 | 슬라이스 5 — 결제 확정 시 ProductStock 실물·예약 차감(`confirmSale`) 추가, 토스 앞 재고 차감 선점 ([ADR-0011](../adr/0011-product-inventory-reservation.md) 결정3 정합화) |
+| v0.3 | 2026-06-25 | 슬라이스 5 — 결제 확정 시 ProductStock 실물·예약 차감(`confirmSale`) 추가, 토스 앞 재고 차감 선점 ([재고 동시성 ADR 2절](../adr/concurrency.md) 정합화) |
 | v0.4 | 2026-06-29 | Phase B1 — 토스 실연동: TX 경계 교정(토스 호출을 DB TX 밖으로), `PgConfirmResult` 3결과(승인/거절/미확정) 확장, `PaymentStatus.IN_DOUBT` 신설, 멱등키 헤더 + `pgPaymentKey` UNIQUE 충돌 멱등, `TossHttpClient` 신설 규약 |
 
 ---
@@ -125,7 +125,7 @@
 | 슬라이스 범위 | 슬라이스3=승인+PAID 전이. 슬라이스4=선점 순서 재배치 + 만료 조건부 정합화. 슬라이스5=결제 확정 ProductStock 차감. 결제 실패 이력(FAILED·CANCELED)·웹훅·해소는 다음 범위 | — |
 | 마이그레이션 | payments 테이블 status 칼럼: String → VARCHAR(20) + PaymentStatus enum 매핑 | TODO(slice-3) 해소 |
 | 이중 승인 차단 | 슬라이스4에서 **선점 순서 재배치**로 만료·이중 승인을 토스 호출 전 차단(돈이 나가지 않음). 토스 취소 동기 보정은 철회 — 서버 다운 잔여(토스 성공 후 커밋 실패)는 동기로 불가해 비동기 후속(웹훅·해소) | [ADR-0008](../adr/0008-payment-model-pg-boundary.md) "함께 묶이는 방어" 갱신 |
-| 재고 차감(슬라이스5) | 결제 확정 시 ProductStock 실물·예약 1씩↓(`confirmSale`, reserve 대칭 조건부 UPDATE). `markPaid` 선점 직후·토스 앞이라 차감 실패(장부 불일치) 시 토스 미호출·롤백. 품절은 주문 단계(HotDealStock)가 막아 결제 차감은 정상이면 항상 성공 | [ADR-0011 결정3](../adr/0011-product-inventory-reservation.md) |
+| 재고 차감(슬라이스5) | 결제 확정 시 ProductStock 실물·예약 1씩↓(`confirmSale`, reserve 대칭 조건부 UPDATE). `markPaid` 선점 직후·토스 앞이라 차감 실패(장부 불일치) 시 토스 미호출·롤백. 품절은 주문 단계(HotDealStock)가 막아 결제 차감은 정상이면 항상 성공 | [재고 동시성 ADR 2절](../adr/concurrency.md) |
 | **외부 HTTP 연동(B1)** | `TossHttpClient`가 프로젝트 **첫 외부 HTTP 클라이언트** — `RestClient` 빈을 `global/config/TossHttpClientConfig`가 구성, connect/read 타임아웃·시크릿 인증·멱등키 헤더를 여기서 정립(이후 외부 연동의 참조 패턴) | 선례 0건 — B1이 1호 |
 | **TX 경계 교정(B1)** | 토스 호출은 DB TX 밖. TX1(선점·차감) → 토스 → TX2(결과 반영). 거절은 **실패 확정**(주문 CANCELED·핫딜+상품 재고 방출), 통신오류는 **보상 롤백**(주문 PENDING 복귀·재고 복원), 미확정은 보상 없이 IN_DOUBT 보존 | 아래 B1 절 |
 | **부하 테스트 제외(B1 유지)** | 통합 테스트·부하 테스트는 토스 실API를 호출하지 않는다 — `PaymentGatewayClient` 대역 유지. 실HTTP는 `TossHttpClient` 단위 테스트(MockWebServer)로 격리 | [ADR-0001](../adr/0001-payment-gateway-toss.md) 테스트 모드 한계 |

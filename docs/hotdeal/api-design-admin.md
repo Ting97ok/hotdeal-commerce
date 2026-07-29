@@ -179,12 +179,12 @@ boolean existsOverlappingActiveHotDeal(@Param("product") Product product,
 | 7 | `productNotFound` | 존재하지 않는 상품으로 등록 시 PRODUCT_NOT_FOUND(404), 핫딜 미생성 | ✅ Pass | 2026-06-19 |
 | 8 | `validationError` | 총 한정 수량 < 1이면 VALIDATION_ERROR(400), 핫딜 미생성 | ✅ Pass | 2026-06-19 |
 | 9 | `stockNotFound` | 상품 재고 정보(ProductStock)가 없으면 STOCK_NOT_FOUND(404), 핫딜 미생성 | ✅ Pass | 2026-06-19 |
-| 10 | `concurrentReserveNeverOversells` | 같은 상품에 동시 N등록이 몰려도 예약이 가용을 못 넘음(오버셀 0)·정확 소진·성공 수 = 가용÷수량 — 원자적 조건부 UPDATE([ADR-0011](../adr/0011-product-inventory-reservation.md) 결정 4) | ✅ Pass | 2026-06-20 |
+| 10 | `concurrentReserveNeverOversells` | 같은 상품에 동시 N등록이 몰려도 예약이 가용을 못 넘음(오버셀 0)·정확 소진·성공 수 = 가용÷수량 — 원자적 조건부 UPDATE([재고 동시성 ADR 4절](../adr/concurrency.md)) | ✅ Pass | 2026-06-20 |
 | 11 | `storeMaxPerOrder` | 등록 시 입력한 maxPerOrder(1주문 최대 수량)가 그대로 저장 | ✅ Pass | 2026-06-22 |
 | 12 | `maxPerOrderBelowMin` | maxPerOrder < 1이면 VALIDATION_ERROR(400), 핫딜 미생성 | ✅ Pass | 2026-06-22 |
 | 13 | `maxPerOrderMissing` | maxPerOrder 누락이면 VALIDATION_ERROR(400), 핫딜 미생성 | ✅ Pass | 2026-06-22 |
 | 14 | `maxPerOrderExceedsMax` | maxPerOrder > 10만이면 VALIDATION_ERROR(400), 핫딜 미생성 | ✅ Pass | 2026-06-22 |
 
-> **ADR-0011 반영 노트**: #1~#3 으로 ADR-0011 등록 재고(예약 차감 · 가용 부족 거부 · 경계 상한)가 반영 완료됐다(2026-06-19). 기간 겹침·기간 유효성·특가·상품 미존재·Bean Validation 은 작업2 범위 밖으로 후속 사이클에서 다룬다.
+> **재고 동시성 ADR 반영 노트**: #1~#3 으로 재고 동시성 ADR 등록 재고(예약 차감 · 가용 부족 거부 · 경계 상한)가 반영 완료됐다(2026-06-19). 기간 겹침·기간 유효성·특가·상품 미존재·Bean Validation 은 작업2 범위 밖으로 후속 사이클에서 다룬다.
 >
-> **ADR-0011 결정 4 반영 노트(2026-06-20)**: #10 으로 ProductStock 예약 동시성이 낙관락 → **원자적 조건부 UPDATE** 로 전환됐다(`version` 칼럼 제거 — 운영 미적용 초기라 V2 스키마 직접 수정 · 재시도 없이 영향 행 수로 판단). 같은 상품에 다른 기간 핫딜이 동시 등록돼도 예약이 가용을 못 넘는다(오버셀 0). 기간 겹침 경합은 여전히 수용(ADR-0007 결정4) — #10 은 **재고 예약 경합**만 검증(기간 겹침 동시성 아님).
+> **재고 동시성 ADR 4절 반영 노트(2026-06-20)**: #10 으로 ProductStock 예약 동시성이 낙관락 → **원자적 조건부 UPDATE** 로 전환됐다(`version` 칼럼 제거 — 운영 미적용 초기라 V2 스키마 직접 수정 · 재시도 없이 영향 행 수로 판단). 같은 상품에 다른 기간 핫딜이 동시 등록돼도 예약이 가용을 못 넘는다(오버셀 0). 기간 겹침 경합은 여전히 수용(ADR-0007 결정4) — #10 은 **재고 예약 경합**만 검증(기간 겹침 동시성 아님).

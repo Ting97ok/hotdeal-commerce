@@ -22,7 +22,7 @@
 - 결함: 'GET 후 INCR' 처럼 **확인-결정-쓰기** 가 분리되면 두 요청이 같은 값을 읽고 둘 다 통과 → 한도 초과(올리브영: count=99 통과 → 101 재확인). [olive-fcfs][redis]
 - 단일 `INCR` 은 Redis 단일 스레드라 원자적이지만, **조건 분기가 낀 차감**은 원자화해야 한다 → Lua 스크립트(EVAL — Redis 가 여러 명령을 한 덩어리로 원자 실행하는 스크립트)로 묶거나 도메인 설계(dual-counter). 토스: "Redis Single-Thread 라 Increment 는 Thread-Safe". [toss]
 - **이게 정확히 우리 문제다**: `Stock.decrease(qty)` = 잔여 확인 → 차감(check-decide-write). 우리 동시성 4방식(낙관 `@Version` / 비관 `select … for update` / Redis Lua / 분산락)은 전부 이 TOCTOU 를 직렬화하는 서로 다른 해법.
-  > 갱신 노트(2026-06-20): 이후 **원자적 조건부 UPDATE**(`WHERE remaining >= qty` 조건부 차감 한 문장)를 5번째 방식으로 추가 — 저경합 ProductStock 운영 채택([ADR-0011](../adr/0011-product-inventory-reservation.md) 결정 4)·고경합 HotDealStock 벤치마크 합류([ADR-0009](../adr/0009-stock-concurrency-design.md)). 본문 "4방식"은 리서치 시점 기록.
+  > 갱신 노트(2026-06-20): 이후 **원자적 조건부 UPDATE**(`WHERE remaining >= qty` 조건부 차감 한 문장)를 5번째 방식으로 추가 — 저경합 ProductStock 운영 채택([재고 동시성 ADR 4절](../adr/concurrency.md))·고경합 HotDealStock 벤치마크 합류([재고 동시성 ADR](../adr/concurrency.md)). 본문 "4방식"은 리서치 시점 기록.
 
 ## 3. 성능 ↔ 정확성 트레이드오프 (벤치마크 서사의 실선례)
 
