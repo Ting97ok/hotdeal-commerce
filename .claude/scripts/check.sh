@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # 계약 위반을 기계로 검출한다. 검사 로직의 유일한 소재 — 훅은 이 스크립트를 부르기만 한다.
-#   --file <경로>   파일 하나 (PostToolUse 훅용)
-#   --all           저장소 전량 (리뷰·PR 전)
+#   --pre-edit <경로>  편집하기 전에 막아야 할 것만 (PreToolUse 훅용)
+#   --file <경로>      편집 결과 검사 (PostToolUse 훅용)
+#   --all              저장소 전량 (리뷰·PR 전)
 # 종료 코드: 0 통과 / 2 위반 / 3 전제 조건 실패
 set -uo pipefail
 
@@ -85,11 +86,23 @@ advisories() {
   fi
 }
 
+rel() {
+  local t="$1"
+  case "$t" in "$REPO"/*) printf '%s' "${t#"$REPO"/}" ;; *) printf '%s' "$t" ;; esac
+}
+
 case "${1:-}" in
+  # 편집 후에 잡으면 파일이 이미 망가진 뒤다. 되돌릴 수 없는 것만 미리 막는다.
+  --pre-edit)
+    [ $# -ge 2 ] || die "--pre-edit 에 경로가 없다"
+    target=$(rel "$2")
+    case "$target" in
+      */db/migration/V*.sql) check_migration "$target" ;;
+    esac
+    ;;
   --file)
     [ $# -ge 2 ] || die "--file 에 경로가 없다"
-    target="$2"
-    case "$target" in "$REPO"/*) target="${target#"$REPO"/}" ;; esac
+    target=$(rel "$2")
     dispatch "$target"
     ;;
   --all)
@@ -97,7 +110,7 @@ case "${1:-}" in
     advisories
     ;;
   *)
-    die "사용법: check.sh --file <경로> | --all"
+    die "사용법: check.sh --pre-edit <경로> | --file <경로> | --all"
     ;;
 esac
 
