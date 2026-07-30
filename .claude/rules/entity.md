@@ -24,18 +24,18 @@ commerce 도메인 엔티티는 `domain/{도메인}/entity/` 에 위치한다. �
   ```
 - 필드는 접근제어자 생략(`@FieldDefaults(level = PRIVATE)`), `@Column` 으로 제약 명시(nullable/length/precision/columnDefinition).
 - 생성자·빌더는 `PRIVATE` — 외부 인스턴스화는 정적 팩토리로만.
-- **필드 순서**: 값/스칼라·enum 칼럼을 먼저 선언하고, **JPA 연관 매핑(`@ManyToOne`/`@OneToMany` 등)은 클래스 하단**에 모은다(스키마·가독성 일관).
+- **필드 순서**: 값/스칼라·enum 컬럼을 먼저 선언하고, **JPA 연관 매핑(`@ManyToOne`/`@OneToMany` 등)은 클래스 하단**에 모은다(스키마·가독성 일관).
 
 ## 한국어 의미 주석 (@Comment / enum)
 
-- **엔티티 칼럼**: 도메인 의미를 Hibernate `@Comment("한국어")` 로 필드 위에 명시한다. `ddl-auto: none` 이라 `@Comment` 자체는 DB 에 반영되지 않으므로, **Flyway DDL 칼럼의 `COMMENT '...'` 와 같은 문구로 일치**시킨다(엔티티=코드 가독성, DDL=실제 DB 메타).
+- **엔티티 컬럼**: 도메인 의미를 Hibernate `@Comment("한국어")` 로 필드 위에 명시한다. `ddl-auto: none` 이라 `@Comment` 자체는 DB 에 반영되지 않으므로, **Flyway DDL 컬럼의 `COMMENT '...'` 와 같은 문구로 일치**시킨다(엔티티=코드 가독성, DDL=실제 DB 메타).
 - **enum 값**: 각 상수의 도메인 의미를 `//` 주석으로 명시한다(`PENDING,   // 결제 대기`). 값 의미는 식별자만으로 안 드러나므로.
-- `BaseEntity` 공통 칼럼(id·created_at·updated_at)·자명한 칼럼은 생략. 이는 CLAUDE.md "주석 최소"의 **엔티티/enum 한정 예외**(칼럼·상태 의미는 운영·리뷰에 유용).
+- `BaseEntity` 공통 컬럼(id·created_at·updated_at)·자명한 컬럼은 생략. 이는 CLAUDE.md "주석 최소"의 **엔티티/enum 한정 예외**(컬럼·상태 의미는 운영·리뷰에 유용).
 
 ## 연관 관계
 
-- `@ManyToOne(fetch = LAZY) @JoinColumn(name = "category_id", foreignKey = @ForeignKey(ConstraintMode.NO_CONSTRAINT))` — JPA 연관 매핑은 유지하되 **DB FK 제약은 걸지 않는다**. `@ForeignKey(NO_CONSTRAINT)` 로 (혹시 모를 Hibernate 스키마 생성에서도) FK 가 생기지 않도록 명시하고, Flyway DDL 에도 제약을 선언하지 않는다 — FK 칼럼 + 보조 인덱스만. 참조 무결성은 서비스 가드(존재 검증) + 정합 검증 테스트가 책임. 근거: 고트래픽 쓰기 경로의 부모 행 잠금 제거 · DDL/운영 유연성 · MSA 분리 대비 — [docs/design/erd.md](../../docs/design/erd.md) · [ADR-0003](../../docs/adr/0003-no-db-fk-constraints.md).
-- 재고처럼 상위 엔티티와 독립적으로 차감·교체되는 행(HotDealStock·ProductStock)은 연관 매핑 없이 FK 값 칼럼(Long) + 전용 repository 조회로 둘 수 있다 — 단순 구현 선택이며 성능 결정이 아니다(차감은 조건부 UPDATE라 연관 매핑 유무와 무관하므로 `@OneToOne` 단건 조회 회피 같은 건 근거로 들지 않는다). 객체 탐색이 실제로 필요하면(예: `Order`→`Product`) 평범하게 `@ManyToOne`으로 매핑한다.
+- `@ManyToOne(fetch = LAZY) @JoinColumn(name = "category_id", foreignKey = @ForeignKey(ConstraintMode.NO_CONSTRAINT))` — JPA 연관 매핑은 유지하되 **DB FK 제약은 걸지 않는다**. `@ForeignKey(NO_CONSTRAINT)` 로 (혹시 모를 Hibernate 스키마 생성에서도) FK 가 생기지 않도록 명시하고, Flyway DDL 에도 제약을 선언하지 않는다 — FK 컬럼 + 보조 인덱스만. 참조 무결성은 서비스 가드(존재 검증) + 정합 검증 테스트가 책임. 근거: 고트래픽 쓰기 경로의 부모 행 잠금 제거 · DDL/운영 유연성 · MSA 분리 대비 — [docs/design/erd.md](../../docs/design/erd.md) · [ADR-0003](../../docs/adr/0003-no-db-fk-constraints.md).
+- 재고처럼 상위 엔티티와 독립적으로 차감·교체되는 행(HotDealStock·ProductStock)은 연관 매핑 없이 FK 값 컬럼(Long) + 전용 repository 조회로 둘 수 있다 — 단순 구현 선택이며 성능 결정이 아니다(차감은 조건부 UPDATE라 연관 매핑 유무와 무관하므로 `@OneToOne` 단건 조회 회피 같은 건 근거로 들지 않는다). 객체 탐색이 실제로 필요하면(예: `Order`→`Product`) 평범하게 `@ManyToOne`으로 매핑한다.
 - `@OneToMany(mappedBy = "...", cascade = ..., orphanRemoval = ...)` + `@Builder.Default ... = new ArrayList<>()`.
 - enum 필드: `@Enumerated(STRING) @Column(length = 20)`.
 

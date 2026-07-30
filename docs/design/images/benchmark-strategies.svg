@@ -25,12 +25,12 @@
   <rect x="565" y="90" width="110" height="290" fill="#94a3b8"/>
   <text x="620" y="118" font-size="19" font-weight="700" fill="#ffffff" text-anchor="middle">1000</text>
 
-  <text x="240" y="404" font-size="14" font-weight="600" fill="#334155" text-anchor="middle">낙관락</text>
+  <text x="240" y="404" font-size="14" font-weight="600" fill="#334155" text-anchor="middle">낙관적 락</text>
   <text x="240" y="424" font-size="12" fill="#64748b" text-anchor="middle">p95 1.44s</text>
   <text x="430" y="404" font-size="14" font-weight="600" fill="#334155" text-anchor="middle">조건부 UPDATE</text>
   <text x="430" y="424" font-size="12" fill="#64748b" text-anchor="middle">p95 1.37s</text>
   <text x="620" y="404" font-size="14" font-weight="600" fill="#334155" text-anchor="middle">Redis+Lua</text>
   <text x="620" y="424" font-size="12" fill="#64748b" text-anchor="middle">p95 1.48s</text>
 
-  <text x="40" y="452" font-size="12.5" fill="#475569">낙관락은 버전 충돌로 성공 163 — 정확하나 비실용(탈락). 조건부·Redis 는 1,000 동률, 조건부가 p95 최저·쿼리 1문으로 가장 단순해 운영 채택.</text>
+  <text x="40" y="452" font-size="12.5" fill="#475569">낙관적 락은 버전 충돌로 성공 163 — 정확하나 비실용(탈락). 조건부·Redis 는 1,000 동률, 조건부가 p95 최저·쿼리 1문으로 가장 단순해 운영 채택.</text>
 </svg>
