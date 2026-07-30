@@ -1,4 +1,4 @@
-package com.sparta.msa.commerce.domain.payment.gateway;
+package com.sparta.msa.commerce.infrastructure.paymentgateway.toss;
 
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestBody;

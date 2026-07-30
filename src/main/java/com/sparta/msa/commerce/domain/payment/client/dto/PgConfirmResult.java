@@ -1,4 +1,4 @@
-package com.sparta.msa.commerce.domain.payment.gateway;
+package com.sparta.msa.commerce.domain.payment.client.dto;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;

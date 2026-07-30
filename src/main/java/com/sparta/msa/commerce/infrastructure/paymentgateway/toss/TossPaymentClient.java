@@ -1,7 +1,11 @@
-package com.sparta.msa.commerce.domain.payment.gateway;
+package com.sparta.msa.commerce.infrastructure.paymentgateway.toss;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.sparta.msa.commerce.domain.payment.client.PaymentGatewayClient;
+import com.sparta.msa.commerce.domain.payment.client.dto.PgConfirmResult;
+import com.sparta.msa.commerce.domain.payment.client.dto.PgPayment;
+import com.sparta.msa.commerce.domain.payment.client.dto.PgPaymentStatus;
 import java.math.BigDecimal;
 import java.net.ConnectException;
 import java.net.UnknownHostException;

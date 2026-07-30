@@ -1,4 +1,4 @@
-package com.sparta.msa.commerce.global.config;
+package com.sparta.msa.commerce.infrastructure.paymentgateway.toss;
 
 import java.time.Duration;
 import org.springframework.boot.context.properties.ConfigurationProperties;

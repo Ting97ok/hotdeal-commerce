@@ -1,4 +1,4 @@
-package com.sparta.msa.commerce.domain.payment.gateway;
+package com.sparta.msa.commerce.infrastructure.paymentgateway.toss;
 
 import java.math.BigDecimal;
 

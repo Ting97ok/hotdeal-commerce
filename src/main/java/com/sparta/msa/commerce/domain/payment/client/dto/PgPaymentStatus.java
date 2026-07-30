@@ -1,4 +1,4 @@
-package com.sparta.msa.commerce.domain.payment.gateway;
+package com.sparta.msa.commerce.domain.payment.client.dto;
 
 public enum PgPaymentStatus {
   DONE,                // 승인 완료 (돈 나감)

@@ -1,6 +1,5 @@
-package com.sparta.msa.commerce.global.config;
+package com.sparta.msa.commerce.infrastructure.paymentgateway.toss;
 
-import com.sparta.msa.commerce.domain.payment.gateway.TossHttpClient;
 import java.nio.charset.StandardCharsets;
 import java.util.Base64;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;

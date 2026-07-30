@@ -1,5 +1,7 @@
-package com.sparta.msa.commerce.domain.payment.gateway;
+package com.sparta.msa.commerce.domain.payment.client;
 
+import com.sparta.msa.commerce.domain.payment.client.dto.PgConfirmResult;
+import com.sparta.msa.commerce.domain.payment.client.dto.PgPayment;
 import java.math.BigDecimal;
 import java.util.Optional;
 

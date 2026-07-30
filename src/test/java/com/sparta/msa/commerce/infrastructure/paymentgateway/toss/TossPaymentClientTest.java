@@ -1,7 +1,10 @@
-package com.sparta.msa.commerce.domain.payment.gateway;
+package com.sparta.msa.commerce.infrastructure.paymentgateway.toss;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.sparta.msa.commerce.domain.payment.client.dto.PgConfirmResult;
+import com.sparta.msa.commerce.domain.payment.client.dto.PgPayment;
+import com.sparta.msa.commerce.domain.payment.client.dto.PgPaymentStatus;
 import java.io.IOException;
 import java.math.BigDecimal;
 import java.time.Duration;
