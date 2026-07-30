@@ -64,7 +64,7 @@ Agent(subagent_type="general-purpose", model="opus", description="api-implemente
   prompt=`
     .claude/agents/api-implementer.md 정의를 따라 엔티티 + 마이그레이션 SQL 작성.
     입력: _workspace/02_design_summary.md, docs/{도메인}/, _workspace/02_architect_review.md(있으면)
-    활용 스킬: .claude/skills/api-impl/SKILL.md, 규칙: .claude/rules/entity.md
+    규칙: .claude/rules/entity.md
     범위: 엔티티 매핑 + src/main/resources/db/migration/V{n}__*.sql 만.
     ./gradlew compileJava 통과 확인. 출력: _workspace/03_entity_summary.md
   `)

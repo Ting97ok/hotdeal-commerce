@@ -1,10 +1,9 @@
 # CLAUDE.md
 
 이 파일은 Claude Code가 commerce 저장소에서 작업할 때 필요한 핵심 컨벤션을 제공합니다.
-상세 구현 가이드는 `/api-impl`, 설계 워크플로우는 `/api-design` 스킬을 참조하세요.
+설계 워크플로우는 `/api-design` 스킬을 참조하세요.
 
-> **경로별 상세 규칙**: `.claude/rules/` 에 계층별 코딩 패턴이 분리되어 있으며, 작업 파일 경로에 맞는 규칙이 자동 로딩됩니다.
-> **구현 상세 가이드**: @.claude/skills/api-impl/entity-dto-patterns.md, @.claude/skills/api-impl/querydsl-guide.md
+> **경로별 상세 규칙**: `.claude/rules/` 에 계층별 코딩 패턴이 분리되어 있다.
 
 ## 하네스: Commerce Dev Flow
 
@@ -14,7 +13,7 @@
 
 **구성:**
 - 에이전트 (`.claude/agents/`): domain-analyst, backend-architect, api-designer, api-implementer, code-reviewer, qa-validator
-- 스킬 (`.claude/skills/`): commerce-dev-flow(오케스트레이터), api-design, api-impl, domain-context, qa-validation
+- 스킬 (`.claude/skills/`): commerce-dev-flow(오케스트레이터), api-design, domain-context, qa-validation
 - 중간 산출물: `_workspace/{01..05}_*.md` (감사 추적용 보존)
 
 **TDD 표준 하 사용 범위:** commerce-dev-flow 는 "TDD 진입 전(분석·설계·엔티티/마이그레이션)"과 "TDD 종료 후(리뷰·QA)"만 담당한다. Repository/ExceptionCode/Service/Controller 는 mattpocock `tdd` 스킬의 vertical-slice TDD 로 진행(각 메서드/enum 존재가 테스트로 정당화). 세부는 [.claude/rules/commit-checkpoint.md](.claude/rules/commit-checkpoint.md).
@@ -98,7 +97,7 @@ Java 코드는 **공백 2칸** 들여쓰기로 고정한다(탭 금지). 루트 
 
 ### 공통 패턴
 
-- 엔티티/DTO/QueryDSL 상세는 `.claude/rules/` + `.claude/skills/api-impl/`.
+- 엔티티/DTO/QueryDSL 상세는 `.claude/rules/`.
 - 논리삭제는 도메인 선택(현재 사용 도메인 없음), 기본은 상태 enum(`ProductStatus` 등).
 - 엔티티는 정적 팩토리 `create(Request, 연관)` + 도메인 메서드 캡슐화. Response 변환은 MapStruct.
 
@@ -142,7 +141,7 @@ Serena MCP 가 등록돼 있어 **Java 소스의 심볼 단위 분석/편집은 
 |------|-----------|
 | Phase 0 (의도 추궁) | `api-design` |
 | Phase 1 (설계 문서) | `api-design` |
-| Phase 2 기반 (DTO/엔티티/마이그레이션) | `api-impl` 또는 직접 |
+| Phase 2 기반 (DTO/엔티티/마이그레이션) | 직접 (`.claude/rules/entity.md`) |
 | Phase 2 vertical TDD 사이클 | mattpocock `tdd` |
 | 디버깅 | mattpocock `diagnose` |
 | 신규 기능 브레인스토밍 | `brainstorming` |

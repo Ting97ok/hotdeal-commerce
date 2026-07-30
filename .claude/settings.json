@@ -5,9 +5,11 @@
       "mcp__context7__resolve-library-id",
       "mcp__sequential-thinking__sequentialthinking"
     ],
-    "deny": [
+    "ask": [
       "Bash(git commit*)",
-      "Bash(git push*)",
+      "Bash(git push*)"
+    ],
+    "deny": [
       "Bash(git reset*)",
       "Bash(git checkout -- *)",
       "Bash(git restore*)",
