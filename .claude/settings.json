@@ -8,7 +8,15 @@
     "deny": [
       "Bash(git commit*)",
       "Bash(git push*)",
-      "Bash(rm -rf*)"
+      "Bash(git reset*)",
+      "Bash(git checkout -- *)",
+      "Bash(git restore*)",
+      "Bash(git clean*)",
+      "Bash(git stash drop*)",
+      "Bash(git stash clear*)",
+      "Bash(git branch -D*)",
+      "Bash(rm -r*)",
+      "Bash(rm -fr*)"
     ]
   },
   "statusLine": {
