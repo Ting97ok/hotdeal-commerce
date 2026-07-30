@@ -35,6 +35,14 @@ Spring Boot 3.5.13 + Java 21 **모놀리식** 커머스(핫딜) 시스템 — �
 단일 모듈(`rootProject.name = 'commerce'`), 패키지 `com.sparta.msa.commerce.domain.{도메인}`.
 도메인: **auth·user·product·stock·hotdeal·order·payment**.
 
+최상위 축은 셋이다.
+
+| 패키지 | 담는 것 |
+|---|---|
+| `domain/{도메인}` | 비즈니스 개념. 외부 연동의 **계약 인터페이스**도 그 능력이 필요한 도메인에 둔다 |
+| `infrastructure/{역할}/{벤더}` | 벤더 구현·전송·요청 응답 타입·그 설정 (예: `infrastructure/paymentgateway/toss`) |
+| `global` | 프레임워크 횡단 — config·security·exception·response·entity |
+
 ## 아키텍처
 
 ```
@@ -46,6 +54,13 @@ controller/ → facade/ → service/ → repository/
 - **지원 도메인(user·product·stock)은 Controller 없이 Service 까지만** — 타 도메인 Facade 가 진입점. auth·hotdeal·order·payment 는 Facade 4계층(전환 강제하지 않음).
 - Facade 는 타 도메인 Service 호출(Repository 직접 금지) + Response 조립. Service 는 자기 Repository + 같은 도메인 공통 Service 만(타 도메인 Service 직접 호출 금지 → Facade 경유). 상세 [.claude/rules/service.md](.claude/rules/service.md).
 
+### 패키지 배치
+
+- 한 계층만 쓰는 것은 그 계층 아래, 둘 이상이 쓰면 도메인 루트. `dto` 는 controller·facade·mapper·service·entity 5계층이 써서 루트에 둔다.
+- **경계를 넘나드는 데이터 타입은 `dto/`** — web 경계는 `dto/request`·`dto/response`, 외부 시스템 경계는 `client/dto`. 엔티티와 그 상태는 경계를 넘는 데이터가 아니라 도메인 모델이라 `entity/`.
+- **enum 은 별도 폴더(`constant/`·`enums/`)로 모으지 않고 그것을 쓰는 타입과 같은 자리에 둔다** — `PaymentStatus` 는 `entity/`, `PgPaymentStatus` 는 `client/dto/`, `{Domain}ExceptionCode` 는 `exception/`.
+- 요청 DTO 를 command 로 다시 매핑하지 않는다 — 인바운드 입구가 REST 하나라 대부분 필드가 같은 복사본이 되고, Bean Validation 이 두 곳으로 갈린다. 입구가 둘 이상(같은 Facade 메서드를 Kafka 컨슈머도 호출)이 되면 그때 도입.
+
 ## 네이밍 컨벤션
 
 - Controller: `{Domain}{Role}Controller` / `{Role}{Domain}Controller` (혼재 허용 — 도메인 내 일관성)
@@ -54,7 +69,10 @@ controller/ → facade/ → service/ → repository/
 - Entity: `{Domain}`(단순명) / Repository: `{Domain}Repository`(+`{Domain}RepositoryCustom`/`...CustomImpl`)
 - Exception: 단일 `DomainException` + 도메인 `{Domain}ExceptionCode` enum
 - DTO(record): Request `{Action}{Domain}Request`, Response `{Action}{Domain}Response` / `{Domain}{용도}Response`
-- 외부 연동: 계약 인터페이스 `{역할}Client` / 어댑터 구현 `{벤더}{도메인}Client` / HTTP 전송 `{벤더}HttpClient` (예: `PaymentGatewayClient` / `TossPaymentClient` / `TossHttpClient`) — 역할·근거는 [docs/adr/0008](docs/adr/0008-payment-model-pg-boundary.md)
+- 외부 연동: 계약 인터페이스 `{역할}Client` / 어댑터 구현 `{벤더}{도메인}Client` / HTTP 전송 `{벤더}HttpClient` (예: `PaymentGatewayClient` / `TossPaymentClient` / `TossHttpClient`) — 역할·근거는 [결제 ADR 3절](docs/adr/payment.md)
+  - 위치: 계약은 `domain/{도메인}/client/`(계층 이름) + 그 결과 타입은 `client/dto/`, 벤더 구현·전송·요청 응답 타입·설정은 `infrastructure/{역할}/{벤더}/`
+  - 역할을 벤더보다 위에 둔다 — 같은 역할의 구현들이 한자리에 모여야 교체 후보가 보인다. 벤더 이름만으로는 무슨 연동인지 드러나지 않는다
+  - 표기: 혼자 읽히는 이름은 풀네임(`PaymentGatewayClient`·`PAYMENT_GATEWAY_ERROR`·`infrastructure/paymentgateway/`), 다른 이름 앞에 붙는 접두는 축약(`PgConfirmResult`·`pgPaymentKey`). 접두에 풀네임을 쓰면 `PaymentGatewayPayment` 처럼 말더듬이 나고, 혼자 선 `Pg`/`pg` 는 PostgreSQL 로 읽힌다
 - 변수: camelCase, 줄임말 지양. boolean `isXxx`, 컬렉션 `{타입}List`. 메서드 동사 시작.
 
 ## 코딩 컨벤션
