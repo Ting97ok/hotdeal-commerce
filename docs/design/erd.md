@@ -91,7 +91,7 @@ erDiagram
 | **HotDeal** | 한정 수량·기간 특가 | 선착순 구매가 일어나는 곳. 가격/기간 **메타**만 — 진행/매진 상태값 없음 ([ADR-0007](../adr/0007-hotdeal-state-operations.md)) |
 | **HotDealStock** | HotDeal 예약 재고 행 | **동시성 핫스팟**(경합이 한 지점에 집중되는 자리) — 모든 동시 구매가 이 한 행을 차감 |
 | **Order** | 구매 1건(회원 × 핫딜) | 산 상품(`product`) + 적용 핫딜(`hot_deal`) 참조 · 주문 시점 금액 저장 · 계정당 1활성주문 유니크 · 불투명 주문번호 · 선점 만료 시각 · 취소 사유 |
-| **Payment** | 토스 결제 **시도** 기록 — **행 단위 = paymentKey 1개** | 토스 호출 ↔ DB 트랜잭션 분리 지점. 실패 시도도 행으로 보존 ([ADR-0008](../adr/0008-payment-model-pg-boundary.md)) |
+| **Payment** | 토스 결제 **시도** 기록 — **행 단위 = paymentKey 1개** | 토스 호출 ↔ DB 트랜잭션 분리 지점. 실패 시도도 행으로 보존 ([결제 ADR 2·4절](../adr/payment.md)) |
 
 ---
 
@@ -105,7 +105,7 @@ erDiagram
 | Product → Order | 1 : N | 주문이 산 상품 참조(적용 핫딜은 `hot_deal`) ([재고 동시성 ADR](../adr/concurrency.md)) |
 | HotDeal → HotDealStock | 1 : 1 | 핫딜 예약 재고 행 — 경합 격리 ([재고 동시성 ADR](../adr/concurrency.md)) |
 | HotDeal → Order | 1 : N | 한 핫딜에 여러 구매 |
-| Order → Payment | **1 : N** | 행 단위 = paymentKey(PG 거래 키) 1개 — 재시도 멱등은 토스 `Idempotency-Key`(=paymentKey) 헤더가, 승인 1건 보장은 주문 상태 전이(PENDING→PAID 1회)가 담당 ([ADR-0008](../adr/0008-payment-model-pg-boundary.md)) |
+| Order → Payment | **1 : N** | 행 단위 = paymentKey(PG 거래 키) 1개 — 재시도 멱등은 토스 `Idempotency-Key`(=paymentKey) 헤더가, 승인 1건 보장은 주문 상태 전이(PENDING→PAID 1회)가 담당 ([결제 ADR 2·7절](../adr/payment.md)) |
 
 ---
 
@@ -154,7 +154,7 @@ erDiagram
 
 ## 7. 범위 경계 / 후속
 
-- **Payment 컬럼·상태는 슬라이스 3(결제 승인)에서 확정** — 토스 응답 기준 + 어댑터 구조(PaymentGatewayClient / TossPaymentClient / TossHttpClient)·이중 승인 보정 포함 ([ADR-0008](../adr/0008-payment-model-pg-boundary.md)).
+- **Payment 컬럼·상태는 슬라이스 3(결제 승인)에서 확정** — 토스 응답 기준 + 어댑터 구조(PaymentGatewayClient / TossPaymentClient / TossHttpClient)·이중 승인 보정 포함 ([결제 ADR 3절](../adr/payment.md)).
 - **만료 복원** — 스케줄러가 만료를 처리하고(Redis 키 TTL 미채택), 만료시각은 `order.payment-timeout`(10분) ([주문 ADR 3절](../adr/order.md)). 구상하던 "취소 전 토스 조회"는 결제 선점이 토스 승인 앞으로 옮겨지며 필요가 사라져 넣지 않았다.
 - **JPA 매핑 노트(api-design 에 반영)** — User 는 `getReferenceById`(SELECT 없이 참조만 — JWT 인증 통과 = 실존 보장, 탈퇴 도입 시 재검토) · HotDeal 은 `findById`(가드 검증 겸용) · `HotDealStock`·`ProductStock` 은 상위 엔티티와 독립적으로 차감되는 행이라 객체 연관 없이 전용 조회로 둔다(거창한 성능 결정이 아닌 단순 구현 선택 — 병목은 재고 차감 경합이지 조회가 아니므로 `@OneToOne` 단건 조회·Redis 교체 같은 근거는 들지 않는다). `ProductStock` 은 등록/결제확정 경로에서 **원자적 조건부 UPDATE**(`WHERE 가용 >= 수량`)로 예약·차감([재고 동시성 ADR 4절](../adr/concurrency.md)).
 - **구매 API(슬라이스 1)** — 상품 주소 `POST /api/orders {productId}`(서버가 활성 핫딜 해소), `Order` 는 `product`+`hot_deal` 참조 + 금액 스냅샷([재고 동시성 ADR](../adr/concurrency.md) 관련 방향).

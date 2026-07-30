@@ -1,7 +1,7 @@
 # ADR-0013. 부하 테스트 도구 — k6
 
 - 상태: 확정 · 작성: 2026-06-27
-- 관련 규칙: [재고 동시성 ADR](concurrency.md) · [가설 8·9](../design/hotdeal-purchase-hypothesis.md) · [ADR-0001 토스](0001-payment-gateway-toss.md)
+- 관련 규칙: [재고 동시성 ADR](concurrency.md) · [가설 8·9](../design/hotdeal-purchase-hypothesis.md) · [결제 ADR 1절](payment.md)
 
 ## 결정 요약
 
@@ -48,4 +48,4 @@
 
 ### 범위 — 부하 대상이 아닌 것
 
-- 토스 결제 승인 구간은 부하 대상이 아니다 — 외부 샌드박스에 부하를 보내면 호출량 제한·차단 위험([ADR-0001](0001-payment-gateway-toss.md) "테스트 모드의 운영 한계"). 부하는 **구매·재고 경합 경로**(주문 생성)에 한정하고, 결제 승인은 테스트 대역으로 대체한다.
+- 토스 결제 승인 구간은 부하 대상이 아니다 — 외부 샌드박스에 부하를 보내면 호출량 제한·차단 위험([결제 ADR 8절](payment.md)). 부하는 **구매·재고 경합 경로**(주문 생성)에 한정하고, 결제 승인은 테스트 대역으로 대체한다.
