@@ -88,7 +88,7 @@ erDiagram
 | **User** | 구매자(이미 구현) | 경합 무관 |
 | **Product** | 상품 카탈로그(정가·설명) | 핫딜이 참조하는 대상 — 엔티티·마이그레이션은 핫딜과 **함께 생성**. 재고는 이 행이 아니라 **`ProductStock`에 분리**(경합 격리를 상품 레벨로 — [재고 동시성 ADR](../adr/concurrency.md)). 구매는 핫딜 경유라 쓰기 경합 없음 |
 | **ProductStock** | 상품 재고 **원본**(실물·예약) | 가용=실물−예약(계산, 저장 안 함). 핫딜 등록이 여기서 **예약**, 결제확정이 실물·예약 차감 — 등록/취소·결제확정(저경합)만 건드려 핫 패스와 분리 ([재고 동시성 ADR](../adr/concurrency.md)) |
-| **HotDeal** | 한정 수량·기간 특가 | 선착순 구매가 일어나는 곳. 가격/기간 **메타**만 — 진행/매진 상태값 없음 ([ADR-0007](../adr/0007-hotdeal-state-operations.md)) |
+| **HotDeal** | 한정 수량·기간 특가 | 선착순 구매가 일어나는 곳. 가격/기간 **메타**만 — 진행/매진 상태값 없음 ([핫딜 ADR 1절](../adr/hotdeal.md)) |
 | **HotDealStock** | HotDeal 예약 재고 행 | **동시성 핫스팟**(경합이 한 지점에 집중되는 자리) — 모든 동시 구매가 이 한 행을 차감 |
 | **Order** | 구매 1건(회원 × 핫딜) | 산 상품(`product`) + 적용 핫딜(`hot_deal`) 참조 · 주문 시점 금액 저장 · 계정당 1활성주문 유니크 · 불투명 주문번호 · 선점 만료 시각 · 취소 사유 |
 | **Payment** | 토스 결제 **시도** 기록 — **행 단위 = paymentKey 1개** | 토스 호출 ↔ DB 트랜잭션 분리 지점. 실패 시도도 행으로 보존 ([결제 ADR 2·4절](../adr/payment.md)) |
@@ -101,7 +101,7 @@ erDiagram
 |---|---|---|
 | User → Order | 1 : N | 같은 핫딜은 살아 있는 주문 1건 ([주문 ADR 4절](../adr/order.md)) |
 | Product → ProductStock | 1 : 1 | 재고 원본 분리 — 경합 격리를 상품 레벨로 ([재고 동시성 ADR](../adr/concurrency.md)) |
-| Product → HotDeal | 1 : N | 회차(추가 물량 = 새 핫딜) 모델 지원. 판매 기간 겹침은 등록 검증으로 금지 ([ADR-0007](../adr/0007-hotdeal-state-operations.md)) |
+| Product → HotDeal | 1 : N | 회차(추가 물량 = 새 핫딜) 모델 지원. 판매 기간 겹침은 등록 검증으로 금지 ([핫딜 ADR 3절](../adr/hotdeal.md)) |
 | Product → Order | 1 : N | 주문이 산 상품 참조(적용 핫딜은 `hot_deal`) ([재고 동시성 ADR](../adr/concurrency.md)) |
 | HotDeal → HotDealStock | 1 : 1 | 핫딜 예약 재고 행 — 경합 격리 ([재고 동시성 ADR](../adr/concurrency.md)) |
 | HotDeal → Order | 1 : N | 한 핫딜에 여러 구매 |
@@ -119,7 +119,7 @@ erDiagram
 | 금액 조작 방지 | `Order.orderAmount` 주문 시점 저장 — 결제 검증은 서버가 이 값으로 |
 | 멱등 2겹 | 내부 = 활성 유니크·조건부 전이(주문당 PAID 1회) / 외부 = 토스 `Idempotency-Key`(=paymentKey) 헤더 + `pg_payment_key` UNIQUE |
 | 장부 일치(정합 검증식) | 핫딜: `totalQuantity = remaining + Σ(활성 주문 qty)` · `주문당 승인 ≤ 1` · `PAID ↔ 승인 1:1` — 쿼리로 검증. 상품: `ProductStock.reserved` 는 활성 핫딜 예약분 — 변동 원장 정식화는 슬라이스 2 ([재고 동시성 ADR](../adr/concurrency.md) 보류) |
-| 상태는 판단으로 | HotDeal 에 진행/매진 컬럼 없음. `status` 는 ACTIVE/CANCELED 만. `totalQuantity` 등록 후 불변(증량 전환 경로는 [ADR-0007](../adr/0007-hotdeal-state-operations.md)) |
+| 상태는 판단으로 | HotDeal 에 진행/매진 컬럼 없음. `status` 는 ACTIVE/CANCELED 만. `totalQuantity` 등록 후 불변(증량 전환 경로는 [핫딜 ADR 4절](../adr/hotdeal.md)) |
 | 식별자 정책 | 공개 = 순번 id / 민감 = `order_no`(UUID, UNIQUE). PK 는 순번 유지 ([ADR 인덱스 — 식별자 정책](../adr/README.md)) |
 
 ---
