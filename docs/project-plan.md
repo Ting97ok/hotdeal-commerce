@@ -65,8 +65,8 @@
 ## 5. 진행 순서 (슬라이스)
 
 - **A. 셋업 + 기반**: ✅ 셋업(Spring Boot 3.5.13/Java 21/MySQL 8.4+Flyway/Redis/Docker) · ✅ 회원 로그인(JWT·RTR·tokenVersion) · ✅ 상품·재고 엔티티·시드 (상품 조회 API 는 고트래픽 조회 D 에서)
-- **B+C. 핫딜 본편 (쓰기 · 1차 주연)**: ⓪ 등록/조회 → ① 구매(재고 선점+PENDING, 낙관적 락) → ② 만료 복원 → ③ 토스 결제 승인 → 재고 동시성 3방식(낙관적 락/Redis/원자적 조건부 UPDATE) 벤치마크 + k6 — 비관적 락·분산 락은 이론으로 배제 → 운영 전략 확정 — **확정 슬라이스·스키마는 [기술 가설 9](design/hotdeal-purchase-hypothesis.md)·[ERD](design/erd.md) 기준**
-  - **현황(2026-07-06)**: ⓪ 등록 ✅(상세 조회 미구현) · ① 구매 ✅ · ② 만료 복원 ✅(스케줄러, 건별 트랜잭션+LIMIT) · ③ 결제 승인 ✅ · 동시성 벤치마크 ✅(3방식 측정, **조건부 UPDATE 채택** [재고 동시성 ADR](adr/concurrency.md)) · **토스 실연동 ✅(Phase B1)** · **IN_DOUBT·PAID 고아 해소 스케줄러 ✅(Phase B2)**. **남은 본편**: 핫딜 상세 조회 · 핫딜 취소(정책만 확정 — [핫딜 ADR](adr/hotdeal.md), 설계 문서·구현 대기).
+- **B+C. 핫딜 본편 (쓰기 · 1차 주연)**: ⓪ 등록 → ① 구매(재고 선점+PENDING, 낙관적 락) → ② 만료 복원 → ③ 토스 결제 승인 → 재고 동시성 3방식(낙관적 락/Redis/원자적 조건부 UPDATE) 벤치마크 + k6 — 비관적 락·분산 락은 이론으로 배제 → 운영 전략 확정 — **확정 슬라이스·스키마는 [기술 가설 9](design/hotdeal-purchase-hypothesis.md)·[ERD](design/erd.md) 기준**
+  - **현황(2026-07-06)**: ⓪ 등록 ✅ · ① 구매 ✅ · ② 만료 복원 ✅(스케줄러, 건별 트랜잭션+LIMIT) · ③ 결제 승인 ✅ · 동시성 벤치마크 ✅(3방식 측정, **조건부 UPDATE 채택** [재고 동시성 ADR](adr/concurrency.md)) · **토스 실연동 ✅(Phase B1)** · **IN_DOUBT·PAID 고아 해소 스케줄러 ✅(Phase B2)**. 공개 조회와 관리자 취소 API 는 이 저장소의 관심사 밖이라 만들지 않았다([핫딜 ADR](adr/hotdeal.md)).
 - **D. 고트래픽 상품 조회 (읽기 · 2차)**: 목록 조회(페이징/필터) · 인덱스 설계 + 쿼리 최적화(실행계획) · Redis 캐싱 + 무효화 · k6
 - **E. v2 결제 후속 MSA 전환**: 경계 분리 · Kafka 프로듀서/컨슈머(멱등) · Saga 보상 · DLT · Before/After 다이어그램
 - **F. 관측/마무리**: 메트릭(Micrometer)/로그/알람 · README · ADR

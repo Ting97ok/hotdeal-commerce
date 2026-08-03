@@ -22,7 +22,7 @@
 - ✅ 인증(JWT·RTR·tokenVersion), 회원(User)
 - ✅ 핫딜 설계 확정 — [가설 PRD](design/hotdeal-prd.md) · [기술 가설](design/hotdeal-purchase-hypothesis.md) · [ERD](design/erd.md) · [ADR](adr/README.md)
 - ✅ 엔티티+마이그레이션 — 상품·핫딜·재고·주문·결제 (V2~V6, FK 제약 미사용·활성 유니크·CHECK 5종)
-- ✅ 슬라이스 0~4 — 핫딜 등록 · 주문(선점·활성 유니크) · 미결제 만료 스케줄러 · 결제 승인 (vertical TDD). 핫딜 단건 조회는 설계만(미구현)
+- ✅ 슬라이스 0~4 — 핫딜 등록 · 주문(선점·활성 유니크) · 미결제 만료 스케줄러 · 결제 승인 (vertical TDD)
 - ✅ Phase A — 동시성 벤치마크(낙관적 락·조건부·Redis) → 운영 전략 조건부 UPDATE 확정 ([재고 동시성 ADR](adr/concurrency.md))
 - ✅ Phase B1 — 토스 실연동: TX 경계 분리 · sealed 4결과 분류 · IN_DOUBT 보존
 - ✅ Phase B2 — IN_DOUBT 해소 스케줄러 (토스 재조회 → DONE 확정 / 실패 확정 + 재고 방출)
