@@ -1,6 +1,6 @@
 # hotdeal-commerce
 
-Spring Boot 3.5.13 + Java 21 모놀리식 커머스(핫딜). 고트래픽 동시성 처리와 결제 후속의 부분 MSA 전환이 목표 — [build.gradle](build.gradle) · [ADR-0002](docs/adr/0002-monolith-first-partial-msa.md)
+Spring Boot 3.5.13 + Java 21 모놀리식 커머스(핫딜). 고트래픽 동시성 처리와 결제 후속의 부분 MSA 전환이 목표 — [build.gradle](build.gradle) · [프로젝트 개요](docs/project-plan.md)
 
 전역 작업 규칙은 `~/.claude/CLAUDE.md`, Java/Spring 일반 패턴은 `spring-conventions` 스킬에 있다. **이 문서에는 이 저장소가 정한 것만 둔다.** 충돌하면 이 문서가 이긴다.
 
@@ -36,6 +36,7 @@ Controller → Facade → Service → Repository
 - **Facade 4계층**: auth · hotdeal · order · payment (`domain/*/facade/` 실재)
 - **지원 도메인은 Service 까지만**: product · stock · user — Controller 없이 타 도메인 Facade 가 진입점
 - 신규 도메인은 4계층. 단순 CRUD 도 Facade 를 경유한다. 기존 3계층 도메인을 강제 전환하지는 않는다.
+- **의존은 한 방향으로만 흐른다** — 구매 쪽(order·payment)이 카탈로그·재고(hotdeal·product·stock)를 참조하고 역방향은 없다. 타 도메인 Repository 를 직접 부르지 않는다. 근거는 [애플리케이션 구조 ADR](docs/adr/architecture.md)
 
 **로직을 어디 둘지는 "다른 유즈케이스가 이걸 다르게 하면 버그인가?"로 판단한다.** 재사용 여부로 판단하면 공통 서비스가 잡동사니 통이 된다. 상세는 `spring-conventions` 의 service.md.
 

@@ -158,5 +158,5 @@ erDiagram
 - **만료 복원** — 스케줄러가 만료를 처리하고(Redis 키 TTL 미채택), 만료시각은 `order.payment-timeout`(10분) ([주문 ADR 3절](../adr/order.md)). 구상하던 "취소 전 토스 조회"는 결제 선점이 토스 승인 앞으로 옮겨지며 필요가 사라져 넣지 않았다.
 - **JPA 매핑 노트(api-design 에 반영)** — User 는 `getReferenceById`(SELECT 없이 참조만 — JWT 인증 통과 = 실존 보장, 탈퇴 도입 시 재검토) · HotDeal 은 `findById`(가드 검증 겸용) · `HotDealStock`·`ProductStock` 은 상위 엔티티와 독립적으로 차감되는 행이라 객체 연관 없이 전용 조회로 둔다(거창한 성능 결정이 아닌 단순 구현 선택 — 병목은 재고 차감 경합이지 조회가 아니므로 `@OneToOne` 단건 조회·Redis 교체 같은 근거는 들지 않는다). `ProductStock` 은 등록/결제확정 경로에서 **원자적 조건부 UPDATE**(`WHERE 가용 >= 수량`)로 예약·차감([재고 동시성 ADR 4절](../adr/concurrency.md)).
 - **구매 API(슬라이스 1)** — 상품 주소 `POST /api/orders {productId}`(서버가 활성 핫딜 해소), `Order` 는 `product`+`hot_deal` 참조 + 금액 스냅샷([재고 동시성 ADR](../adr/concurrency.md) 관련 방향).
-- **MSA 전환(v2, 스트레치) 경계 = 결제 후속 처리** ([ADR-0002](../adr/0002-monolith-first-partial-msa.md)).
+- **MSA 전환(v2, 스트레치) 경계 = 결제 후속 처리** ([프로젝트 개요](../project-plan.md) E단계).
 - **논리삭제 없음** — 상태 enum 으로 제어.
