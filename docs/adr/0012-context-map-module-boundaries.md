@@ -1,7 +1,7 @@
 # ADR-0012. 경계 맥락 지도(context map) — 모듈 경계와 MSA 분리 지점
 
 - 상태: 확정 · 작성: 2026-06-19
-- 관련: [ADR-0002 부분 MSA](0002-monolith-first-partial-msa.md) · [재고 동시성 ADR](concurrency.md) · [service.md 계층 규칙](../../.claude/rules/service.md)
+- 관련: [ADR-0002 부분 MSA](0002-monolith-first-partial-msa.md) · [재고 동시성 ADR](concurrency.md) · [계층 규칙](../../CLAUDE.md)
 
 ## 결정 요약
 
@@ -50,7 +50,7 @@
 
 경계가 안 무너지는 핵심은 패키지를 몇 개로 쪼개느냐가 아니라 **의존을 어떻게 거느냐**다.
 
-- **구매 코어 내부**: Facade 경유 동기 호출 허용([service.md](../../.claude/rules/service.md)). 강한 일관성이라 한 트랜잭션으로 묶는다.
+- **구매 코어 내부**: Facade 경유 동기 호출 허용([계층 규칙](../../CLAUDE.md)). 강한 일관성이라 한 트랜잭션으로 묶는다.
 - **구매 코어 → 결제 후속**: **이벤트(Kafka)만**. 동기 호출 금지 — 이 한 선이 미래 MSA 분리 지점을 살린다([ADR-0002](0002-monolith-first-partial-msa.md): 모놀리식 단계에서도 이벤트 발행 지점을 식별).
 - **참조 방향**: 주문·결제 → 핫딜·재고·상품 (구매가 카탈로그를 참조). **역방향 금지** — 상품·재고는 주문을 알지 못한다.
 
@@ -58,7 +58,7 @@
 
 - 지금은 **모놀리식 모듈 경계**다. 실제 물리 분리는 결제 후속 한 곳([ADR-0002](0002-monolith-first-partial-msa.md)). 모듈을 또렷이 둔 건 미래 옵션 보존이지 당장 분리가 아니다.
 - context map 의 무거운 패턴(ACL·Conformist·OHS 등 맥락 간 번역·방어 장치)은 6개 도메인·단일 저장소 규모에 과설계라 미채택 — 경계 2개 + 의존 규칙으로 충분.
-- 의존 규칙 자동 강제(ArchUnit)는 미도입 — 코드 리뷰가 안전장치([service.md](../../.claude/rules/service.md)).
+- 의존 규칙 자동 강제(ArchUnit)는 미도입 — 코드 리뷰가 안전장치다.
 
 ## 출처
 

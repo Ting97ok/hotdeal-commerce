@@ -8,7 +8,7 @@
 
 ## 결정
 
-**물리 DDL(Flyway 마이그레이션)에 FK 제약을 선언하지 않는다.** 참조는 FK 칼럼(`*_id`) + 보조 인덱스만 둔다. JPA 연관 매핑(@ManyToOne 등)은 유지하되, 연관에 `@ForeignKey(ConstraintMode.NO_CONSTRAINT)` 를 명시해 Hibernate 스키마 생성 경로에서도 FK 가 만들어지지 않게 한다 — 객체 모델과 DB 제약은 별개(상세 [entity.md](../../.claude/rules/entity.md)). ERD 다이어그램의 관계선(논리 참조)도 유지한다.
+**물리 DDL(Flyway 마이그레이션)에 FK 제약을 선언하지 않는다.** 참조는 FK 칼럼(`*_id`) + 보조 인덱스만 둔다. JPA 연관 매핑(@ManyToOne 등)은 유지하되, 연관에 `@ForeignKey(ConstraintMode.NO_CONSTRAINT)` 를 명시해 Hibernate 스키마 생성 경로에서도 FK 가 만들어지지 않게 한다 — 객체 모델과 DB 제약은 별개다. ERD 다이어그램의 관계선(논리 참조)도 유지한다.
 
 ## 근거
 
@@ -25,7 +25,7 @@
 
 - **서비스 가드** — 쓰기 경로는 항상 부모 존재를 검증한 뒤 진행(구매 가드의 핫딜 조회 등).
 - **정합 검증식 테스트** — 장부 일치식(정의: [주문 ADR 7절](order.md))이 참조 깨짐(고아 데이터)을 간접 탐지.
-- 코딩 룰에 반영: [.claude/rules/entity.md](../../.claude/rules/entity.md).
+- 코딩 룰에 반영: [CLAUDE.md](../../CLAUDE.md) 하드룰 4. 누락은 [check.sh](../../.claude/scripts/check.sh) 가 검출한다.
 
 ## 전환 경로
 
