@@ -1,6 +1,6 @@
 # hotdeal-commerce
 
-Spring Boot 3.5.13 + Java 21 모놀리식 커머스(핫딜). 고트래픽 동시성 처리와 결제 후속의 부분 MSA 전환이 목표 — [build.gradle](build.gradle) · [프로젝트 개요](docs/project-plan.md)
+Spring Boot 3.5.13 + Java 21 모놀리식 커머스(핫딜). 고트래픽 동시성 처리와 결제 후속의 부분 MSA 전환이 목표 — [build.gradle](build.gradle) · [프로젝트 개요](README.md)
 
 전역 작업 규칙은 `~/.claude/CLAUDE.md`, Java/Spring 일반 패턴은 `spring-conventions` 스킬에 있다. **이 문서에는 이 저장소가 정한 것만 둔다.** 충돌하면 이 문서가 이긴다.
 
@@ -114,9 +114,13 @@ Java 소스의 심볼 단위 분석·편집은 Serena MCP 우선 — `find_symbo
 
 ## 문서
 
-설계 문서는 `docs/{도메인}/`, 결정은 `docs/adr/`, 검토는 `docs/rfc/`. 색인은 [docs/README.md](docs/README.md).
+결정은 `docs/adr/`(주제별 ADR — 색인은 [adr/README.md](docs/adr/README.md)), 그 근거와 실측은 `docs/rfc/`, 설계 문서는 `docs/design/`. 새 도메인·API 작업은 설계 문서를 먼저 쓴다(`api-design` 스킬).
 
-새 도메인·API 작업은 설계 문서를 먼저 쓴다(`api-design` 스킬). 문서 형식 기준은 [docs/README.md](docs/README.md) 를 따른다.
+**작성 규약** — 이 절이 정본이다. 다른 곳에 사본을 두지 않는다.
+
+- 타 문서의 특정 절을 가리킬 때는 **절 번호를 텍스트에 적고 링크는 파일 레벨**로 건다 — `[핫딜 ADR 4절](docs/adr/hotdeal.md)`. `#앵커` 를 쓰지 않는다. IntelliJ 가 자동 슬러그 앵커를 지원하지 않아 파일 레벨만 IntelliJ·GitHub 양쪽에서 작동한다
+- **영어 파일명을 본문에 노출하지 않는다.** 링크 텍스트는 한국어 문서 이름으로
+- **다른 문서의 수치를 복제하지 않는다.** 모으고 싶으면 링크만 건다 — 원본이 바뀌면 사본은 아무도 안 고친다
 
 ## 커밋 체크포인트
 
