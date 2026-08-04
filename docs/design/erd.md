@@ -1,7 +1,6 @@
 # 데이터 모델 (ERD) — 핫딜 동시성 관점
 
-> 1주차 개략 설계. 행동 규칙·범위는 [기술 가설](hotdeal-purchase-hypothesis.md)이 상위 기준(그 위는 [가설 PRD](hotdeal-prd.md))이고,
-> 본 문서는 그 가설을 **데이터 모양**으로 옮긴 것이다. **결정의 이유(대안·트레이드오프)는 전부 [ADR](../adr/README.md)** — 본 문서는 결정된 모델만 적는다.
+> 이 문서는 **데이터 모양**만 적는다. **결정의 이유(대안·트레이드오프)는 전부 [ADR](../adr/README.md)** 에 있다.
 > 표기: 기술 용어는 첫 등장에 한 줄 풀이를 병기한다. 인증·회원은 구현 완료 — [인증 ADR](../adr/auth.md).
 
 ---
@@ -111,7 +110,7 @@ erDiagram
 
 ## 4. 가설 불변식 → 데이터 모델 반영
 
-| 가설 규칙 ([가설 4](hotdeal-purchase-hypothesis.md)) | 데이터 모델에서의 구현 위치 |
+| 불변식 | 데이터 모델에서의 구현 위치 |
 |---|---|
 | 초과 판매 0 + 거짓 성공 0 | `HotDealStock.remainingQuantity` 차감의 원자성(조건부 UPDATE — [재고 동시성 ADR](../adr/concurrency.md)) + CHECK(`remaining >= 0`, 최후 방어선). 거짓 성공은 "응답 = 커밋된 트랜잭션"으로 차단 |
 | 계정당 1활성주문 | `orders` 활성 유니크 — 생성 컬럼 (아래 '6. 물리 DDL 정책'). 주문당 `maxPerOrder`·총량 `maxPerAccount`는 [주문 ADR 4·5절](../adr/order.md) |
