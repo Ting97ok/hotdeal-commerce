@@ -54,7 +54,7 @@ WHERE product_id = :productId AND status = 'ACTIVE'
   - 지금 한 행이 미래의 (핫딜 1 + 핫딜 상품 1)이다
 - 전환 비용은 국소적이다
   - 운영 중이면 한 번에 이름을 바꾸지 않고 새 구조를 먼저 세운 뒤 옛 구조를 걷는 단계 마이그레이션으로 한다
-  - DB FK 제약이 없어([FK 제약 미사용 ADR](0003-no-db-fk-constraints.md)) 변경이 `hot_deals` 주변에 머문다. 타 도메인이나 API 계약으로 번지지 않는다
+  - DB FK 제약이 없어([참조 무결성 ADR](integrity.md)) 변경이 `hot_deals` 주변에 머문다. 타 도메인이나 API 계약으로 번지지 않는다
 
 ## 3. 같은 상품의 판매 기간이 겹치면 등록을 거부한다
 

@@ -76,7 +76,7 @@ erDiagram
     }
 ```
 
-> - 표기: `PK` = 기본 키 · `UK` = 유니크(같은 값이 두 번 저장될 수 없음) · `FK` = 참조 — **논리적 표기일 뿐, 물리 DDL(실제 테이블 생성 SQL)에는 FK 제약을 걸지 않는다** ([ADR-0003](../adr/0003-no-db-fk-constraints.md)).
+> - 표기: `PK` = 기본 키 · `UK` = 유니크(같은 값이 두 번 저장될 수 없음) · `FK` = 참조 — **논리적 표기일 뿐, 물리 DDL(실제 테이블 생성 SQL)에는 FK 제약을 걸지 않는다** ([참조 무결성 ADR](../adr/integrity.md)).
 > - MySQL 예약어 회피로 주문 테이블명은 `orders`. 위 컬럼은 개략 — 실제 매핑/제약은 마이그레이션에서 확정.
 
 ---
@@ -136,7 +136,7 @@ erDiagram
 
 ## 6. 물리 DDL 정책 + V2 마이그레이션 결정 목록
 
-- **FK 제약 없음** — FK 컬럼(`*_id`) + 보조 인덱스(기본 키 외에 따로 만드는 검색용 색인)만 ([ADR-0003](../adr/0003-no-db-fk-constraints.md)).
+- **FK 제약 없음** — 참조는 컬럼(`*_id`)으로 두고, 인덱스는 조회 경로가 있을 때만 건다 ([참조 무결성 ADR 1절](../adr/integrity.md)).
 - **금액** — 전 금액 컬럼 `DECIMAL(12,0)`, JPA `BigDecimal` ([ADR 인덱스 — 금액 타입](../adr/README.md)).
 - **시각** — 전 컬럼 `DATETIME(6)` (V1 과 동일 정밀도).
 - **재고 테이블 분리** — `product_stock`(상품 재고 원본): `product_id`(UNIQUE 논리 참조)·`on_hand_quantity`·`reserved_quantity`(version 없음 — 예약·복원은 원자적 조건부 UPDATE, [재고 동시성 ADR 4절](../adr/concurrency.md)). `hot_deal_stock`(핫딜 예약 재고 — 기존 `stock` 리네임): `hot_deal_id`(UNIQUE)·`remaining_quantity`(`version` 없음 — 낙관적 락 측정 종료 후 제거, [재고 동시성 ADR](../adr/concurrency.md)). 가용(실물−예약)은 **저장 안 함**(조회 시 계산) ([재고 동시성 ADR](../adr/concurrency.md)).

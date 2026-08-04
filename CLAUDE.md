@@ -45,7 +45,7 @@ Controller → Facade → Service → Repository
 1. **들여쓰기 2칸, 탭 금지** — [.editorconfig](.editorconfig)
 2. **컨트롤러는 raw DTO 를 반환한다.** [ApiResponseAdvice](src/main/java/com/sparta/msa/commerce/global/response/advice/ApiResponseAdvice.java) 가 `{result, data, error}` 로 자동 래핑한다. 직접 감싸면 이중 래핑
 3. **예외는 `throw new DomainException({Domain}ExceptionCode.X)`** — [global/exception](src/main/java/com/sparta/msa/commerce/global/exception). `IllegalStateException`/`IllegalArgumentException` 을 쓰지 않는다
-4. **DB FK 제약을 걸지 않는다** — `@JoinColumn(foreignKey = @ForeignKey(ConstraintMode.NO_CONSTRAINT))` + Flyway DDL 에도 미선언. 참조 무결성은 서비스 가드가 책임 — [ADR-0003](docs/adr/0003-no-db-fk-constraints.md)
+4. **DB FK 제약을 걸지 않는다** — `@JoinColumn(foreignKey = @ForeignKey(ConstraintMode.NO_CONSTRAINT))` + Flyway DDL 에도 미선언. 참조 무결성은 서비스 가드가 책임 — [참조 무결성 ADR](docs/adr/integrity.md)
 5. **엔티티는 [BaseEntity](src/main/java/com/sparta/msa/commerce/global/entity/BaseEntity.java) 를 상속**하고 정적 팩토리 `create(Request, 연관)` 로만 만든다
 6. **컬럼·enum 상수에 한국어 의미 주석**을 단다(`@Comment` 는 Flyway DDL 의 `COMMENT` 와 문구 일치). 이것만 "주석 최소" 원칙의 예외다
 

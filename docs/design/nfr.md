@@ -99,7 +99,7 @@
 | **알람** | SLO→알람 임계 1:1 환산 + 커넥션 풀 고갈 런북 — **구상만, 실체 미구현** | 미구현 |
 
 - **관측 지표(무엇을 보나)**: 스레드 수가 아니라 `hikaricp_connections_active`·`hikaricp_connections_pending`(커넥션 풀 포화)와 `jvm_threads_states{state="blocked"}`(락 대기)를 본다([RFC 벤치마크 4절](../rfc/concurrency-benchmark.md)).
-- **롤백 절차**: 재고 차감 방식은 프로퍼티 한 줄로 조건부↔Redis 교체(Type2 — [재고 동시성 ADR 4절](../adr/concurrency.md)). Redis 승격 조건은 SLA 위반 시. 스키마는 FK 미사용이라 `ALTER`가 제약 순서에 안 묶임([ADR-0003](../adr/0003-no-db-fk-constraints.md)).
+- **롤백 절차**: 재고 차감 방식은 프로퍼티 한 줄로 조건부↔Redis 교체(Type2 — [재고 동시성 ADR 4절](../adr/concurrency.md)). Redis 승격 조건은 SLA 위반 시. 스키마는 FK 미사용이라 `ALTER`가 제약 순서에 안 묶임([참조 무결성 ADR](../adr/integrity.md)).
 - **스케줄러 격리**: 만료·결제해소 스케줄러를 `ThreadPoolTaskScheduler`(pool 2)로 분리 — 해소가 토스 장애로 장기 점유해도 만료(재고 방출)가 안 멈춘다([결제 ADR 6절](../adr/payment.md)). 각 스케줄러는 회차 상한(LIMIT 500) + 인덱스로 한 회차 비용을 묶는다.
 - **왜 알람 미구현인가**: 알람은 임계 초과를 받을 **실운영 트래픽**과 수신자가 있어야 산다. **언제 채우나** — [PRD 검수3 관측 최소판](hotdeal-prd.md)(SLO→알람 1:1, 런북 한 장)을 관측/마무리 단계에서 실체화. 지금은 대시보드(벤치마크용)까지만 실재.
 

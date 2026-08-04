@@ -71,7 +71,7 @@ nginx 로드밸런서 뒤 앱을 1대→3대로 늘리고, 부하는 동시 1,00
 - **1인 1주문을 DB 가 직렬화** — MySQL 부분 유니크 부재를 저장 생성 컬럼(`is_active`)으로 우회한 활성 유니크 · [주문 ADR 4절](docs/adr/order.md)
 - **토스 호출은 트랜잭션 밖** — 선점(TX1) → confirm(TX 밖) → 결과 반영(TX2). 승인/거절/통신오류/미확정 sealed 4분기, 미확정(IN_DOUBT)은 해소 스케줄러가 토스 재조회로 확정 · [결제 ADR 4·6절](docs/adr/payment.md)
 - **상태 전이 전부 조건부 UPDATE** — 결제↔만료 경합은 진 쪽이 영향 행 0 으로 그 사실을 안다 · [주문 ADR 3절](docs/adr/order.md)
-- 무상태 JWT + RTR(Redis GETDEL 원자 소비) · DB FK 제약 미사용 · [ADR-0003](docs/adr/0003-no-db-fk-constraints.md)
+- 무상태 JWT + RTR(Redis GETDEL 원자 소비) · DB FK 제약 미사용 · [참조 무결성 ADR](docs/adr/integrity.md)
 
 ## 기술 스택
 
