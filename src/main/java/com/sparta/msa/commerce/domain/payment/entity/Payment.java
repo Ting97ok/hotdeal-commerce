@@ -3,7 +3,7 @@ package com.sparta.msa.commerce.domain.payment.entity;
 import static lombok.AccessLevel.PRIVATE;
 
 import com.sparta.msa.commerce.domain.order.entity.Order;
-import com.sparta.msa.commerce.domain.payment.gateway.PgConfirmResult;
+import com.sparta.msa.commerce.domain.payment.client.dto.PgConfirmResult;
 import com.sparta.msa.commerce.global.entity.BaseEntity;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;

@@ -2,7 +2,7 @@ package com.sparta.msa.commerce.domain.payment.service;
 
 import com.sparta.msa.commerce.domain.order.entity.Order;
 import com.sparta.msa.commerce.domain.payment.entity.Payment;
-import com.sparta.msa.commerce.domain.payment.gateway.PgConfirmResult;
+import com.sparta.msa.commerce.domain.payment.client.dto.PgConfirmResult;
 import com.sparta.msa.commerce.domain.payment.repository.PaymentRepository;
 import java.time.LocalDateTime;
 import java.util.List;

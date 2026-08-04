@@ -34,7 +34,6 @@ bin/
 
 # AI 도구 로컬 설정 (레포 비추적)
 .serena/
-_workspace/
 .playwright-mcp/
 
 # 벤치마크 산출물 (런타임 생성 · 재현 가능 — 결과 수치는 ADR-0010 에 보존)

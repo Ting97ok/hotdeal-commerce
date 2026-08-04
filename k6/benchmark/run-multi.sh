@@ -145,6 +145,7 @@ for STRATEGY in $STRATEGIES; do
       OV=$(check_oversell "$STRATEGY" "$STOCK")
       THR+=("$STRATEGY|$N|$VU|$SUCCESS|$OV|$P95|$AVG|$LWD|$LTD")
       echo "  [$TAG] 성공=$SUCCESS/$VU 오버셀=$OV p95=$P95 avg=$AVG 행잠금대기=${LWD}회/${LTD}ms"
+      echo "$TAG success=$SUCCESS/$VU oversell=$OV p95=$P95 avg=$AVG row_lock_waits=$LWD row_lock_time_ms=$LTD" >> "$RESULTS/lock-stats.log"
     done
   done
 done

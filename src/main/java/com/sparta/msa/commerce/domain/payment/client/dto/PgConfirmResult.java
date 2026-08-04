@@ -1,0 +1,20 @@
+package com.sparta.msa.commerce.domain.payment.client.dto;
+
+import java.math.BigDecimal;
+import java.time.LocalDateTime;
+
+public sealed interface PgConfirmResult
+    permits PgConfirmResult.Approved, PgConfirmResult.Rejected, PgConfirmResult.InDoubt, PgConfirmResult.GatewayError {
+
+  record Approved(
+      String pgPaymentKey,
+      BigDecimal amount,
+      LocalDateTime approvedAt
+  ) implements PgConfirmResult {}
+
+  record Rejected() implements PgConfirmResult {}
+
+  record InDoubt() implements PgConfirmResult {}
+
+  record GatewayError() implements PgConfirmResult {}
+}

@@ -1,151 +1,133 @@
-# CLAUDE.md
+# hotdeal-commerce
 
-이 파일은 Claude Code가 commerce 저장소에서 작업할 때 필요한 핵심 컨벤션을 제공합니다.
-상세 구현 가이드는 `/api-impl`, 설계 워크플로우는 `/api-design` 스킬을 참조하세요.
+Spring Boot 3.5.13 + Java 21 모놀리식 커머스(핫딜). 고트래픽 동시성 처리와 결제 후속의 부분 MSA 전환이 목표 — [build.gradle](build.gradle) · [프로젝트 개요](README.md)
 
-> **경로별 상세 규칙**: `.claude/rules/` 에 계층별 코딩 패턴이 분리되어 있으며, 작업 파일 경로에 맞는 규칙이 자동 로딩됩니다.
-> **구현 상세 가이드**: @.claude/skills/api-impl/entity-dto-patterns.md, @.claude/skills/api-impl/querydsl-guide.md
+전역 작업 규칙은 `~/.claude/CLAUDE.md`, Java/Spring 일반 패턴은 `spring-conventions` 스킬에 있다. **이 문서에는 이 저장소가 정한 것만 둔다.** 충돌하면 이 문서가 이긴다.
 
-## 하네스: Commerce Dev Flow
+> **`src/main/java` 또는 `src/test/java` 를 이번 세션에서 처음 고치기 전에 `spring-conventions` 스킬을 호출한다.** 세션당 한 번.
 
-**목표:** 신규 도메인 API 개발, 기존 코드 수정, 설계 단독 작업을 6명 에이전트(domain-analyst / backend-architect / api-designer / api-implementer / code-reviewer / qa-validator)로 자동 조율하여 컴파일 통과 + 설계-구현 정합성 + 계층 위반 0건까지 보장.
+## 스택
 
-**트리거:** 도메인 개발/API 개발/신규 도메인/기존 코드 수정/설계 문서 작성/구현 요청 시 `commerce-dev-flow` 스킬을 사용한다. "재실행", "리뷰만 다시", "검증해줘" 같은 후속 요청도 동일 스킬이 처리한다. 단순 질문(컨벤션 조회, 코드 의미 설명)은 직접 응답.
+MySQL 8.4 + Flyway, Redis(Session/Cache), JPA + QueryDSL, MapStruct, Undertow, SpringDoc, JaCoCo. 인증은 무상태 JWT(RTR) — [build.gradle](build.gradle) · [application.yaml](src/main/resources/application.yaml)
 
-**구성:**
-- 에이전트 (`.claude/agents/`): domain-analyst, backend-architect, api-designer, api-implementer, code-reviewer, qa-validator
-- 스킬 (`.claude/skills/`): commerce-dev-flow(오케스트레이터), api-design, api-impl, domain-context, qa-validation
-- 중간 산출물: `_workspace/{01..05}_*.md` (감사 추적용 보존)
+PostgreSQL 이 아니다. 마이그레이션 SQL 은 MySQL 방언으로 쓴다.
 
-**TDD 표준 하 사용 범위:** commerce-dev-flow 는 "TDD 진입 전(분석·설계·엔티티/마이그레이션)"과 "TDD 종료 후(리뷰·QA)"만 담당한다. Repository/ExceptionCode/Service/Controller 는 mattpocock `tdd` 스킬의 vertical-slice TDD 로 진행(각 메서드/enum 존재가 테스트로 정당화). 세부는 [.claude/rules/commit-checkpoint.md](.claude/rules/commit-checkpoint.md).
+## 패키지 구조
 
-## 작업 진행 순서
+루트 `com.sparta.msa.commerce`. 최상위 축은 셋이다.
 
-1. **리뷰 우선**: 요청의 의문점/잘못된 점을 먼저 검토·피드백
-2. **리뷰 완료 확인**: 의문점 해결을 사용자에게 확인
-3. **설계 문서 선행**: 신규 도메인/API 작업 전 `docs/{도메인}/api-design*.md` 를 먼저 작성(`/api-design` 스킬). 기존 주차 문서(`docs/week{n}-api-design*.md`)는 그대로 두고 신규는 도메인 단위.
-4. **작업 진행**: 설계 확정 후 vertical TDD 사이클(RED→GREEN→Docs)로 구현. 세부는 commit-checkpoint.md
+| 축 | 담는 것 |
+|---|---|
+| `domain/{도메인}` | 비즈니스 개념. 외부 연동의 **계약 인터페이스**도 그 능력이 필요한 도메인에 둔다 |
+| `infrastructure/{역할}/{벤더}` | 벤더 구현·전송·요청 응답 타입·설정 — [infrastructure/paymentgateway/toss](src/main/java/com/sparta/msa/commerce/infrastructure/paymentgateway/toss) |
+| `global` | 프레임워크 횡단 — config·security·exception·response·entity |
 
-## 프로젝트 개요
+- 한 계층만 쓰는 것은 그 계층 아래, 둘 이상이 쓰면 도메인 루트. `dto` 는 5계층이 써서 루트에 둔다.
+- **경계를 넘나드는 데이터 타입은 `dto/`** — web 경계는 `dto/request`·`dto/response`, 외부 시스템 경계는 `client/dto`. 엔티티는 경계를 넘는 데이터가 아니라 도메인 모델이라 `entity/`.
+- **enum 은 쓰는 타입과 같은 자리에** 둔다. `constant/`·`enums/` 로 모으지 않는다 — `PaymentStatus` 는 `entity/`, `PgPaymentStatus` 는 `client/dto/`, `{Domain}ExceptionCode` 는 `exception/`.
+- **요청 DTO 를 command 로 다시 매핑하지 않는다.** 인바운드 입구가 REST 하나라 복사본이 되고 Bean Validation 이 갈린다. 입구가 둘 이상 되면 그때.
 
-Spring Boot 3.5.13 + Java 21 **모놀리식** 커머스(핫딜) 시스템 — 고트래픽 동시성 처리 + **부분 MSA 전환**(결제 후속 처리)을 목표로 한다. Undertow, MySQL 8.4 + Flyway, Redis(Session/Cache), JPA + QueryDSL, MapStruct, SpringDoc OpenAPI, JaCoCo. 인증은 무상태 JWT(RTR).
-
-### 도메인 구조
-
-단일 모듈(`rootProject.name = 'commerce'`), 패키지 `com.sparta.msa.commerce.domain.{도메인}`.
-도메인: **auth·user·product·stock·hotdeal·order·payment**.
-
-## 아키텍처
+## 계층
 
 ```
-controller/ → facade/ → service/ → repository/
-                        entity/ | dto/ | mapper/ | exception/
+Controller → Facade → Service → Repository
 ```
 
-- **신규 도메인은 4계층**(Controller → Facade → Service → Repository). Facade 전면 도입 — 단순 CRUD 도 Facade 경유.
-- **지원 도메인(user·product·stock)은 Controller 없이 Service 까지만** — 타 도메인 Facade 가 진입점. auth·hotdeal·order·payment 는 Facade 4계층(전환 강제하지 않음).
-- Facade 는 타 도메인 Service 호출(Repository 직접 금지) + Response 조립. Service 는 자기 Repository + 같은 도메인 공통 Service 만(타 도메인 Service 직접 호출 금지 → Facade 경유). 상세 [.claude/rules/service.md](.claude/rules/service.md).
+- **Facade 4계층**: auth · hotdeal · order · payment (`domain/*/facade/` 실재)
+- **지원 도메인은 Service 까지만**: product · stock · user — Controller 없이 타 도메인 Facade 가 진입점
+- 신규 도메인은 4계층. 단순 CRUD 도 Facade 를 경유한다. 기존 3계층 도메인을 강제 전환하지는 않는다.
+- **의존은 한 방향으로만 흐른다** — 구매 쪽(order·payment)이 카탈로그·재고(hotdeal·product·stock)를 참조하고 역방향은 없다. 타 도메인 Repository 를 직접 부르지 않는다. 근거는 [애플리케이션 구조 ADR](docs/adr/architecture.md)
 
-## 네이밍 컨벤션
+**트랜잭션을 여는 곳은 Facade 뿐이다.** 한 덩어리로 묶이면 `@Transactional`, 중간에 외부 호출이 끼어 쪼개야 하면 `TransactionTemplate`(Facade 에서만). Service 의 `@Transactional` 은 경계가 아니라 합류이고, `readOnly` 를 포함한 속성은 **경계를 연 쪽의 선언만 유효**하다. DB 를 쓰지 않는 흐름은 트랜잭션을 열지 않는다 — 근거는 [애플리케이션 구조 ADR 2절](docs/adr/architecture.md)
 
-- Controller: `{Domain}{Role}Controller` / `{Role}{Domain}Controller` (혼재 허용 — 도메인 내 일관성)
-- Facade(신규 도메인): `{Domain}{Role}Facade` / `{Domain}Facade`
-- Service: 공통 `{Domain}Service`, 역할별 `{Domain}AdminService`/`{Domain}UserService`, 기능별 `{Domain}QueryService` 등
-- Entity: `{Domain}`(단순명) / Repository: `{Domain}Repository`(+`{Domain}RepositoryCustom`/`...CustomImpl`)
-- Exception: 단일 `DomainException` + 도메인 `{Domain}ExceptionCode` enum
-- DTO(record): Request `{Action}{Domain}Request`, Response `{Action}{Domain}Response` / `{Domain}{용도}Response`
-- 외부 연동: 계약 인터페이스 `{역할}Client` / 어댑터 구현 `{벤더}{도메인}Client` / HTTP 전송 `{벤더}HttpClient` (예: `PaymentGatewayClient` / `TossPaymentClient` / `TossHttpClient`) — 역할·근거는 [docs/adr/0008](docs/adr/0008-payment-model-pg-boundary.md)
-- 변수: camelCase, 줄임말 지양. boolean `isXxx`, 컬렉션 `{타입}List`. 메서드 동사 시작.
+**로직을 어디 둘지는 "다른 유즈케이스가 이걸 다르게 하면 버그인가?"로 판단한다.** 재사용 여부로 판단하면 공통 서비스가 잡동사니 통이 된다. 상세는 `spring-conventions` 의 service.md.
 
-## 코딩 컨벤션
+## 하드룰
 
-### 들여쓰기 — Java 공백 2칸 고정
+1. **들여쓰기 2칸, 탭 금지** — [.editorconfig](.editorconfig)
+2. **컨트롤러는 raw DTO 를 반환한다.** [ApiResponseAdvice](src/main/java/com/sparta/msa/commerce/global/response/advice/ApiResponseAdvice.java) 가 `{result, data, error}` 로 자동 래핑한다. 직접 감싸면 이중 래핑
+3. **예외는 `throw new DomainException({Domain}ExceptionCode.X)`** — [global/exception](src/main/java/com/sparta/msa/commerce/global/exception). `IllegalStateException`/`IllegalArgumentException` 을 쓰지 않는다
+4. **DB FK 제약을 걸지 않는다** — `@JoinColumn(foreignKey = @ForeignKey(ConstraintMode.NO_CONSTRAINT))` + Flyway DDL 에도 미선언. 참조 무결성은 서비스 가드가 책임 — [참조 무결성 ADR](docs/adr/integrity.md)
+5. **엔티티는 [BaseEntity](src/main/java/com/sparta/msa/commerce/global/entity/BaseEntity.java) 를 상속**하고 정적 팩토리 `create(Request, 연관)` 로만 만든다
+6. **컬럼·enum 상수에 한국어 의미 주석**을 단다(`@Comment` 는 Flyway DDL 의 `COMMENT` 와 문구 일치). 이것만 "주석 최소" 원칙의 예외다
 
-Java 코드는 **공백 2칸** 들여쓰기로 고정한다(탭 금지). 루트 `.editorconfig` 의 `[*.java] indent_size=2` 로 강제돼 IDE 가 자동 적용하며, 코드 생성·편집 시에도 2칸을 지킨다.
+## 외부 연동 네이밍
 
-### 응답 — ApiResponse 자동 래핑
+계약 `{역할}Client` / 어댑터 `{벤더}{도메인}Client` / HTTP 전송 `{벤더}HttpClient` — `PaymentGatewayClient` · `TossPaymentClient` · `TossHttpClient`. 근거는 [결제 ADR 3절](docs/adr/payment.md)
 
-컨트롤러는 **raw DTO 를 반환**한다. 전역 `ApiResponseAdvice`(ResponseBodyAdvice)가 `{result, data, error}`(`ApiResponse`) 로 자동 래핑한다. **컨트롤러에서 직접 감싸지 않는다.** 실패는 `GlobalExceptionHandler` 가 `ApiResponse.fail(...)` 로 처리.
-- 성공 `{"result":true,"data":{...}}` / 실패 `{"result":false,"error":{"code":"...","message":"..."}}`
+- 계약은 `domain/{도메인}/client/`, 결과 타입은 `client/dto/`, 벤더 구현·전송·설정은 `infrastructure/{역할}/{벤더}/`
+- **역할을 벤더보다 위에** 둔다. 같은 역할의 구현들이 모여야 교체 후보가 보인다
+- **혼자 읽히는 이름은 풀네임**(`PaymentGatewayClient`·`PAYMENT_GATEWAY_ERROR`), **접두는 축약**(`PgConfirmResult`·`pgPaymentKey`). 혼자 선 `Pg` 는 PostgreSQL 로 읽힌다
 
-### 예외 — DomainException + ExceptionCode enum
+## 재고 차감 — 전략 3종이 한 계약을 공유한다
 
-- `throw new DomainException({Domain}ExceptionCode.X)`. 도메인별 `enum implements ExceptionCode`(HttpStatus + message 직접 보유). 전역 공통은 `DomainExceptionCode`.
-- `IllegalStateException`/`IllegalArgumentException` 등 커스텀 RuntimeException 남발 금지.
+`stock.deduct.strategy` 로 구현체가 갈린다 — [application.yaml:50](src/main/resources/application.yaml)
 
-### 검증 — Bean Validation 우선
+| 값 | 구현체 |
+|---|---|
+| `conditional` (기본) | [ConditionalHotDealStockService](src/main/java/com/sparta/msa/commerce/domain/stock/service/ConditionalHotDealStockService.java) — 조건부 UPDATE |
+| `redis` | [RedisHotDealStockService](src/main/java/com/sparta/msa/commerce/domain/stock/service/RedisHotDealStockService.java) |
 
-- 단순 입력 검증(필수/길이/형식/부호/날짜)은 record 필드의 jakarta.validation 어노테이션 → 400 `VALIDATION_ERROR`.
-- 비즈니스 룰(상태 의존, Repository 조회)은 엔티티/서비스에서 `DomainException`.
+`HotDealStockService`(인터페이스) + `AbstractHotDealStockService`(공통) + 구현 2개 구조다. **한 전략만 고치면 나머지가 계약을 깬다.** 벤치마크 결과와 전환 선행 조건은 [동시성 ADR](docs/adr/concurrency.md) · [벤치마크 RFC](docs/rfc/concurrency-benchmark.md)
 
-### 공통 패턴
+인터페이스·추상 클래스·Redis 구현체에는 `@Transactional` 을 붙이지 않는다. DB 트랜잭션이 없거나 의미가 없다.
 
-- 엔티티/DTO/QueryDSL 상세는 `.claude/rules/` + `.claude/skills/api-impl/`.
-- 논리삭제는 도메인 선택(현재 사용 도메인 없음), 기본은 상태 enum(`ProductStatus` 등).
-- 엔티티는 정적 팩토리 `create(Request, 연관)` + 도메인 메서드 캡슐화. Response 변환은 MapStruct.
+## 마이그레이션
 
-### 주석 — self-documenting 우선 (주석 최소화)
+`src/main/resources/db/migration/V{n}__*.sql`, MySQL 방언. 현재 V1~V6.
 
-- **기본 주석 0.** 의미는 메서드명·변수명·타입·구조로 드러낸다(좋은 이름 > 주석). "무엇을 하는지(what)" 설명하는 주석 금지 — **클래스/메서드 Javadoc(`/** */`)도, 테스트의 given/when/then 마커 주석도 금지**(이름·구조로 표현).
-- **예외**: 로직이 본질적으로 복잡해 이름만으로 안 될 때만 **왜(why)** 를 한 줄로 최소 작성. what 반복 금지.
-- 필드/파라미터 설명 주석 금지 — 이름으로 표현(`aggregateId`/`resultType` 등). 자명한 DDL·설정 항목도 주석 없이. 설정 파일(yaml/compose)은 꼭 필요한 섹션 표식만.
-- **단계적 구현 중 덜 된 부분은 `// TODO(범위): {남은 일}`** 로 명시(임시 처리·미구현 seam 추적용. 예: `// TODO(outbox): 발행 폴러 미구현`). 완료 시 TODO 제거.
-- **에이전트 생성 코드도 동일** — 설명 주석 제거, 필요한 TODO 만 유지.
+**이미 적용된 파일을 고치지 않는다.** 체크섬이 어긋나 통합 테스트가 전부 죽고 원인이 로그에 드러나지 않는다. 스키마 변경은 항상 새 버전 파일로.
 
-## 코드 분석/편집 도구 정책
-
-Serena MCP 가 등록돼 있어 **Java 소스의 심볼 단위 분석/편집은 Serena 우선** 사용.
-
-| 작업 | 도구 |
-|------|------|
-| 심볼 위치 찾기 | `find_symbol` |
-| 참조처 추적 | `find_referencing_symbols` |
-| 심볼 단위 수정 | `replace_symbol_body`, `insert_after_symbol` |
-| 파일 심볼 개요 | `get_symbols_overview` |
-| 컴파일 진단 | `get_diagnostics_for_file` |
-
-비-Java(YAML/properties/MD/SQL) 편집·빌드/git 은 기본 도구(Edit/Write/Bash).
-
-## 빌드/실행 명령
-
-- 컴파일 확인: `./gradlew compileJava`
-- 전체 빌드/테스트: `./gradlew build` / `./gradlew test` (testcontainers — Docker 필요)
-- 커버리지: `./gradlew test jacocoTestReport`
+엔티티 매핑을 바꾸면 마이그레이션을 함께 낸다.
 
 ## 통합 테스트
 
-상세는 [.claude/rules/integration-test.md](.claude/rules/integration-test.md). 핵심: **공통 베이스 클래스 없이** 각 테스트가 `@SpringBootTest @AutoConfigureMockMvc @ActiveProfiles("test") @WithMockUser` 를 직접 사용. testcontainers MySQL 8.4 + Redis. `@Nested/@DisplayName`(한글), `repository.deleteAll()` 격리, 단언은 ApiResponse 구조(`$.result`/`$.data`/`$.error.code`).
+**공통 베이스 클래스가 없다.** 의도된 것이니 새로 만들지 않는다. 각 테스트가 직접 단다.
 
-## Phase/Slice별 스킬 호출
+```java
+@SpringBootTest @AutoConfigureMockMvc @ActiveProfiles("test") @WithMockUser(roles = "ADMIN")
+```
 
-각 단계 진입 시 적절한 스킬을 **Skill 도구로 직접 호출**한다.
+- testcontainers MySQL 8.4 + Redis. Flyway 가 운영과 동일하게 실행된다(`ddl-auto: none`)
+- 격리는 `@BeforeEach` 의 `repository.deleteAll()`. **클래스 레벨 `@Transactional` 을 붙이지 않는다** — mockMvc 이후 repository 검증이 깨진다
+- 단언은 래핑된 구조를 탄다: `$.result` / **`$.data.{필드}`** / `$.error.code == "{ExceptionCode 이름}"`
+- `@Nested`+`@DisplayName`(한국어 시나리오), 메서드명은 영어 camelCase
 
-| 단계 | 호출할 스킬 |
-|------|-----------|
-| Phase 0 (의도 추궁) | `api-design` |
-| Phase 1 (설계 문서) | `api-design` |
-| Phase 2 기반 (DTO/엔티티/마이그레이션) | `api-impl` 또는 직접 |
-| Phase 2 vertical TDD 사이클 | mattpocock `tdd` |
-| 디버깅 | mattpocock `diagnose` |
-| 신규 기능 브레인스토밍 | `brainstorming` |
-| 최종 검증 | `qa-validation` |
+## 빌드 · 테스트
 
-## 글로벌 스킬 (mattpocock)
+```
+./gradlew compileJava                          컴파일
+./gradlew test                                 전체 테스트 (Docker 필요)
+./gradlew test --tests '*XxxIntegrationTest'   단일
+./gradlew test jacocoTestReport                커버리지
+```
 
-`~/.claude/skills/` 의 핵심 개발 스킬을 활용한다:
-- **tdd**: vertical-slice TDD (RED→GREEN→REFACTOR)
-- **diagnose**: 같은 버그 재발을 막는 테스트 강제
-- **brainstorming**: 기능/설계 전 요구·의도 탐색
-- **improve-codebase-architecture**: 리팩토링 (Module/Depth/Seam)
+**`./gradlew test` 는 Docker 가 떠 있어야 한다.** testcontainers 가 MySQL·Redis 를 띄운다. 컨테이너가 못 뜨면 애플리케이션 로딩부터 실패하는데 스택 트레이스만 보면 코드 버그처럼 보인다. 테스트가 무더기로 깨지면 Docker 부터 확인한다.
 
-산출물은 한국어로 작성.
+## 코드 리뷰
 
-## 출력 언어 룰
+`code-reviewer` 서브에이전트는 **사용자가 리뷰를 요청했을 때만** 부른다. 자발적으로 부르지 않는다. 존재 이유는 컨텍스트 절약이 아니라 **구현 과정을 보지 않은 독립된 눈**이다.
 
-모든 산출물은 한국어로 작성. 예외(원문 유지): 코드 식별자(클래스/메서드/패키지명), 외부 문서 인용. 테스트 `@DisplayName` 은 한국어 시나리오, 메서드명은 영어 camelCase.
+기계적 위반(계층·래핑·탭·마이그레이션 수정)은 `.claude/scripts/check.sh` 가 검출한다.
 
-## 진행 상황 노출 + 커밋 체크포인트
+## 도구
 
-상세는 [.claude/rules/commit-checkpoint.md](.claude/rules/commit-checkpoint.md) (globs 없이 항상 로드). 핵심:
-- **자동 커밋 절대 금지** (사용자 직접 커밋). 작업 단위마다 멈춰 추천 커밋 메시지(한 줄 명령)를 제시 후 대기.
-- vertical TDD 작업 시 진행 매트릭스(슬라이스/사이클) + TodoWrite 노출.
+Java 소스의 심볼 단위 분석·편집은 Serena MCP 우선 — `find_symbol`, `find_referencing_symbols`, `replace_symbol_body`, `get_symbols_overview`, `get_diagnostics_for_file`. 비-Java(YAML·MD·SQL)와 빌드·git 은 기본 도구.
+
+## 문서
+
+결정은 `docs/adr/`(주제별 ADR — 색인은 [adr/README.md](docs/adr/README.md)), 그 근거와 실측은 `docs/rfc/`, 설계 문서는 `docs/design/`. 새 도메인·API 작업은 설계 문서를 먼저 쓴다(`api-design` 스킬).
+
+**작성 규약** — 이 절이 정본이다. 다른 곳에 사본을 두지 않는다.
+
+- 타 문서의 특정 절을 가리킬 때는 **절 번호를 텍스트에 적고 링크는 파일 레벨**로 건다 — `[핫딜 ADR 4절](docs/adr/hotdeal.md)`. `#앵커` 를 쓰지 않는다. IntelliJ 가 자동 슬러그 앵커를 지원하지 않아 파일 레벨만 IntelliJ·GitHub 양쪽에서 작동한다
+- **영어 파일명을 본문에 노출하지 않는다.** 링크 텍스트는 한국어 문서 이름으로
+- **다른 문서의 수치를 복제하지 않는다.** 모으고 싶으면 링크만 건다 — 원본이 바뀌면 사본은 아무도 안 고친다
+
+## 커밋 체크포인트
+
+절차는 전역 `~/.claude/CLAUDE.md`. 이 저장소의 범위:
+
+- **적용**: 도메인 개발·수정, 설계 문서, 마이그레이션 SQL
+- **메타 설정**(`.claude/**`, `CLAUDE.md`): 작은 변경은 끝낸 뒤 1회 커밋. **여러 파일을 지우거나 구조를 바꾸는 작업이면 되돌릴 수 있도록 단계별로 쪼갠다**
+- `.claude/` 도 git 추적 대상이라 커밋한다

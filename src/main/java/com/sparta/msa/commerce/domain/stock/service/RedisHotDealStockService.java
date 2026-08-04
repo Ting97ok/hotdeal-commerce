@@ -9,7 +9,7 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-// 동시성 차감 전략 비교용(ADR-0010) — 운영 기본은 조건부 차감, Redis는 고RPS 승격 후보.
+// 벤치마크 비교용 구현 — 운영 기본은 조건부 차감이고, 전환하려면 Redis 재고를 DB와 맞추는 일이 선행된다(재고 동시성 ADR).
 @Service
 @ConditionalOnProperty(name = "stock.deduct.strategy", havingValue = "redis")
 public class RedisHotDealStockService extends AbstractHotDealStockService {
