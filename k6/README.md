@@ -1,6 +1,6 @@
 # 동시성 벤치마크 실행 가이드
 
-> 설계 정본: [docs/rfc/concurrency-benchmark.md](../docs/rfc/concurrency-benchmark.md) · 도구 선정 [ADR-0013](../docs/adr/0013-load-test-tool-k6.md) · 측정 대상 [재고 동시성 ADR](../docs/adr/concurrency.md)
+> 설계 정본: [docs/rfc/concurrency-benchmark.md](../docs/rfc/concurrency-benchmark.md) (도구 선정은 2절) · 측정 대상 [재고 동시성 ADR](../docs/adr/concurrency.md)
 
 2전략(조건부 UPDATE · Redis+Lua)을 **같은 워크로드로 전략만 바꿔 재실행**해 비교한다. 낙관락은 측정 완료 후 코드에서 제거됐다([재고 동시성 ADR](../docs/adr/concurrency.md) — 측정 결과는 표에 보존).
 

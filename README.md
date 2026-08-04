@@ -87,7 +87,7 @@ nginx 로드밸런서 뒤 앱을 1대→3대로 늘리고, 부하는 동시 1,00
 | 매핑 | MapStruct | 엔티티 ↔ DTO |
 | 문서화 | SpringDoc OpenAPI | Swagger UI |
 | 테스트 | JUnit 5 + Testcontainers(MySQL 8.4) | 운영 동일 마이그레이션 검증 |
-| 부하 테스트 | k6 (+ Prometheus·Grafana) | [ADR-0013](docs/adr/0013-load-test-tool-k6.md) |
+| 부하 테스트 | k6 (+ Prometheus·Grafana) | [동시성 벤치마크 RFC 2절](docs/rfc/concurrency-benchmark.md) |
 
 > 표준 스택은 한 줄 근거만. 트레이드오프가 있던 의사결정(인증·아키텍처·PG·동시성 제어)은 [docs/adr](docs/adr/README.md) 에 기록한다.
 
