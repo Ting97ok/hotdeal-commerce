@@ -118,7 +118,7 @@ UNIQUE KEY uk_orders_active (user_id, hot_deal_id, is_active)
   - 덜 팔리는 것을 없애려고 안에서 다시 시도하면, 첫 시도가 사실 성공했는데 응답만 늦은 경우 주문이 둘 생긴다
   - 경합에 밀린 요청은 잔여가 부족하면 `SOLD_OUT`, 이미 산 핫딜이면 `ALREADY_PURCHASED` 로 그대로 돌려준다
 - 부수 효과로 방식별 "성공 수"가 그대로 비교 지표가 된다. 낙관적 락이 1,000건 중 163건만 성공해 탈락한 것이 그 예다 ([재고 동시성 ADR 4절](concurrency.md))
-- 거짓 성공이 없는지는 200 응답 수와 실제 주문 행 수를 맞대어 확인한다. 지금은 구매 동시성 테스트 한 곳에 있다
+- 거짓 성공이 없는지는 200 응답 수와 실제 주문 행 수를 맞대어 확인한다. 지금은 [구매 동시성 테스트](../../src/test/java/com/sparta/msa/commerce/domain/order/CreateOrderConcurrencyIntegrationTest.java) 한 곳에 있다
 
 ## 7. 방어는 겹치기가 아니라 분업이다
 
@@ -131,7 +131,7 @@ UNIQUE KEY uk_orders_active (user_id, hot_deal_id, is_active)
 | CHECK 제약 | 검증을 건너뛴 미래의 경로 | 코드가 뚫려도 데이터가 망가지는 것은 막는다. UPDATE당 비교 한 번이라 비용이 사실상 없다 |
 | 장부 검증식 | 설계 결함 | 테스트에서만 돌아 운영 비용이 0이다 |
 
-- CHECK는 9개를 걸었다. 그중 잔여 수량 0 이상 제약이 차감 쿼리의 WHERE와 겹으로 음수 재고를 막는다
+- CHECK는 9개를 걸었다. 목록은 [데이터 모델 4장](../design/erd.md)에 있다. 그중 잔여 수량 0 이상 제약이 차감 쿼리의 WHERE와 겹으로 음수 재고를 막는다
 - **재고만은 미리 읽지 않는다**
   - 읽은 값은 낡을 수 있어 판단에 쓸 수 없고, 관문은 어차피 조건부 UPDATE다 ([재고 동시성 ADR 4절](concurrency.md))
   - 대가는 재고가 없어 실패할 요청도 주문 INSERT까지 갔다가 되돌아온다는 것이다. 실패가 대부분인 폭주에서 이 비용이 얼마인지는 재보지 않았다
@@ -145,4 +145,4 @@ UNIQUE KEY uk_orders_active (user_id, hot_deal_id, is_active)
 PAID 주문 ↔ 승인된 결제 1:1
 ```
 
-- 지금 도는 것은 첫 줄뿐이다. 구매 동시성 테스트 한 곳에서 "잔여 = 초기 재고 − 판매 수량"으로 확인하되 주문을 살아 있는 것만으로 거르지는 않고, 아래 두 줄은 시나리오별 단언으로만 있다
+- 지금 도는 것은 첫 줄뿐이다. [구매 동시성 테스트](../../src/test/java/com/sparta/msa/commerce/domain/order/CreateOrderConcurrencyIntegrationTest.java) 한 곳에서 "잔여 = 초기 재고 − 판매 수량"으로 확인하되 주문을 살아 있는 것만으로 거르지는 않고, 아래 두 줄은 시나리오별 단언으로만 있다

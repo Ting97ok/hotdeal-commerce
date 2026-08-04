@@ -127,7 +127,7 @@
 
 ## 8. 어댑터 테스트 리스트
 
-가짜 HTTP 서버에 응답을 심어 각 갈래를 명세한다. 통합 테스트는 이 어댑터를 대역으로 바꿔 끼우므로, 분류 자체를 검증하는 것은 여기뿐이다.
+가짜 HTTP 서버에 응답을 심어 각 갈래를 명세한다. 통합 테스트는 이 어댑터를 대역으로 바꿔 끼우므로, 분류 자체를 검증하는 것은 [어댑터 테스트](../../src/test/java/com/sparta/msa/commerce/infrastructure/paymentgateway/toss/TossPaymentClientTest.java) 한 파일뿐이다.
 
 **승인 요청 분류 (1~11)**
 

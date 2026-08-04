@@ -8,7 +8,7 @@
 - **다음(확정 로드맵)**: 결제 후속 처리 부분 MSA 분리 → 대용량 조회 + Redis 캐싱
 - **만들지 않는 것**: 넓은 커머스 기능(장바구니·리뷰·배송·쿠폰)과 풀 MSA 인프라(게이트웨이·서비스 디스커버리)는 이 저장소의 관심사 밖이다
 
-> 📖 **의사결정 기록** [ADR 7편](docs/adr/README.md) · 측정과 근거 [RFC 2편](docs/rfc/)
+> 📖 **의사결정 기록** [ADR 7편](docs/adr/README.md) · 측정과 근거 [재고 동시성 벤치마크](docs/rfc/concurrency-benchmark.md) · [결제 결과 분류](docs/rfc/payment-result-classification.md) · 스키마 [데이터 모델](docs/design/erd.md)
 
 ## 증명하는 것 / 증명하지 않는 것
 
@@ -72,7 +72,7 @@ nginx 로드밸런서 뒤 앱을 1대→3대로 늘리고, 부하는 동시 1,00
 
 ## 설계 하이라이트
 
-- **초과 판매 0건을 겹으로 방어** — 조건부 UPDATE(영향 행 수 관문) + DB CHECK 제약 + 장부 검증식 · [주문 ADR 7절](docs/adr/order.md)
+- **초과 판매 0건은 겹치기가 아니라 분업으로 막는다** — 앱 검증(사유 있는 거절) · DB 유니크와 조건부 UPDATE(동시 경합) · CHECK 제약 9개(코드가 뚫려도) · 장부 검증식(설계 결함). 각 층은 다른 층이 못 하는 일을 맡는다 · [주문 ADR 7절](docs/adr/order.md)
 - **1인 1주문을 DB 가 직렬화** — MySQL 부분 유니크 부재를 저장 생성 컬럼(`is_active`)으로 우회한 활성 유니크 · [주문 ADR 4절](docs/adr/order.md)
 - **토스 호출은 트랜잭션 밖** — 선점(TX1) → confirm(TX 밖) → 결과 반영(TX2). 승인/거절/통신오류/미확정 sealed 4분기, 미확정(IN_DOUBT)은 해소 스케줄러가 토스 재조회로 확정 · [결제 ADR 4·6절](docs/adr/payment.md)
 - **상태 전이 전부 조건부 UPDATE** — 결제↔만료 경합은 진 쪽이 영향 행 0 으로 그 사실을 안다 · [주문 ADR 3절](docs/adr/order.md)

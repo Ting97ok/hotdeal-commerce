@@ -113,7 +113,7 @@ sequenceDiagram
 
 ## 6. 테스트로 명세한 것
 
-통합 테스트(Testcontainers MySQL + Redis)다.
+통합 테스트(Testcontainers MySQL + Redis)다. 실물은 [domain/auth](../../src/test/java/com/sparta/msa/commerce/domain/auth) 아래 다섯 파일이다.
 
 | 영역 | 케이스 |
 |---|---|

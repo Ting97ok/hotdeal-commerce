@@ -112,7 +112,7 @@ h.start_at < :endAt AND :startAt < h.end_at
 
 **상태를 뒤집는 API 는 만들지 않았다.** 관리자 1인 운영이라 운영자가 DB 로 한다. 여기서 정할 것은 어디서 막느냐이고 그 답이 위 표다.
 
-- 테스트도 같은 방식으로 취소한다. 핫딜 행의 상태를 직접 뒤집고 두 경로가 막히는지 본다. API 가 없어도 가드는 명세된다
+- 테스트도 같은 방식으로 취소한다. 핫딜 행의 상태를 직접 뒤집고 두 경로가 막히는지 본다. API 가 없어도 가드는 명세된다 — [취소된 핫딜 차단 테스트](../../src/test/java/com/sparta/msa/commerce/domain/hotdeal/CanceledHotDealIntegrationTest.java)
 
 ---
 
