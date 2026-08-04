@@ -74,7 +74,8 @@ nginx 로드밸런서 뒤 앱을 1대→3대로 늘리고, 부하는 동시 1,00
 - **상태 전이 전부 조건부 UPDATE** — 결제↔만료 경합은 진 쪽이 영향 행 0 으로 그 사실을 안다 · [주문 ADR 3절](docs/adr/order.md)
 - **진행·매진을 저장하지 않는다** — 판매 기간과 재고를 그때 읽어 판단해서 핫딜 상태를 바꾸는 스케줄러가 통째로 없다 · [핫딜 ADR 1절](docs/adr/hotdeal.md)
 - **계층에 예외를 두지 않는다** — 예외 하나가 다음 사람에게는 규칙을 다시 읽는 선례가 된다 · [애플리케이션 구조 ADR 1절](docs/adr/architecture.md)
-- 무상태 JWT + RTR(Redis GETDEL 원자 소비) · DB FK 제약 미사용 · [참조 무결성 ADR](docs/adr/integrity.md)
+- **인증 검증을 Redis 핫패스에서 뺐다** — 무상태 JWT + Refresh 회전(Redis `GETDEL` 원자 소비로 동시 재발급 차단) · [인증 ADR 3절](docs/adr/auth.md)
+- DB FK 제약 미사용 — 참조는 서비스 가드와 권한이 지킨다 · [참조 무결성 ADR](docs/adr/integrity.md)
 
 ## 기술 스택
 
