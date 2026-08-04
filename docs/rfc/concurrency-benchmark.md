@@ -98,7 +98,7 @@ public interface HotDealStockService {
   - 그래서 방식 간 비교는 "같은 인원이 같은 건수를 소화하는 데 걸린 시간"으로 읽는다
 - **매트릭스** : 저경합(100명·재고 10) / 고경합(1,000명·재고 2,000) / 품절 경합(1,000명·재고 10)
 - **데이터** : 가상 사용자마다 다른 계정 토큰을 쓴다. 계정당 1활성주문 유니크를 통과해야 차감까지 도달한다
-- **절차** : 예열 → 측정 → 종료 후 DB에서 초과 판매 0을 단언
+- **절차** : 예열 → 측정 → 종료 후 DB에서 초과 판매 0건을 단언
 
 ### 지표
 
@@ -140,7 +140,7 @@ k6 → nginx(LB) → 앱 컨테이너 ×1 또는 ×3 → MySQL 1 + Redis 1 (tmpf
 | 고경합 1,000명·재고 2,000 (p95) | **1.37초** | 1.48초 | 1.44초 · 성공 163/1000 |
 | 품절 경합 1,000명·재고 10 | 정확히 10 | 정확히 10 | 정확히 10 |
 
-- 전 구간 초과 판매 0 · 거짓 성공 0 · 5xx 0%
+- 전 구간 초과 판매 0건 · 거짓 성공 0건 · 5xx 0%
 - 낙관적 락은 재시도 없이 버전 충돌로 끝나 1,000건 중 163건만 성공했다. 정확하지만 실용성이 없어 탈락
 
 ![고경합 1,000명·재고 2,000: 낙관적 락만 163건 성공, 조건부·Redis 는 1,000건 동률](../design/images/benchmark-strategies.svg)
@@ -167,7 +167,7 @@ k6 → nginx(LB) → 앱 컨테이너 ×1 또는 ×3 → MySQL 1 + Redis 1 (tmpf
 
 ### 정확성은 앱 대수와 무관하다
 
-재고 10에 1,000명이 몰리는 품절 경합에서 **앱 3대에서도 성공은 정확히 10건, 초과 판매 0**이다. 두 전략 모두 같다. 차감의 최종 직렬화가 DB나 Redis에 있으니 앱이 몇 대든 같다는 추론이 실측으로 올라섰고, 이 관측은 자원 경합과 무관해 로컬에서도 신뢰할 수 있다.
+재고 10에 1,000명이 몰리는 품절 경합에서 **앱 3대에서도 성공은 정확히 10건, 초과 판매 0건**이다. 두 전략 모두 같다. 차감의 최종 직렬화가 DB나 Redis에 있으니 앱이 몇 대든 같다는 추론이 실측으로 올라섰고, 이 관측은 자원 경합과 무관해 로컬에서도 신뢰할 수 있다.
 
 ### 원인 ① 재고 행 락 경합 — 실재한다
 
@@ -214,7 +214,7 @@ k6 → nginx(LB) → 앱 컨테이너 ×1 또는 ×3 → MySQL 1 + Redis 1 (tmpf
 | 폭주 (동시 1,000명) | 1.37초 | **≤ 2초** |
 
 - 동시 1,000명은 오픈 순간 구매 버튼을 함께 누르는 스파이크를 가정한다
-- 초과 판매 0과 거짓 성공 0은 SLA가 아니라 절대 불변식이다. 지연은 목표선이지만 정확성은 협상 대상이 아니다
+- 초과 판매 0건과 거짓 성공 0건은 SLA가 아니라 절대 불변식이다. 지연은 목표선이지만 정확성은 협상 대상이 아니다
 - p50은 재지 않았다. 선착순에서 관심사는 꼬리 지연이다
 - SLA와 실사용자 경험의 상관은 검증하지 않았다. 운영 데이터가 생기면 조정한다
 
@@ -237,8 +237,8 @@ k6 → nginx(LB) → 앱 컨테이너 ×1 또는 ×3 → MySQL 1 + Redis 1 (tmpf
 | 1 | `conditionalDeductReducesRemaining` | 조건부 UPDATE | 차감하면 잔여가 준다 | ✅ |
 | 2 | `conditionalDeductRejectsWhenInsufficient` | 조건부 UPDATE | 잔여가 부족하면 영향 행이 없어 `SOLD_OUT`, 잔여는 그대로 | ✅ |
 | 3 | `conditionalRestoreIncreasesRemaining` | 조건부 UPDATE | 복원하면 잔여가 는다 | ✅ |
-| 4 | `conditionalDeductNoOversellUnderConcurrency` | 조건부 UPDATE | 동시 100명·재고 10에서 정확히 10건 성공, 초과 판매 0 | ✅ |
+| 4 | `conditionalDeductNoOversellUnderConcurrency` | 조건부 UPDATE | 동시 100명·재고 10에서 정확히 10건 성공, 초과 판매 0건 | ✅ |
 | 5 | `redisDeductReducesRemaining` | Redis + Lua | 차감하면 Redis 잔여가 준다 | ✅ |
 | 6 | `redisDeductRejectsWhenInsufficient` | Redis + Lua | 잔여가 부족하면 스크립트 반환값으로 `SOLD_OUT` | ✅ |
 | 7 | `redisRestoreIncreasesRemaining` | Redis + Lua | 복원하면 Redis 잔여가 는다 | ✅ |
-| 8 | `redisDeductNoOversellUnderConcurrency` | Redis + Lua | 동시 100명·재고 10에서 정확히 10건 성공, 초과 판매 0 | ✅ |
+| 8 | `redisDeductNoOversellUnderConcurrency` | Redis + Lua | 동시 100명·재고 10에서 정확히 10건 성공, 초과 판매 0건 | ✅ |
