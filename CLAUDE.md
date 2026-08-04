@@ -38,6 +38,8 @@ Controller → Facade → Service → Repository
 - 신규 도메인은 4계층. 단순 CRUD 도 Facade 를 경유한다. 기존 3계층 도메인을 강제 전환하지는 않는다.
 - **의존은 한 방향으로만 흐른다** — 구매 쪽(order·payment)이 카탈로그·재고(hotdeal·product·stock)를 참조하고 역방향은 없다. 타 도메인 Repository 를 직접 부르지 않는다. 근거는 [애플리케이션 구조 ADR](docs/adr/architecture.md)
 
+**트랜잭션을 여는 곳은 Facade 뿐이다.** 한 덩어리로 묶이면 `@Transactional`, 중간에 외부 호출이 끼어 쪼개야 하면 `TransactionTemplate`(Facade 에서만). Service 의 `@Transactional` 은 경계가 아니라 합류이고, `readOnly` 를 포함한 속성은 **경계를 연 쪽의 선언만 유효**하다. DB 를 쓰지 않는 흐름은 트랜잭션을 열지 않는다 — 근거는 [애플리케이션 구조 ADR 2절](docs/adr/architecture.md)
+
 **로직을 어디 둘지는 "다른 유즈케이스가 이걸 다르게 하면 버그인가?"로 판단한다.** 재사용 여부로 판단하면 공통 서비스가 잡동사니 통이 된다. 상세는 `spring-conventions` 의 service.md.
 
 ## 하드룰
