@@ -6,8 +6,9 @@
 
 - **현재**: 모놀리식으로 핵심 흐름 완성 — 핫딜 등록 → 주문(재고 선점·미결제 만료) → 토스 결제 실연동 → 미확정(IN_DOUBT) 해소 스케줄러
 - **다음(확정 로드맵)**: 결제 후속 처리 부분 MSA 분리 → 대용량 조회 + Redis 캐싱
+- **만들지 않는 것**: 넓은 커머스 기능(장바구니·리뷰·배송·쿠폰)과 풀 MSA 인프라(게이트웨이·서비스 디스커버리)는 이 저장소의 관심사 밖이다
 
-> 📖 [docs/README.md](docs/README.md) — 읽는 순서·핵심 결정 요약 · **의사결정 기록** [ADR 13편](docs/adr/README.md) · 비기능 수치 [nfr](docs/design/nfr.md)
+> 📖 **의사결정 기록** [ADR 6편](docs/adr/README.md) · 측정과 근거 [RFC 2편](docs/rfc/)
 
 ## 이 프로젝트가 증명하는 것 / 아직 증명하지 않는 것
 
@@ -71,6 +72,8 @@ nginx 로드밸런서 뒤 앱을 1대→3대로 늘리고, 부하는 동시 1,00
 - **1인 1주문을 DB 가 직렬화** — MySQL 부분 유니크 부재를 저장 생성 컬럼(`is_active`)으로 우회한 활성 유니크 · [주문 ADR 4절](docs/adr/order.md)
 - **토스 호출은 트랜잭션 밖** — 선점(TX1) → confirm(TX 밖) → 결과 반영(TX2). 승인/거절/통신오류/미확정 sealed 4분기, 미확정(IN_DOUBT)은 해소 스케줄러가 토스 재조회로 확정 · [결제 ADR 4·6절](docs/adr/payment.md)
 - **상태 전이 전부 조건부 UPDATE** — 결제↔만료 경합은 진 쪽이 영향 행 0 으로 그 사실을 안다 · [주문 ADR 3절](docs/adr/order.md)
+- **진행·매진을 저장하지 않는다** — 판매 기간과 재고를 그때 읽어 판단해서 핫딜 상태를 바꾸는 스케줄러가 통째로 없다 · [핫딜 ADR 1절](docs/adr/hotdeal.md)
+- **계층에 예외를 두지 않는다** — 예외 하나가 다음 사람에게는 규칙을 다시 읽는 선례가 된다 · [애플리케이션 구조 ADR 1절](docs/adr/architecture.md)
 - 무상태 JWT + RTR(Redis GETDEL 원자 소비) · DB FK 제약 미사용 · [참조 무결성 ADR](docs/adr/integrity.md)
 
 ## 기술 스택
