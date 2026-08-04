@@ -30,7 +30,7 @@
 
 ## 어디부터 읽나
 
-**문서 체계**: [가설 PRD](design/hotdeal-prd.md)(무엇을 약속하나) → [기술 가설](design/hotdeal-purchase-hypothesis.md)(어떤 규칙으로 지키나) → [ERD](design/erd.md)(데이터 모양) → [ADR](adr/README.md)(왜 그렇게 정했나). 비기능 수치 집약은 [nfr](design/nfr.md), 근거 사례는 [리서치](design/research-flash-sale.md).
+**문서 체계**: [가설 PRD](design/hotdeal-prd.md)(무엇을 약속하나) → [기술 가설](design/hotdeal-purchase-hypothesis.md)(어떤 규칙으로 지키나) → [ERD](design/erd.md)(데이터 모양) → [ADR](adr/README.md)(왜 그렇게 정했나). 근거 사례는 [리서치](design/research-flash-sale.md).
 
 **5분 코스 (전체 그림)**: 위 "핵심 결정" 표 → [가설 PRD](design/hotdeal-prd.md) 2장(검수 지표)·5장(요구 18건) → [기술 가설](design/hotdeal-purchase-hypothesis.md) 4장(불변식)·9장(슬라이스).
 
@@ -45,11 +45,11 @@
 | 5 | [ADR](adr/README.md) → 관심 결정 | 각 결정의 대안·트레이드오프. 추천: [주문 — 선점·복원·불변식](adr/order.md) · [재고 동시성](adr/concurrency.md) · [결제 — 트랜잭션 경계와 미확정](adr/payment.md) |
 | 6 | [리서치](design/research-flash-sale.md) | 실무 주장의 출처(궁금할 때 진입) — 신뢰 등급 구분 표기 |
 
-참고: 인증 설계는 [auth.md](design/auth.md) (핫딜과 독립적으로 완결된 선행 작업). 비기능 요구(트래픽·응답·가용성·데이터·일관성·운영부담)의 숫자 집약은 [nfr.md](design/nfr.md) — 여러 ADR·PRD에 흩어진 수치를 6슬롯으로 모은 참조 문서.
+참고: 인증 설계는 [auth.md](design/auth.md) (핫딜과 독립적으로 완결된 선행 작업).
 
 ## 읽을 때 약속
 
-- **결정 파악(30초)**: ADR 은 머리 **결정 요약**만 읽으면 무엇을/왜/버린 대안/Non-Goal/트레이드오프/가역성 Type 이 잡히고, 본문은 그 근거(설계노트 = RFC 역할). 비기능 수치는 [nfr](design/nfr.md) 6슬롯, 피한 안티패턴·되돌리는 절차는 [adr/README](adr/README.md) 하단 색인. 상세 정책은 [adr/README 상단 "RFC↔ADR 역할"](adr/README.md).
+- **결정 파악(30초)**: ADR 은 머리 **결론**만 읽으면 무엇을 왜 골랐는지가 잡히고, 본문은 그 근거다. 색인은 [adr/README](adr/README.md).
 - **용어**: 각 문서 첫 등장에 한 줄 풀이 병기.
 - **신뢰 등급**: 리서치 1~7(적대 검증 통과) > 10(공식·1차 보강) > 9(1차 인용, 미검증) — 인용 시 등급 구분 표기.
 - **미결정**: "모른다"가 아니라 "언제 정한다"로 관리 — [PRD 7장 오픈 이슈](design/hotdeal-prd.md), [가설 11장 보류](design/hotdeal-purchase-hypothesis.md).
