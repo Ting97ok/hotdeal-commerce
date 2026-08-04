@@ -2,33 +2,34 @@
 
 **선착순 한정 재고를 트래픽 폭주 속에서 초과 판매 0 으로 파는 백엔드.** 재고 동시성 3전략을 같은 워크로드로 벤치마크해 운영 전략을 실측으로 고르고, 토스 결제의 거절·통신오류·미확정까지 정합성 있게 처리한다.
 
-[![CI](https://github.com/Ting97ok/hotdeal-commerce/actions/workflows/ci.yml/badge.svg)](https://github.com/Ting97ok/hotdeal-commerce/actions/workflows/ci.yml) ![Java](https://img.shields.io/badge/Java-21-orange) ![Spring Boot](https://img.shields.io/badge/Spring%20Boot-3.5-6DB33F) ![oversell](https://img.shields.io/badge/oversell-0-brightgreen) ![tests](https://img.shields.io/badge/tests-3.5k%20lines-blue)
+[![CI](https://github.com/Ting97ok/hotdeal-commerce/actions/workflows/ci.yml/badge.svg)](https://github.com/Ting97ok/hotdeal-commerce/actions/workflows/ci.yml) ![Java](https://img.shields.io/badge/Java-21-orange) ![Spring Boot](https://img.shields.io/badge/Spring%20Boot-3.5-6DB33F) ![oversell](https://img.shields.io/badge/oversell-0-brightgreen)
 
 - **현재**: 모놀리식으로 핵심 흐름 완성 — 핫딜 등록 → 주문(재고 선점·미결제 만료) → 토스 결제 실연동 → 미확정(IN_DOUBT) 해소 스케줄러
 - **다음(확정 로드맵)**: 결제 후속 처리 부분 MSA 분리 → 대용량 조회 + Redis 캐싱
 - **만들지 않는 것**: 넓은 커머스 기능(장바구니·리뷰·배송·쿠폰)과 풀 MSA 인프라(게이트웨이·서비스 디스커버리)는 이 저장소의 관심사 밖이다
 
-> 📖 **의사결정 기록** [ADR 6편](docs/adr/README.md) · 측정과 근거 [RFC 2편](docs/rfc/)
+> 📖 **의사결정 기록** [ADR 7편](docs/adr/README.md) · 측정과 근거 [RFC 2편](docs/rfc/)
 
-## 이 프로젝트가 증명하는 것 / 아직 증명하지 않는 것
+## 증명하는 것 / 증명하지 않는 것
 
-실무 경력에 없던 고동시성·정합성 처리를 프로덕션 기준으로 직접 설계·측정한 개인 프로젝트다. 증명 범위를 정직하게 구분한다.
+실무에서 다뤄 보지 않은 고동시성·정합성 처리를 직접 설계하고 측정한 개인 프로젝트다.
 
 > 패키지명 `com.sparta` 는 시작 시점의 잔재다 — 팀스파르타 **MSA 아키텍처 과정**(고용노동부 재직자 훈련, 2026.03~07)에서 출발해 개인 저장소로 이관·확장했다(커밋 이력 보존).
 
 **증명한다**
-- 동시성 문제(확인과 쓰기 사이에 다른 요청이 끼어드는 문제)와 해법 트레이드오프 — 낙관적 락·조건부 UPDATE·Redis 3전략을 같은 워크로드로 실측 비교
-- 측정으로 검증하는 방법론 — **측정 오염을 찾아 결론을 번복**했고, **데이터가 가설을 뒷받침하지 않을 때 그대로 기록**했다
-- **스케일아웃의 한계와 그 원인 분리** — LB 뒤 앱 1 vs 3 실측. 락 대기 누적 8.8배 증가로 재고 행 경합을 확인하고, 락을 쓰지 않는 Redis를 대조군으로 자원 경합 몫을 갈라냈다
-- 정합성·불변식 사고 — 초과 판매 0·거짓 성공 0 을 계층 방어 + 재고 장부 검증식으로
-- 트레이드오프를 언어화한 의사결정 — 주제별 ADR(각 결정의 대가와 대응)
 
-**아직 증명하지 않는다 (정직한 경계)**
-- 실 프로덕션 규모·실트래픽 — 측정은 **로컬 1머신**. 다중 인스턴스도 한 머신 위 컨테이너라 **물리 분산이 아니고**, 부하기·앱·DB 를 물리적으로 나눈 측정은 미검증(다음 단계)
-- 실장애 대응(카나리·롤백 실행·알람 대응) — 설계는 있으나 운영 경험 아님
-- 토스는 **테스트 모드** — 실거래 아님
+- **측정으로 검증하는 방법론** — 측정 오염을 찾아 결론을 번복했고, 데이터가 가설을 뒷받침하지 않을 때 그대로 기록했다
+- **스케일아웃의 한계와 그 원인 분리** — LB 뒤 앱 1대 vs 3대 실측. 락 대기 누적이 8.8배 늘어 재고 행 경합을 확인하고, 락을 쓰지 않는 Redis 를 대조군으로 자원 경합 몫을 갈라냈다
+- **동시성 해법의 트레이드오프** — 낙관적 락·조건부 UPDATE·Redis 세 전략을 같은 워크로드로 재고 비교했다
+- **정합성과 불변식** — 초과 판매 0 과 거짓 성공 0 을 계층 방어와 재고 장부 검증식으로 지킨다
 
-> 그래서 이 저장소는 "고트래픽을 겪었다"가 아니라 **"고트래픽을 설계·검증할 수 있다"** 를 보인다.
+**증명하지 않는다**
+
+- **실트래픽과 실 프로덕션 규모** — 측정은 로컬 한 머신이다. 다중 인스턴스도 같은 머신 위 컨테이너라 물리 분산이 아니다. 부하 도구·앱·DB 를 각각 다른 기기에 두는 측정은 **장비 여건상 하지 못했다**([벤치마크 RFC 6절](docs/rfc/concurrency-benchmark.md))
+- **장애 대응 운영** — 알람을 붙이지 않았다. 재고 전략은 프로퍼티 한 줄로 되돌리게 만들어 두었지만 실제로 되돌려 본 것은 아니다
+- **실거래** — 토스는 테스트 모드다
+
+> 그래서 이 저장소가 보이는 것은 "고트래픽을 겪었다"가 아니라 **"고트래픽을 설계하고 검증할 수 있다"** 이다.
 
 ## 핵심 결과 — 재고 동시성 벤치마크
 
@@ -49,6 +50,8 @@ nginx 로드밸런서 뒤 앱을 1대→3대로 늘리고, 부하는 동시 1,00
 - **순간을 찍는 관측으로는 안 보였다** — 2초 간격 `row_lock_current_waits`는 34번 모두 0. 누적값을 보고서야 45.8s가 드러났다. 대기가 짧고 잦으면 순간 관측은 놓친다.
 - **초과 판매 0은 앱 3대에서도 성립** — 재고 10에 1,000명이 몰려도 성공은 정확히 10건.
 
+측정 설계와 원값은 [동시성 벤치마크 RFC 4절](docs/rfc/concurrency-benchmark.md).
+
 ### ② 전략 선정 — 같은 워크로드로 3전략 실측
 
 동시 1,000명이 재고 한 행을 다투는 오픈 스파이크를 낙관적 락 · 조건부 UPDATE · Redis+Lua 로 측정해 **원자적 조건부 UPDATE** 를 운영 전략으로 확정했다 — [재고 동시성 ADR](docs/adr/concurrency.md).
@@ -56,7 +59,7 @@ nginx 로드밸런서 뒤 앱을 1대→3대로 늘리고, 부하는 동시 1,00
 ![고경합 3전략 벤치마크 — 낙관적 락 성공 163 탈락, 조건부·Redis 1000 동률](docs/design/images/benchmark-strategies.svg)
 
 - 낙관적 락은 버전 충돌로 성공 163/1000 (정확하나 비실용, 탈락). 조건부·Redis 는 1,000 동률.
-- 조건부가 p95 최저(1.37s)·쿼리 1문으로 가장 단순 → 채택. SLA: 폭주 p95 ≤ 2s · 평시 ≤ 500ms.
+- 조건부가 p95 최저(1.37s)이고 쿼리 한 문장이라 가장 단순해 채택했다. 여기서 도출한 SLA 는 폭주 p95 ≤ 2s · 평시 ≤ 500ms — [동시성 벤치마크 RFC 3·5절](docs/rfc/concurrency-benchmark.md).
 
 ### ③ 측정 오염 발견이 결론을 바꿨다
 
@@ -64,7 +67,8 @@ nginx 로드밸런서 뒤 앱을 1대→3대로 늘리고, 부하는 동시 1,00
 
 ![측정 환경이 결론을 바꾼 사례 — 조건부 2.25s→1.37s 급락](docs/design/images/benchmark-measurement-pollution.svg)
 
-- 재현: `bash k6/benchmark/run.sh`(단일) · `bash k6/benchmark/run-multi.sh`(1 vs 3 인스턴스) — 일회용 컨테이너로 전략 순회 + 초과 판매 검증 자동 ([k6/README.md](k6/README.md))
+- 조건부는 차감이 DB UPDATE 라 로깅에 민감하고 Redis 는 메모리라 둔감했다 — 오염이 한쪽만 때린 것이다 ([동시성 벤치마크 RFC 3절](docs/rfc/concurrency-benchmark.md))
+- 재현: `bash k6/benchmark/run.sh`(단일) · `bash k6/benchmark/run-multi.sh`(1 vs 3 인스턴스) — 일회용 컨테이너로 전략 순회 + 초과 판매 검증 자동 ([k6 실행 안내](k6/README.md))
 
 ## 설계 하이라이트
 
@@ -87,7 +91,7 @@ nginx 로드밸런서 뒤 앱을 1대→3대로 늘리고, 부하는 동시 1,00
 | 영속성 | Spring Data JPA + QueryDSL 5.0 | 동적 쿼리·프로젝션 |
 | DB | MySQL 8.4 LTS | 8.0 EOL(2026.4) → 8.4 LTS |
 | 마이그레이션 | Flyway | 스키마 버전 관리 |
-| 캐시·토큰 | Redis 7 | RTR 토큰 저장 · 재고 전략 비교(벤치마크) · 캐싱(후속) |
+| 캐시·토큰 | Redis 7 | Refresh 토큰 저장 · 재고 전략 비교(벤치마크) |
 | 매핑 | MapStruct | 엔티티 ↔ DTO |
 | 문서화 | SpringDoc OpenAPI | Swagger UI |
 | 테스트 | JUnit 5 + Testcontainers(MySQL 8.4) | 운영 동일 마이그레이션 검증 |
