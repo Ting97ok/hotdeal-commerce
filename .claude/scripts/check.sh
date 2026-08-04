@@ -41,7 +41,7 @@ check_java() {
       jc=$(grep -c '@JoinColumn' "$f" 2>/dev/null || true)
       nc=$(grep -c 'NO_CONSTRAINT' "$f" 2>/dev/null || true)
       [ "${jc:-0}" -gt "${nc:-0}" ] && report "$f — FK 제약 (@JoinColumn ${jc}개 중 ${nc}개만 명시)" \
-        "foreignKey = @ForeignKey(ConstraintMode.NO_CONSTRAINT) 누락. 근거 docs/adr/0003-no-db-fk-constraints.md"
+        "foreignKey = @ForeignKey(ConstraintMode.NO_CONSTRAINT) 누락. 근거 docs/adr/integrity.md"
       ;;
   esac
 
@@ -71,6 +71,50 @@ dispatch() {
     */db/migration/V*.sql) check_migration "$f" ;;
     *.java)                check_java "$f" ;;
   esac
+}
+
+# 문서 링크는 그래프라 파일 하나만 보고는 판별할 수 없다. --all 에서만 돈다.
+#   ① 죽은 링크 — 가리키는 파일이 없다
+#   ② 고아 문서 — 아무도 가리키지 않아 저장소 어디서도 도달할 수 없다
+# ②가 필요한 이유: 링크를 ADR 로 옮기는 정리 중 docs/design/erd.md 가 들어오는 링크 0건이 됐는데,
+# 죽은 링크는 0건이라 커밋마다 검사를 통과했다. "링크가 살아 있나"와 "도달할 수 있나"는 다른 질문이다.
+check_docs() {
+  local list seen doc dir raw target abs base repo_p
+  repo_p=$(pwd -P)
+  list=$(mktemp) || return 0
+  seen=$(mktemp) || { rm -f "$list"; return 0; }
+
+  # 코드 블록과 코드 스팬을 지운 뒤 상대 링크만 뽑는다 — 문서<TAB>기준디렉터리<TAB>대상
+  while IFS= read -r doc; do
+    dir=$(dirname "$doc")
+    awk '/^```/ { f = !f; next } !f' "$doc" 2>/dev/null | sed 's/`[^`]*`//g' \
+      | grep -oE '\]\([^)]+\)' | sed 's/^](//; s/)$//' \
+      | while IFS= read -r raw; do
+          target=${raw%%#*}
+          target=${target%% *}
+          case "$target" in ''|http://*|https://*|mailto:*) continue ;; esac
+          printf '%s\t%s\t%s\n' "$doc" "$dir" "$target"
+        done
+  done < <(git ls-files '*.md') > "$list"
+
+  while IFS="$TAB" read -r doc dir target; do
+    if [ ! -e "$dir/$target" ]; then
+      report "$doc — 죽은 링크" "$target 을 가리키는데 그런 파일이 없다"
+      continue
+    fi
+    abs=$(cd "$dir/$(dirname "$target")" 2>/dev/null && printf '%s/%s' "$(pwd -P)" "$(basename "$target")")
+    [ -n "$abs" ] && printf '%s\n' "$abs" >> "$seen"
+  done < "$list"
+
+  # 폴더 README 는 GitHub 이 폴더 진입 시 자동으로 펼치므로 링크가 없어도 도달된다.
+  while IFS= read -r doc; do
+    base=$(basename "$doc")
+    [ "$base" = "README.md" ] && continue
+    grep -qxF "$repo_p/$doc" "$seen" || \
+      report "$doc — 고아 문서" "들어오는 링크가 0건이다. 어디서도 도달할 수 없으니 인용을 걸거나 문서를 지운다"
+  done < <(git ls-files 'docs/' | grep '\.md$')
+
+  rm -f "$list" "$seen"
 }
 
 # @Transactional 누락은 인터페이스·추상 클래스·DB 를 쓰지 않는 구현체와
@@ -107,6 +151,7 @@ case "${1:-}" in
     ;;
   --all)
     while IFS= read -r f; do dispatch "$f"; done < <(git ls-files '*.java')
+    check_docs
     advisories
     ;;
   *)
