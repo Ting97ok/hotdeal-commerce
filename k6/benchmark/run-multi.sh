@@ -22,6 +22,10 @@ RESULTS="results"
 COMPOSE="docker compose -f docker-compose.multi.yml"
 
 mkdir -p "$RESULTS"
+# 요약은 아래 루프가 한 줄씩 덧붙이므로 여기서 비운다. 안 비우면 옛 회차와 섞여
+# 문서가 인용하는 값이 어느 회차인지 알 수 없게 된다.
+: > "$RESULTS/lock-stats.log"
+
 mysql_exec() { $COMPOSE exec -T mysql mysql -uroot -proot commerce "$@"; }
 redis_exec() { $COMPOSE exec -T redis redis-cli "$@"; }
 lock_stat() { mysql_exec -N -e "SHOW GLOBAL STATUS LIKE '$1';" 2>/dev/null | awk '{print $2}' | tr -d '[:space:]'; }

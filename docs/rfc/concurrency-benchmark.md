@@ -119,10 +119,11 @@ k6 → nginx(LB) → 앱 컨테이너 ×1 또는 ×3 → MySQL 1 + Redis 1 (tmpf
 ```
 
 - `bash k6/benchmark/run.sh` — 단일 스택
-- `bash k6/benchmark/run-multi.sh` — 인스턴스 1 vs 3 ([run-multi.sh](../../k6/benchmark/run-multi.sh) · [docker-compose.multi.yml](../../k6/benchmark/docker-compose.multi.yml))
-- 일회용 컨테이너로 전략을 순회하고 초과 판매 검증까지 자동으로 돈다 ([k6/README.md](../../k6/README.md))
+- `bash k6/benchmark/run-multi.sh` — 인스턴스 1 vs 3 ([다중 인스턴스 실행 스크립트](../../k6/benchmark/run-multi.sh) · [다중 인스턴스 구성](../../k6/benchmark/docker-compose.multi.yml))
+- 일회용 컨테이너로 전략을 순회하고 초과 판매 검증까지 자동으로 돈다 ([k6 실행 안내](../../k6/README.md))
 - 인스턴스 1도 nginx를 경유시켜 앱 대수만 변수로 두었다. 앱 포트를 따로 여는 것은 부하용이 아니라 관측용이다
 - 측정 오염을 막으려 만료·해소 스케줄러는 끄고 돌린다
+- **결과는 [측정 로그](../../k6/benchmark/results) 에 그대로 남는다.** 이 문서의 수치는 전부 거기서 옮긴 것이고, 재실행하면 덮인다 — 옛 회차는 git 이 갖는다
 
 ## 3. 첫 측정에서 배운 것 — 측정 환경이 결론을 바꿨다
 
@@ -162,8 +163,11 @@ k6 → nginx(LB) → 앱 컨테이너 ×1 또는 ×3 → MySQL 1 + Redis 1 (tmpf
 | Redis + Lua | 1 | 1.10초 | 13.75건/초 | 0 | 0 |
 | Redis + Lua | 3 | **1.99초** | 12.54건/초 | 0 | 0 |
 
+원값은 [측정 요약 로그](../../k6/benchmark/results/lock-stats.log) 네 줄이고, 회차별 k6 출력 전문은 같은 폴더의 `thr-` 로 시작하는 파일들이다.
+
 - 앱 1대에서는 Redis가 처리율 1.9배로 앞선다. 앱 3대에서는 둘이 수렴한다
 - 지연은 두 전략 모두 나빠졌다. 조건부 1.75배, Redis 1.8배
+- 표의 p95 는 주문 요청만 재는 `order_duration` 이다. 로그의 `http_req_duration` 은 계정 생성·로그인까지 섞인 값이라 더 낮게 나온다
 
 ### 정확성은 앱 대수와 무관하다
 

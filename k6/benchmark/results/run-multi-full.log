@@ -1,0 +1,251 @@
+[1/5] 일회용 인프라 기동 (mysql:13306, redis:16379, tmpfs)
+ Network commerce-bench-multi_default  Creating
+ Network commerce-bench-multi_default  Created
+ Container commerce-bench-multi-redis-1  Creating
+ Container commerce-bench-multi-mysql-1  Creating
+ Container commerce-bench-multi-redis-1  Created
+ Container commerce-bench-multi-mysql-1  Created
+ Container commerce-bench-multi-mysql-1  Starting
+ Container commerce-bench-multi-redis-1  Starting
+ Container commerce-bench-multi-redis-1  Started
+ Container commerce-bench-multi-mysql-1  Started
+  인프라 healthy
+[2/5] 앱 이미지 빌드 (캐시)
+ Service app1  Building
+ Service app1  Built
+[3/5] 스키마·시드 (app1 첫 기동으로 Flyway 마이그레이션)
+ Container commerce-bench-multi-redis-1  Running
+ Container commerce-bench-multi-mysql-1  Running
+ Container commerce-bench-multi-app1-1  Creating
+ Container commerce-bench-multi-app1-1  Created
+ Container commerce-bench-multi-mysql-1  Waiting
+ Container commerce-bench-multi-redis-1  Waiting
+ Container commerce-bench-multi-redis-1  Healthy
+ Container commerce-bench-multi-mysql-1  Healthy
+ Container commerce-bench-multi-app1-1  Starting
+ Container commerce-bench-multi-app1-1  Started
+mysql: [Warning] Using a password on the command line interface can be insecure.
+  시드 완료
+[4/5] 측정 A — 처리량/역전 (VU 스윕, 재고=VU×2 전원차감)
+ Container commerce-bench-multi-redis-1  Running
+ Container commerce-bench-multi-mysql-1  Running
+ Container commerce-bench-multi-app1-1  Recreate
+ Container commerce-bench-multi-app1-1  Recreated
+ Container commerce-bench-multi-mysql-1  Waiting
+ Container commerce-bench-multi-redis-1  Waiting
+ Container commerce-bench-multi-mysql-1  Healthy
+ Container commerce-bench-multi-redis-1  Healthy
+ Container commerce-bench-multi-app1-1  Starting
+ Container commerce-bench-multi-app1-1  Started
+ Container commerce-bench-multi-mysql-1  Running
+ Container commerce-bench-multi-redis-1  Running
+ Container commerce-bench-multi-app1-1  Running
+ Container commerce-bench-multi-nginx-1  Creating
+ Container commerce-bench-multi-nginx-1  Created
+ Container commerce-bench-multi-redis-1  Waiting
+ Container commerce-bench-multi-mysql-1  Waiting
+ Container commerce-bench-multi-redis-1  Healthy
+ Container commerce-bench-multi-mysql-1  Healthy
+ Container commerce-bench-multi-nginx-1  Starting
+ Container commerce-bench-multi-nginx-1  Started
+mysql: [Warning] Using a password on the command line interface can be insecure.
+  [thr-conditional-i1-vu1000] 성공=1000/1000 오버셀=0 p95=1.44s avg=943.18ms 행잠금대기=985회/5220ms
+ Container commerce-bench-multi-mysql-1  Running
+ Container commerce-bench-multi-redis-1  Running
+ Container commerce-bench-multi-app3-1  Creating
+ Container commerce-bench-multi-app2-1  Creating
+ Container commerce-bench-multi-app1-1  Recreate
+ Container commerce-bench-multi-app2-1  Created
+ Container commerce-bench-multi-app3-1  Created
+ Container commerce-bench-multi-app1-1  Recreated
+ Container commerce-bench-multi-mysql-1  Waiting
+ Container commerce-bench-multi-redis-1  Waiting
+ Container commerce-bench-multi-mysql-1  Waiting
+ Container commerce-bench-multi-redis-1  Waiting
+ Container commerce-bench-multi-redis-1  Waiting
+ Container commerce-bench-multi-mysql-1  Waiting
+ Container commerce-bench-multi-redis-1  Healthy
+ Container commerce-bench-multi-mysql-1  Healthy
+ Container commerce-bench-multi-redis-1  Healthy
+ Container commerce-bench-multi-app1-1  Starting
+ Container commerce-bench-multi-redis-1  Healthy
+ Container commerce-bench-multi-mysql-1  Healthy
+ Container commerce-bench-multi-app3-1  Starting
+ Container commerce-bench-multi-mysql-1  Healthy
+ Container commerce-bench-multi-app2-1  Starting
+ Container commerce-bench-multi-app3-1  Started
+ Container commerce-bench-multi-app1-1  Started
+ Container commerce-bench-multi-app2-1  Started
+ Container commerce-bench-multi-mysql-1  Running
+ Container commerce-bench-multi-redis-1  Running
+ Container commerce-bench-multi-app1-1  Running
+ Container commerce-bench-multi-nginx-1  Recreate
+ Container commerce-bench-multi-nginx-1  Recreated
+ Container commerce-bench-multi-mysql-1  Waiting
+ Container commerce-bench-multi-redis-1  Waiting
+ Container commerce-bench-multi-mysql-1  Healthy
+ Container commerce-bench-multi-redis-1  Healthy
+ Container commerce-bench-multi-nginx-1  Starting
+ Container commerce-bench-multi-nginx-1  Started
+mysql: [Warning] Using a password on the command line interface can be insecure.
+  [thr-conditional-i3-vu1000] 성공=1000/1000 오버셀=0 p95=2.52s avg=1.75s 행잠금대기=999회/45776ms
+ Container commerce-bench-multi-redis-1  Running
+ Container commerce-bench-multi-mysql-1  Running
+ Container commerce-bench-multi-app1-1  Recreate
+ Container commerce-bench-multi-app1-1  Recreated
+ Container commerce-bench-multi-mysql-1  Waiting
+ Container commerce-bench-multi-redis-1  Waiting
+ Container commerce-bench-multi-mysql-1  Healthy
+ Container commerce-bench-multi-redis-1  Healthy
+ Container commerce-bench-multi-app1-1  Starting
+ Container commerce-bench-multi-app1-1  Started
+ Container commerce-bench-multi-redis-1  Running
+ Container commerce-bench-multi-mysql-1  Running
+ Container commerce-bench-multi-app1-1  Running
+ Container commerce-bench-multi-nginx-1  Recreate
+ Container commerce-bench-multi-nginx-1  Recreated
+ Container commerce-bench-multi-redis-1  Waiting
+ Container commerce-bench-multi-mysql-1  Waiting
+ Container commerce-bench-multi-mysql-1  Healthy
+ Container commerce-bench-multi-redis-1  Healthy
+ Container commerce-bench-multi-nginx-1  Starting
+ Container commerce-bench-multi-nginx-1  Started
+mysql: [Warning] Using a password on the command line interface can be insecure.
+  [thr-redis-i1-vu1000] 성공=1000/1000 오버셀=0 p95=1.1s avg=783.22ms 행잠금대기=0회/0ms
+ Container commerce-bench-multi-mysql-1  Running
+ Container commerce-bench-multi-redis-1  Running
+ Container commerce-bench-multi-app2-1  Recreate
+ Container commerce-bench-multi-app1-1  Recreate
+ Container commerce-bench-multi-app3-1  Recreate
+ Container commerce-bench-multi-app1-1  Recreated
+ Container commerce-bench-multi-app3-1  Recreated
+ Container commerce-bench-multi-app2-1  Recreated
+ Container commerce-bench-multi-mysql-1  Waiting
+ Container commerce-bench-multi-redis-1  Waiting
+ Container commerce-bench-multi-mysql-1  Waiting
+ Container commerce-bench-multi-redis-1  Waiting
+ Container commerce-bench-multi-mysql-1  Waiting
+ Container commerce-bench-multi-redis-1  Waiting
+ Container commerce-bench-multi-redis-1  Healthy
+ Container commerce-bench-multi-mysql-1  Healthy
+ Container commerce-bench-multi-mysql-1  Healthy
+ Container commerce-bench-multi-app2-1  Starting
+ Container commerce-bench-multi-redis-1  Healthy
+ Container commerce-bench-multi-mysql-1  Healthy
+ Container commerce-bench-multi-app3-1  Starting
+ Container commerce-bench-multi-redis-1  Healthy
+ Container commerce-bench-multi-app1-1  Starting
+ Container commerce-bench-multi-app2-1  Started
+ Container commerce-bench-multi-app3-1  Started
+ Container commerce-bench-multi-app1-1  Started
+ Container commerce-bench-multi-redis-1  Running
+ Container commerce-bench-multi-mysql-1  Running
+ Container commerce-bench-multi-app1-1  Running
+ Container commerce-bench-multi-nginx-1  Recreate
+ Container commerce-bench-multi-nginx-1  Recreated
+ Container commerce-bench-multi-redis-1  Waiting
+ Container commerce-bench-multi-mysql-1  Waiting
+ Container commerce-bench-multi-mysql-1  Healthy
+ Container commerce-bench-multi-redis-1  Healthy
+ Container commerce-bench-multi-nginx-1  Starting
+ Container commerce-bench-multi-nginx-1  Started
+mysql: [Warning] Using a password on the command line interface can be insecure.
+  [thr-redis-i3-vu1000] 성공=1000/1000 오버셀=0 p95=1.99s avg=1.32s 행잠금대기=0회/0ms
+[5/5] 측정 B — 오버셀0 (재고 10 < 인원 1000, 인스턴스 3)
+ Container commerce-bench-multi-redis-1  Running
+ Container commerce-bench-multi-mysql-1  Running
+ Container commerce-bench-multi-app1-1  Recreate
+ Container commerce-bench-multi-app2-1  Recreate
+ Container commerce-bench-multi-app3-1  Recreate
+ Container commerce-bench-multi-app3-1  Recreated
+ Container commerce-bench-multi-app2-1  Recreated
+ Container commerce-bench-multi-app1-1  Recreated
+ Container commerce-bench-multi-redis-1  Waiting
+ Container commerce-bench-multi-mysql-1  Waiting
+ Container commerce-bench-multi-mysql-1  Waiting
+ Container commerce-bench-multi-redis-1  Waiting
+ Container commerce-bench-multi-redis-1  Waiting
+ Container commerce-bench-multi-mysql-1  Waiting
+ Container commerce-bench-multi-redis-1  Healthy
+ Container commerce-bench-multi-mysql-1  Healthy
+ Container commerce-bench-multi-redis-1  Healthy
+ Container commerce-bench-multi-mysql-1  Healthy
+ Container commerce-bench-multi-app3-1  Starting
+ Container commerce-bench-multi-redis-1  Healthy
+ Container commerce-bench-multi-app1-1  Starting
+ Container commerce-bench-multi-mysql-1  Healthy
+ Container commerce-bench-multi-app2-1  Starting
+ Container commerce-bench-multi-app2-1  Started
+ Container commerce-bench-multi-app3-1  Started
+ Container commerce-bench-multi-app1-1  Started
+ Container commerce-bench-multi-mysql-1  Running
+ Container commerce-bench-multi-redis-1  Running
+ Container commerce-bench-multi-app1-1  Running
+ Container commerce-bench-multi-nginx-1  Recreate
+ Container commerce-bench-multi-nginx-1  Recreated
+ Container commerce-bench-multi-mysql-1  Waiting
+ Container commerce-bench-multi-redis-1  Waiting
+ Container commerce-bench-multi-redis-1  Healthy
+ Container commerce-bench-multi-mysql-1  Healthy
+ Container commerce-bench-multi-nginx-1  Starting
+ Container commerce-bench-multi-nginx-1  Started
+mysql: [Warning] Using a password on the command line interface can be insecure.
+  [oversell-conditional] 성공=10 (재고 10) 오버셀=0 p95=2.4s
+ Container commerce-bench-multi-redis-1  Running
+ Container commerce-bench-multi-mysql-1  Running
+ Container commerce-bench-multi-app3-1  Recreate
+ Container commerce-bench-multi-app1-1  Recreate
+ Container commerce-bench-multi-app2-1  Recreate
+ Container commerce-bench-multi-app3-1  Recreated
+ Container commerce-bench-multi-app2-1  Recreated
+ Container commerce-bench-multi-app1-1  Recreated
+ Container commerce-bench-multi-mysql-1  Waiting
+ Container commerce-bench-multi-redis-1  Waiting
+ Container commerce-bench-multi-redis-1  Waiting
+ Container commerce-bench-multi-mysql-1  Waiting
+ Container commerce-bench-multi-mysql-1  Waiting
+ Container commerce-bench-multi-redis-1  Waiting
+ Container commerce-bench-multi-mysql-1  Healthy
+ Container commerce-bench-multi-mysql-1  Healthy
+ Container commerce-bench-multi-redis-1  Healthy
+ Container commerce-bench-multi-redis-1  Healthy
+ Container commerce-bench-multi-app1-1  Starting
+ Container commerce-bench-multi-redis-1  Healthy
+ Container commerce-bench-multi-app3-1  Starting
+ Container commerce-bench-multi-mysql-1  Healthy
+ Container commerce-bench-multi-app2-1  Starting
+ Container commerce-bench-multi-app2-1  Started
+ Container commerce-bench-multi-app1-1  Started
+ Container commerce-bench-multi-app3-1  Started
+ Container commerce-bench-multi-redis-1  Running
+ Container commerce-bench-multi-mysql-1  Running
+ Container commerce-bench-multi-app1-1  Running
+ Container commerce-bench-multi-nginx-1  Recreate
+ Container commerce-bench-multi-nginx-1  Recreated
+ Container commerce-bench-multi-mysql-1  Waiting
+ Container commerce-bench-multi-redis-1  Waiting
+ Container commerce-bench-multi-redis-1  Healthy
+ Container commerce-bench-multi-mysql-1  Healthy
+ Container commerce-bench-multi-nginx-1  Starting
+ Container commerce-bench-multi-nginx-1  Started
+mysql: [Warning] Using a password on the command line interface can be insecure.
+  [oversell-redis] 성공=10 (재고 10) 오버셀=0 p95=2.14s
+
+======== 측정 A: 처리량/역전 (재고=VU×2 전원차감) ========
+전략       인스 VU     성공   오버셀 p95       avg       행잠금대기 
+conditional  1     1000   1000     0        1.44s     943.18ms  985회/5220ms   
+conditional  3     1000   1000     0        2.52s     1.75s     999회/45776ms  
+redis        1     1000   1000     0        1.1s      783.22ms  0회/0ms        
+redis        3     1000   1000     0        1.99s     1.32s     0회/0ms        
+
+======== 측정 B: 오버셀0 (재고 10, 품절 경합) ========
+전략       인스 VU     성공     오버셀      p95      
+conditional  3     1000   10         0              2.4s     
+redis        3     1000   10         0              2.14s    
+
+======== 측정 C: 커넥션 총량 (인스턴스 3 · VU 1000 부하 중 스냅샷) ========
+-- results/conn-conditional-i3-vu1000.log (peak) --
+t=1785206609 hikari_active_sum=30 db_threads_connected=32 db_threads_running=2 innodb_row_lock_current_waits=0
+-- results/conn-redis-i3-vu1000.log (peak) --
+t=1785206790 hikari_active_sum=29 db_threads_connected=31 db_threads_running=2 innodb_row_lock_current_waits=0
+[정리] 컨테이너·볼륨 삭제

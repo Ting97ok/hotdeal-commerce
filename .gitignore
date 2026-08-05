@@ -36,6 +36,6 @@ bin/
 .serena/
 .playwright-mcp/
 
-# 벤치마크 산출물 (런타임 생성 · 재현 가능 — 결과 수치는 ADR-0010 에 보존)
-k6/benchmark/results/
+# nginx 설정은 인스턴스 수에 맞춰 실행 때 생성되고 끝나면 지워진다
+# (측정 결과 k6/benchmark/results/ 는 문서가 대는 수치의 원본이라 추적한다)
 k6/benchmark/nginx.conf

@@ -10,6 +10,9 @@ ACCOUNTS="${ACCOUNTS:-1000}"
 STOCK="${STOCK:-2000}"
 BASE_URL="http://localhost:18080"
 K6_SCRIPT="../order-flash-sale.js"
+# 문서가 인용하는 수치의 원본이라 저장소에 남긴다. 파일명에 인원·재고를 넣어야
+# 매트릭스 세 구간(저경합·고경합·품절)이 서로 덮지 않는다.
+RESULTS="results"
 RESET_SQL="UPDATE hot_deal_stock SET remaining_quantity=$STOCK WHERE hot_deal_id=1; UPDATE product_stock SET reserved_quantity=$STOCK WHERE product_id=1; DELETE FROM orders;"
 
 mysql_exec() { docker compose exec -T mysql mysql -uroot -proot commerce "$@"; }
@@ -35,6 +38,8 @@ wait_app() {
   echo "[app] UP 대기 실패"; docker compose logs app 2>&1 | tail -40; return 1
 }
 
+mkdir -p "$RESULTS"
+
 echo "[1/4] 일회용 인프라 기동 (mysql:13306, redis:16379, tmpfs)"
 docker compose up -d mysql redis
 wait_healthy mysql
@@ -56,7 +61,7 @@ for STRATEGY in conditional redis; do
   redis_exec SET hotdeal:stock:1 "$STOCK" >/dev/null
 
   echo "  [$STRATEGY] k6 부하 (동시 $ACCOUNTS · 재고 $STOCK)"
-  OUT="/tmp/k6-bench-$STRATEGY.log"
+  OUT="$RESULTS/single-$STRATEGY-a${ACCOUNTS}-s${STOCK}.log"
   k6 run -e ACCOUNTS="$ACCOUNTS" -e PRODUCT_ID=1 -e BASE_URL="$BASE_URL" "$K6_SCRIPT" > "$OUT" 2>&1 || true
 
   SUCCESS=$(grep 'order_success' "$OUT" | sed -E 's/.*: +([0-9]+).*/\1/' | head -1 || echo "?")
