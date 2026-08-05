@@ -57,7 +57,8 @@ public class TossPaymentClient implements PaymentGatewayClient {
       "NOT_AVAILABLE_PAYMENT",
       "FDS_ERROR",
       "NOT_FOUND_PAYMENT",
-      "NOT_FOUND_PAYMENT_SESSION");
+      "NOT_FOUND_PAYMENT_SESSION",
+      "UNAPPROVED_ORDER_ID");
 
   private final TossHttpClient tossHttpClient;
 

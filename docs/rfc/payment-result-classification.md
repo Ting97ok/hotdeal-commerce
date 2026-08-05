@@ -51,19 +51,21 @@
 
 ### 목록에 넣으면 안 되는 것 — 함정 세 부류
 
-| 부류 | 예 | 왜 넣으면 안 되나 |
+승인 API 가 내는 에러 중 거절 목록 밖의 것은 전부 아래 셋에 든다.
+
+| 부류 | 코드 | 왜 넣으면 안 되나 |
 |---|---|---|
 | 돈이 이미 빠진 것 | `ALREADY_PROCESSED_PAYMENT` | "이미 처리된 결제"는 성공한 결제다. 이것을 거절로 넣으면 **성공한 결제를 되돌리는** 바로 그 사고가 난다 |
-| 처리가 어디까지 갔는지 모르는 것 | `PROVIDER_ERROR` · `CARD_PROCESSING_ERROR` · `FAILED_*` | 카드사·PG 내부에서 난 오류라 승인이 섰는지 안 섰는지 알 수 없다 |
-| 우리 설정이 틀린 것 | `INVALID_API_KEY` · `UNAUTHORIZED_KEY` · `INVALID_REQUEST` | 사용자의 결제가 거절된 게 아니라 우리 버그다. 결제 거절로 위장하면 원인이 사라진다 |
+| 처리가 어디까지 갔는지 모르는 것 | `PROVIDER_ERROR` · `CARD_PROCESSING_ERROR` · `FAILED_PAYMENT_INTERNAL_SYSTEM_PROCESSING` · `FAILED_INTERNAL_SYSTEM_PROCESSING` · `UNKNOWN_PAYMENT_ERROR` | 카드사·PG 내부에서 난 오류라 승인이 섰는지 안 섰는지 알 수 없다 |
+| 우리 설정·요청이 틀린 것 | `INVALID_REQUEST` · `INVALID_API_KEY` · `UNAUTHORIZED_KEY` · `NOT_FOUND_TERMINAL_ID` · `INVALID_AUTHORIZE_AUTH` · `INVALID_UNREGISTERED_SUBMALL` · `NOT_REGISTERED_BUSINESS` · `FORBIDDEN_REQUEST` · `INCORRECT_BASIC_AUTH_FORMAT` | 사용자의 결제가 거절된 게 아니라 우리 버그다. 결제 거절로 위장하면 원인이 사라진다 |
 
 - 세 부류 모두 모름으로 떨어뜨린다. 첫째는 사고를 막으려고, 둘째는 사실이라서, 셋째는 조사할 수 있게 남기려고다
 
-### 목록에 넣은 예외 — 존재하지 않는 결제
+### 목록에 넣은 예외 — 결제가 없거나 아직 승인 전
 
-`NOT_FOUND_PAYMENT` 와 `NOT_FOUND_PAYMENT_SESSION` 은 거절에 넣었다.
+`NOT_FOUND_PAYMENT` · `NOT_FOUND_PAYMENT_SESSION` · `UNAPPROVED_ORDER_ID` 는 거절에 넣었다.
 
-- 결제 객체 자체가 없으니 돈이 빠질 수가 없다. 기준("돈이 확실히 안 빠졌나")에 정확히 맞는다
+- 결제 객체가 없거나 승인이 시작되지도 않았으니 돈이 빠질 수가 없다. 기준("돈이 확실히 안 빠졌나")에 정확히 맞는다
 - 넣지 않으면 위조하거나 오타 난 키가 미확정으로 남고, 해소가 다시 물어봐도 계속 없다고 답한다
   - 영원히 확정되지 않는 행이 쌓이고, 그 주문이 잡은 **핫딜 재고가 영구히 묶인다**
   - 아무 문자열이나 보내 재고를 잠글 수 있으므로 악용 경로가 된다
@@ -106,7 +108,7 @@
 
 ## 6. 거절 목록 전문
 
-`TossPaymentClient` 가 거절로 접는 코드 31개다. 전부 "사용자의 결제 수단이 막혀 돈이 안 나간" 경우다.
+`TossPaymentClient` 가 거절로 접는 코드 32개다. 대부분은 사용자의 결제 수단이 막힌 경우이고, 마지막 부류는 결제 객체가 아예 없어 돈이 빠질 수 없는 경우다.
 
 | 부류 | 코드 |
 |---|---|
@@ -116,12 +118,13 @@
 | 할부 조건 불가 | `NOT_SUPPORTED_INSTALLMENT_PLAN_CARD_OR_MERCHANT` · `INVALID_CARD_INSTALLMENT_PLAN` · `NOT_SUPPORTED_MONTHLY_INSTALLMENT_PLAN` |
 | 결제 수단 제약 | `NOT_ALLOWED_POINT_USE` · `RESTRICTED_TRANSFER_ACCOUNT` · `NOT_AVAILABLE_BANK` · `NOT_AVAILABLE_PAYMENT` |
 | 위험 거래 차단 | `FDS_ERROR` |
-| 결제가 존재하지 않음 | `NOT_FOUND_PAYMENT` · `NOT_FOUND_PAYMENT_SESSION` |
+| 결제가 존재하지 않거나 승인 전 | `NOT_FOUND_PAYMENT` · `NOT_FOUND_PAYMENT_SESSION` · `UNAPPROVED_ORDER_ID` |
+
+승인 API 에러 코드 전수와 맞대어 빠진 거절이 없음을 확인했다. 목록 밖의 코드는 전부 3절의 세 부류에 든다.
 
 ## 7. 아직 못 밝힌 것
 
 - **5절 확인의 응답 원본을 보존하지 않았다.** 확인한 상태값은 어댑터 테스트에 그대로 고정돼 있지만 요청·응답 로그가 남아 있지 않다. 토스가 코드별 응답을 바꾸면 알아차릴 방법이 없고, 재확인하려면 강제 에러 헤더로 다시 요청해야 한다
-- **목록의 완전성을 확인하지 못했다.** 토스 에러 코드 전수를 훑어 분류한 것이 아니라, 거절이 분명한 것부터 담았다. 빠진 거절 코드는 불필요한 미확정을 만들 뿐 사고로 이어지지 않는다는 것이 이 설계의 안전망이다
 - **얼마나 자주 미확정이 나는지 모른다.** 테스트 모드라 실제 분포가 없고, 해소가 몇 건을 처리하게 될지 예측하지 않았다. 판정하려면 실거래 로그가 필요하다
 - **분류가 PG 중립인지 확인하지 못했다.** "돈이 확실히 안 빠졌나"라는 기준은 PG와 무관하지만, 다른 PG가 이 판단에 필요한 정보를 응답에 주는지는 둘째 PG를 붙여야 알 수 있다
 
@@ -137,6 +140,7 @@
 | 2 | `mapsRejectedOn4xx` | 거절 목록에 있는 코드 | 거절 |
 | 3 | `mapsRejectedOnFdsError` | `FDS_ERROR`(403, 위험 거래 차단) | 거절 |
 | 4 | `mapsRejectedOnNotFoundPayment` | `NOT_FOUND_PAYMENT`(404, 위조 키) | 거절 — 영구 미확정 차단 |
+| 4-1 | `mapsRejectedOnUnapprovedOrderId` | `UNAPPROVED_ORDER_ID`(400, 승인 전 주문번호) | 거절 — 같은 이유 |
 | 5 | `mapsInDoubtOnStateUnknownCodes` | `PROVIDER_ERROR`(400) · `FAILED_PAYMENT_INTERNAL_SYSTEM_PROCESSING`(500) · `FAILED_INTERNAL_SYSTEM_PROCESSING`(500) · `UNKNOWN_PAYMENT_ERROR`(500) | 모름 — 상태 코드로 못 가름 |
 | 6 | `mapsInDoubtOnAlreadyProcessedPayment` | `ALREADY_PROCESSED_PAYMENT`(400, 돈 빠짐) | 모름 — 거절로 넣으면 사고 |
 | 7 | `mapsInDoubtOnUnknownCode` | 목록에 없는 처음 보는 코드 | 모름 — 안전 기본값 |

@@ -170,6 +170,21 @@ class TossPaymentClientTest {
   }
 
   @Test
+  @DisplayName("UNAPPROVED_ORDER_ID(승인 전 주문번호=돈 안 빠짐 확정)는 Rejected로 매핑한다 — 영구 IN_DOUBT 차단")
+  void mapsRejectedOnUnapprovedOrderId() {
+    server.enqueue(new MockResponse()
+        .setResponseCode(400)
+        .addHeader("Content-Type", "application/json")
+        .setBody("""
+            {"code":"UNAPPROVED_ORDER_ID","message":"아직 승인되지 않은 주문번호입니다."}
+            """));
+
+    PgConfirmResult result = tossPaymentClient.confirm("toss_pk_123", "order-abc", new BigDecimal("19800"));
+
+    assertThat(result).isInstanceOf(PgConfirmResult.Rejected.class);
+  }
+
+  @Test
   @DisplayName("ALREADY_PROCESSED_PAYMENT(이미 결제됨=돈 빠짐)는 Rejected가 아니라 InDoubt로 매핑한다")
   void mapsInDoubtOnAlreadyProcessedPayment() {
     server.enqueue(new MockResponse()
