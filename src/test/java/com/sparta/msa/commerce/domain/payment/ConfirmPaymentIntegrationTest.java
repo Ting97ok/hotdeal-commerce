@@ -45,6 +45,7 @@ import com.sparta.msa.commerce.global.exception.DomainException;
 import java.math.BigDecimal;
 import java.time.Duration;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Queue;
 import java.util.UUID;
@@ -103,6 +104,10 @@ class ConfirmPaymentIntegrationTest {
   private void assertLedger() {
     LedgerAssertions.assertLedger(
         hotDealRepository, hotDealStockRepository, orderRepository, paymentRepository);
+  }
+
+  private void assertSettledLedger() {
+    LedgerAssertions.assertSettledLedger(orderRepository, paymentRepository);
   }
 
   private Product createProductWithStock() {
@@ -528,6 +533,84 @@ class ConfirmPaymentIntegrationTest {
 
       then(paymentGatewayClient).should(times(1)).confirm(any(), any(), any());
       assertLedger();
+    }
+
+    @Test
+    @DisplayName("서로 다른 주문에 동시에 결제 승인이 들어와도 200 응답 수와 승인된 결제 행 수가 일치한다 — 거짓 성공 0건")
+    void confirmNeverReportsFalseSuccess() throws Exception {
+      int buyerCount = 8;
+      int expiredCount = 3;
+
+      Product product = createProductWithStock();
+      LocalDateTime start = LocalDateTime.now().minusHours(1);
+      LocalDateTime end = LocalDateTime.now().plusHours(1);
+      HotDeal hotDeal = hotDealRepository.save(HotDeal.create(
+          new CreateHotDealRequest(product.getId(), new BigDecimal("19800"), 100, 5, start, end),
+          product));
+      hotDealStockRepository.save(HotDealStock.create(hotDeal.getId(), 100 - buyerCount));
+
+      List<Order> orders = new ArrayList<>();
+      List<String> tokens = new ArrayList<>();
+      for (int i = 0; i < buyerCount; i++) {
+        User user = userRepository.save(User.create(
+            "buyer" + i + "@test.com", passwordEncoder.encode("pass"), "구매자" + i, UserRole.USER));
+        orders.add(orderRepository.save(
+            Order.create(user, hotDeal, product, 1, Duration.ofMinutes(10))));
+        tokens.add(tokenIssuer.createAccessToken(user.getId(), UserRole.USER));
+      }
+
+      // 일부는 이미 만료돼 409로 거절된다. 전부 성공하면 대조가 아무것도 말하지 못한다
+      for (Order expired : orders.subList(0, expiredCount)) {
+        expired.expire();
+        orderRepository.save(expired);
+        hotDealStockService.restore(hotDeal.getId(), expired.getQuantity());
+      }
+
+      given(paymentGatewayClient.confirm(any(), any(), any()))
+          .willAnswer(invocation -> new PgConfirmResult.Approved(
+              invocation.getArgument(0), invocation.getArgument(2), LocalDateTime.now()));
+
+      ExecutorService pool = Executors.newFixedThreadPool(buyerCount);
+      CountDownLatch ready = new CountDownLatch(buyerCount);
+      CountDownLatch startSignal = new CountDownLatch(1);
+      Queue<Integer> statuses = new ConcurrentLinkedQueue<>();
+
+      for (int i = 0; i < buyerCount; i++) {
+        String token = tokens.get(i);
+        String body = objectMapper.writeValueAsString(new ConfirmPaymentRequest(
+            "toss_pk_" + i, orders.get(i).getOrderNo(), orders.get(i).getOrderAmount()));
+        pool.submit(() -> {
+          ready.countDown();
+          try {
+            startSignal.await();
+            statuses.add(mockMvc.perform(post("/api/payments/confirm")
+                    .header(AUTHORIZATION, "Bearer " + token)
+                    .contentType(APPLICATION_JSON)
+                    .content(body))
+                .andReturn().getResponse().getStatus());
+          } catch (Exception e) {
+            statuses.add(-1);
+          }
+        });
+      }
+
+      ready.await();
+      startSignal.countDown();
+      pool.shutdown();
+      pool.awaitTermination(30, TimeUnit.SECONDS);
+
+      long successCount = statuses.stream().filter(status -> status == 200).count();
+      long paidCount = orderRepository.findAll().stream()
+          .filter(order -> order.getStatus() == OrderStatus.PAID).count();
+
+      assertThat(statuses).hasSize(buyerCount);
+      assertThat(statuses).allMatch(status -> status == 200 || status == 409);
+      assertThat(successCount).isEqualTo(buyerCount - expiredCount);
+      assertThat(paymentRepository.count()).isEqualTo(successCount);
+      assertThat(paidCount).isEqualTo(successCount);
+
+      assertLedger();
+      assertSettledLedger();
     }
   }
 
