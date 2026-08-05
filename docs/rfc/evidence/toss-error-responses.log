@@ -1,0 +1,32 @@
+# 토스 승인 API 강제 에러 응답 원본
+# 요청: POST https://api.tosspayments.com/v1/payments/confirm + TossPayments-Test-Code 헤더
+# 시크릿 키는 기록하지 않는다.
+
+## FDS_ERROR
+HTTP 403
+{"code":"FDS_ERROR","message":"[토스페이먼츠] 위험거래가 감지되어 결제가 제한됩니다.\n발송된 문자에 포함된 링크를 통해 본인인증 후 결제가 가능합니다. (고객센터: 1644-8051)"}
+
+## PROVIDER_ERROR
+HTTP 400
+{"code":"PROVIDER_ERROR","message":"일시적인 오류가 발생했습니다. 잠시 후 다시 시도해주세요."}
+
+## ALREADY_PROCESSED_PAYMENT
+HTTP 400
+{"code":"ALREADY_PROCESSED_PAYMENT","message":"이미 처리된 결제 입니다."}
+
+## FAILED_PAYMENT_INTERNAL_SYSTEM_PROCESSING
+HTTP 500
+{"code":"FAILED_PAYMENT_INTERNAL_SYSTEM_PROCESSING","message":"결제가 완료되지 않았어요. 다시 시도해주세요."}
+
+## FAILED_INTERNAL_SYSTEM_PROCESSING
+HTTP 500
+{"code":"FAILED_INTERNAL_SYSTEM_PROCESSING","message":"내부 시스템 처리 작업이 실패했습니다. 잠시 후 다시 시도해주세요."}
+
+## UNKNOWN_PAYMENT_ERROR
+HTTP 500
+{"code":"UNKNOWN_PAYMENT_ERROR","message":"결제에 실패했어요. 같은 문제가 반복된다면 은행이나 카드사로 문의해주세요."}
+
+## UNAPPROVED_ORDER_ID
+HTTP 400
+{"code":"UNAPPROVED_ORDER_ID","message":"아직 승인되지 않은 주문번호입니다."}
+
