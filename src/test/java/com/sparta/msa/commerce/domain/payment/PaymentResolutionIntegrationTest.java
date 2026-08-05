@@ -5,6 +5,7 @@ import static org.mockito.BDDMockito.given;
 import static org.mockito.BDDMockito.then;
 import static org.mockito.Mockito.never;
 
+import com.sparta.msa.commerce.LedgerAssertions;
 import com.sparta.msa.commerce.domain.hotdeal.dto.request.CreateHotDealRequest;
 import com.sparta.msa.commerce.domain.hotdeal.entity.HotDeal;
 import com.sparta.msa.commerce.domain.hotdeal.repository.HotDealRepository;
@@ -74,6 +75,15 @@ class PaymentResolutionIntegrationTest {
     userRepository.deleteAll();
   }
 
+  private void assertLedger() {
+    LedgerAssertions.assertLedger(
+        hotDealRepository, hotDealStockRepository, orderRepository, paymentRepository);
+  }
+
+  private void assertSettledLedger() {
+    LedgerAssertions.assertSettledLedger(orderRepository, paymentRepository);
+  }
+
   private Payment saveInDoubtPayment(String paymentKey) {
     return paymentRepository.save(Payment.createInDoubt(savePaidOrder(paymentKey), paymentKey));
   }
@@ -106,6 +116,8 @@ class PaymentResolutionIntegrationTest {
 
     Payment resolved = paymentRepository.findById(payment.getId()).orElseThrow();
     assertThat(resolved.getStatus()).isEqualTo(PaymentStatus.DONE);
+    assertLedger();
+    assertSettledLedger();
   }
 
   @Test
@@ -128,6 +140,7 @@ class PaymentResolutionIntegrationTest {
 
     HotDealStock hotDealStock = hotDealStockRepository.findByHotDealId(order.getHotDealId()).orElseThrow();
     assertThat(hotDealStock.getRemainingQuantity()).isEqualTo(100);
+    assertLedger();
   }
 
   @Test
@@ -144,6 +157,8 @@ class PaymentResolutionIntegrationTest {
 
     Payment resolved = paymentRepository.findById(payment.getId()).orElseThrow();
     assertThat(resolved.getStatus()).isEqualTo(PaymentStatus.DONE);
+    assertLedger();
+    assertSettledLedger();
   }
 
   @Test
@@ -169,6 +184,7 @@ class PaymentResolutionIntegrationTest {
 
     HotDealStock hotDealStock = hotDealStockRepository.findByHotDealId(failedOrder.getHotDealId()).orElseThrow();
     assertThat(hotDealStock.getRemainingQuantity()).isEqualTo(100);
+    assertLedger();
   }
 
   @Test
@@ -188,6 +204,7 @@ class PaymentResolutionIntegrationTest {
 
     Order keptOrder = orderRepository.findById(payment.getOrderId()).orElseThrow();
     assertThat(keptOrder.getStatus()).isEqualTo(OrderStatus.PAID);
+    assertLedger();
   }
 
   @Test
@@ -202,6 +219,7 @@ class PaymentResolutionIntegrationTest {
     assertThat(resolved.getStatus()).isEqualTo(PaymentStatus.FAILED);
     Order order = orderRepository.findById(payment.getOrderId()).orElseThrow();
     assertThat(order.getStatus()).isEqualTo(OrderStatus.CANCELED);
+    assertLedger();
   }
 
   @Test
@@ -220,6 +238,7 @@ class PaymentResolutionIntegrationTest {
     assertThat(kept.getStatus()).isEqualTo(PaymentStatus.IN_DOUBT);
     Payment resolved = paymentRepository.findById(healthy.getId()).orElseThrow();
     assertThat(resolved.getStatus()).isEqualTo(PaymentStatus.DONE);
+    assertLedger();
   }
 
   @Test
@@ -232,6 +251,7 @@ class PaymentResolutionIntegrationTest {
     then(paymentGatewayClient).should(never()).findPayment(payment.getPgPaymentKey());
     Payment kept = paymentRepository.findById(payment.getId()).orElseThrow();
     assertThat(kept.getStatus()).isEqualTo(PaymentStatus.IN_DOUBT);
+    assertLedger();
   }
 
   @Test
@@ -250,6 +270,8 @@ class PaymentResolutionIntegrationTest {
     assertThat(payments.get(0).getPgPaymentKey()).isEqualTo("toss_pk_orphan");
     assertThat(orderRepository.findById(orphan.getId()).orElseThrow().getStatus())
         .isEqualTo(OrderStatus.PAID);
+    assertLedger();
+    assertSettledLedger();
   }
 
   @Test
@@ -268,6 +290,7 @@ class PaymentResolutionIntegrationTest {
     assertThat(hotDealStock.getRemainingQuantity()).isEqualTo(100);
     ProductStock stock = productStockRepository.findByProductId(canceled.getProductId()).orElseThrow();
     assertThat(stock.getOnHandQuantity()).isEqualTo(100);
+    assertLedger();
   }
 
   @Test
@@ -282,6 +305,7 @@ class PaymentResolutionIntegrationTest {
     assertThat(paymentRepository.findAll()).isEmpty();
     assertThat(orderRepository.findById(orphan.getId()).orElseThrow().getStatus())
         .isEqualTo(OrderStatus.CANCELED);
+    assertLedger();
   }
 
   @Test
@@ -295,6 +319,7 @@ class PaymentResolutionIntegrationTest {
     assertThat(orderRepository.findById(orphan.getId()).orElseThrow().getStatus())
         .isEqualTo(OrderStatus.PAID);
     assertThat(paymentRepository.findAll()).isEmpty();
+    assertLedger();
   }
 
   @Test
@@ -309,6 +334,7 @@ class PaymentResolutionIntegrationTest {
     assertThat(paymentRepository.findAll()).isEmpty();
     assertThat(orderRepository.findById(orphan.getId()).orElseThrow().getStatus())
         .isEqualTo(OrderStatus.PAID);
+    assertLedger();
   }
 
   @Test
@@ -324,5 +350,6 @@ class PaymentResolutionIntegrationTest {
     assertThat(paymentRepository.findAll()).isEmpty();
     assertThat(orderRepository.findById(orphan.getId()).orElseThrow().getStatus())
         .isEqualTo(OrderStatus.PAID);
+    assertLedger();
   }
 }

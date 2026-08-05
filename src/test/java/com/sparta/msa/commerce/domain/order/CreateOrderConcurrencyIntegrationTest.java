@@ -6,13 +6,14 @@ import static org.springframework.http.MediaType.APPLICATION_JSON;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.sparta.msa.commerce.LedgerAssertions;
 import com.sparta.msa.commerce.domain.auth.token.TokenIssuer;
 import com.sparta.msa.commerce.domain.hotdeal.dto.request.CreateHotDealRequest;
 import com.sparta.msa.commerce.domain.hotdeal.entity.HotDeal;
 import com.sparta.msa.commerce.domain.hotdeal.repository.HotDealRepository;
 import com.sparta.msa.commerce.domain.order.dto.request.CreateOrderRequest;
-import com.sparta.msa.commerce.domain.order.entity.Order;
 import com.sparta.msa.commerce.domain.order.repository.OrderRepository;
+import com.sparta.msa.commerce.domain.payment.repository.PaymentRepository;
 import com.sparta.msa.commerce.domain.product.entity.Product;
 import com.sparta.msa.commerce.domain.product.repository.ProductRepository;
 import com.sparta.msa.commerce.domain.stock.entity.HotDealStock;
@@ -64,14 +65,22 @@ class CreateOrderConcurrencyIntegrationTest {
   HotDealStockRepository hotDealStockRepository;
   @Autowired
   OrderRepository orderRepository;
+  @Autowired
+  PaymentRepository paymentRepository;
 
   @BeforeEach
   void setUp() {
+    paymentRepository.deleteAll();
     orderRepository.deleteAll();
     hotDealStockRepository.deleteAll();
     hotDealRepository.deleteAll();
     productRepository.deleteAll();
     userRepository.deleteAll();
+  }
+
+  private void assertLedger() {
+    LedgerAssertions.assertLedger(
+        hotDealRepository, hotDealStockRepository, orderRepository, paymentRepository);
   }
 
   @Test
@@ -131,11 +140,10 @@ class CreateOrderConcurrencyIntegrationTest {
     assertThat(statuses).allMatch(status -> status == 200 || status == 409);
 
     HotDealStock stock = hotDealStockRepository.findByHotDealId(hotDeal.getId()).orElseThrow();
-    int soldQuantity = orderRepository.findAll().stream().mapToInt(Order::getQuantity).sum();
 
     assertThat(stock.getRemainingQuantity()).isGreaterThanOrEqualTo(0);
-    assertThat(stock.getRemainingQuantity()).isEqualTo(stockQuantity - soldQuantity);
     assertThat(orderRepository.count()).isEqualTo(successCount);
+    assertLedger();
   }
 
   @Test
@@ -189,5 +197,6 @@ class CreateOrderConcurrencyIntegrationTest {
     assertThat(successCount).isEqualTo(1);
     assertThat(orderRepository.count()).isEqualTo(1);
     assertThat(statuses).allMatch(status -> status == 200 || status == 409);
+    assertLedger();
   }
 }

@@ -7,6 +7,7 @@ import static com.sparta.msa.commerce.domain.order.entity.OrderStatus.PENDING;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.doThrow;
 
+import com.sparta.msa.commerce.LedgerAssertions;
 import com.sparta.msa.commerce.domain.hotdeal.dto.request.CreateHotDealRequest;
 import com.sparta.msa.commerce.domain.hotdeal.entity.HotDeal;
 import com.sparta.msa.commerce.domain.hotdeal.repository.HotDealRepository;
@@ -16,6 +17,7 @@ import com.sparta.msa.commerce.domain.order.facade.OrderExpiryFacade;
 import com.sparta.msa.commerce.domain.order.facade.OrderFacade;
 import com.sparta.msa.commerce.domain.order.repository.OrderRepository;
 import com.sparta.msa.commerce.domain.order.service.CommonOrderService;
+import com.sparta.msa.commerce.domain.payment.repository.PaymentRepository;
 import com.sparta.msa.commerce.domain.product.entity.Product;
 import com.sparta.msa.commerce.domain.product.repository.ProductRepository;
 import com.sparta.msa.commerce.domain.stock.entity.HotDealStock;
@@ -68,6 +70,8 @@ class OrderExpiryIntegrationTest {
   @Autowired
   OrderRepository orderRepository;
   @Autowired
+  PaymentRepository paymentRepository;
+  @Autowired
   CommonOrderService commonOrderService;
   @Autowired
   PlatformTransactionManager txManager;
@@ -76,11 +80,17 @@ class OrderExpiryIntegrationTest {
 
   @BeforeEach
   void setUp() {
+    paymentRepository.deleteAll();
     orderRepository.deleteAll();
     hotDealStockRepository.deleteAll();
     hotDealRepository.deleteAll();
     productRepository.deleteAll();
     userRepository.deleteAll();
+  }
+
+  private void assertLedger() {
+    LedgerAssertions.assertLedger(
+        hotDealRepository, hotDealStockRepository, orderRepository, paymentRepository);
   }
 
   @Nested
@@ -110,6 +120,7 @@ class OrderExpiryIntegrationTest {
 
       HotDealStock stock = hotDealStockRepository.findByHotDealId(hotDeal.getId()).orElseThrow();
       assertThat(stock.getRemainingQuantity()).isEqualTo(100);
+      assertLedger();
     }
   }
 
@@ -140,6 +151,7 @@ class OrderExpiryIntegrationTest {
 
       HotDealStock stock = hotDealStockRepository.findByHotDealId(hotDeal.getId()).orElseThrow();
       assertThat(stock.getRemainingQuantity()).isEqualTo(98);
+      assertLedger();
     }
   }
 
@@ -200,6 +212,7 @@ class OrderExpiryIntegrationTest {
       assertThat(stock.getRemainingQuantity()).isEqualTo(100);
 
       assertThat(errors).isEmpty();
+      assertLedger();
     }
   }
 
@@ -232,6 +245,7 @@ class OrderExpiryIntegrationTest {
 
       HotDealStock stock = hotDealStockRepository.findByHotDealId(hotDeal.getId()).orElseThrow();
       assertThat(stock.getRemainingQuantity()).isEqualTo(99);
+      assertLedger();
     }
   }
 
@@ -273,6 +287,7 @@ class OrderExpiryIntegrationTest {
       assertThat(processedOne.getStatus()).isEqualTo(CANCELED);
       HotDealStock healthyStock = hotDealStockRepository.findByHotDealId(healthyDeal.getId()).orElseThrow();
       assertThat(healthyStock.getRemainingQuantity()).isEqualTo(100);
+      assertLedger();
     }
   }
 
@@ -308,6 +323,7 @@ class OrderExpiryIntegrationTest {
 
       HotDealStock stock = hotDealStockRepository.findByHotDealId(hotDeal.getId()).orElseThrow();
       assertThat(stock.getRemainingQuantity()).isEqualTo(98);
+      assertLedger();
     }
   }
 
@@ -372,6 +388,7 @@ class OrderExpiryIntegrationTest {
 
       HotDealStock stock = hotDealStockRepository.findByHotDealId(hotDeal.getId()).orElseThrow();
       assertThat(stock.getRemainingQuantity()).isEqualTo(98);
+      assertLedger();
     }
 
     private void awaitQuietly(CountDownLatch latch) {
