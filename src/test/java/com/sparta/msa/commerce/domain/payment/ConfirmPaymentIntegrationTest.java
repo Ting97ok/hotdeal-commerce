@@ -13,6 +13,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.sparta.msa.commerce.LedgerAssertions;
 import com.sparta.msa.commerce.domain.auth.token.TokenIssuer;
 import com.sparta.msa.commerce.domain.hotdeal.dto.request.CreateHotDealRequest;
 import com.sparta.msa.commerce.domain.hotdeal.entity.HotDeal;
@@ -35,6 +36,7 @@ import com.sparta.msa.commerce.domain.stock.entity.HotDealStock;
 import com.sparta.msa.commerce.domain.stock.entity.ProductStock;
 import com.sparta.msa.commerce.domain.stock.repository.HotDealStockRepository;
 import com.sparta.msa.commerce.domain.stock.repository.ProductStockRepository;
+import com.sparta.msa.commerce.domain.stock.service.HotDealStockService;
 import com.sparta.msa.commerce.domain.stock.service.ProductStockService;
 import com.sparta.msa.commerce.domain.user.entity.User;
 import com.sparta.msa.commerce.domain.user.entity.UserRole;
@@ -79,6 +81,7 @@ class ConfirmPaymentIntegrationTest {
   @Autowired HotDealStockRepository hotDealStockRepository;
   @Autowired ProductStockRepository productStockRepository;
   @Autowired ProductStockService productStockService;
+  @Autowired HotDealStockService hotDealStockService;
   @Autowired OrderRepository orderRepository;
   @Autowired PaymentRepository paymentRepository;
   @Autowired CommonOrderService commonOrderService;
@@ -95,6 +98,11 @@ class ConfirmPaymentIntegrationTest {
     hotDealRepository.deleteAll();
     productRepository.deleteAll();
     userRepository.deleteAll();
+  }
+
+  private void assertLedger() {
+    LedgerAssertions.assertLedger(
+        hotDealRepository, hotDealStockRepository, orderRepository, paymentRepository);
   }
 
   private Product createProductWithStock() {
@@ -147,6 +155,7 @@ class ConfirmPaymentIntegrationTest {
       assertThat(payments).hasSize(1);
       assertThat(payments.get(0).getStatus()).isEqualTo(PaymentStatus.DONE);
       assertThat(payments.get(0).getPgPaymentKey()).isEqualTo(pgPaymentKey);
+      assertLedger();
     }
   }
 
@@ -183,6 +192,7 @@ class ConfirmPaymentIntegrationTest {
       assertThat(orderRepository.findById(order.getId()).orElseThrow().getStatus())
           .isEqualTo(OrderStatus.PENDING);
       assertThat(paymentRepository.findAll()).isEmpty();
+      assertLedger();
     }
 
     @Test
@@ -202,6 +212,7 @@ class ConfirmPaymentIntegrationTest {
 
       order.expire();
       orderRepository.save(order);
+      hotDealStockService.restore(hotDeal.getId(), order.getQuantity());   // 만료가 되돌린 재고
 
       ConfirmPaymentRequest request = new ConfirmPaymentRequest(
           "toss_pk_abc123", order.getOrderNo(), order.getOrderAmount());
@@ -220,6 +231,7 @@ class ConfirmPaymentIntegrationTest {
       assertThat(conflicted.getStatus()).isEqualTo(OrderStatus.CANCELED);
 
       assertThat(paymentRepository.findAll()).isEmpty();
+      assertLedger();
     }
   }
 
@@ -261,6 +273,7 @@ class ConfirmPaymentIntegrationTest {
       assertThat(conflicted.getStatus()).isEqualTo(OrderStatus.PAID);
 
       assertThat(paymentRepository.findAll()).isEmpty();
+      assertLedger();
     }
   }
 
@@ -301,6 +314,7 @@ class ConfirmPaymentIntegrationTest {
       assertThat(untouched.getStatus()).isEqualTo(OrderStatus.PENDING);
 
       assertThat(paymentRepository.findAll()).isEmpty();
+      assertLedger();
     }
   }
 
@@ -348,6 +362,7 @@ class ConfirmPaymentIntegrationTest {
       assertThat(stock.getOnHandQuantity()).isEqualTo(100);
 
       assertThat(paymentRepository.findAll()).isEmpty();
+      assertLedger();
     }
   }
 
@@ -395,6 +410,7 @@ class ConfirmPaymentIntegrationTest {
       ProductStock stock = productStockRepository.findByProductId(product.getId()).orElseThrow();
       assertThat(stock.getOnHandQuantity()).isEqualTo(99);
       assertThat(stock.getReservedQuantity()).isEqualTo(99);
+      assertLedger();
     }
   }
 
@@ -438,6 +454,7 @@ class ConfirmPaymentIntegrationTest {
 
       ProductStock stock = productStockRepository.findByProductId(product.getId()).orElseThrow();
       assertThat(stock.getReservedQuantity()).isEqualTo(100);
+      assertLedger();
     }
   }
 
@@ -510,6 +527,7 @@ class ConfirmPaymentIntegrationTest {
       assertThat(paymentRepository.findAll()).hasSize(1);
 
       then(paymentGatewayClient).should(times(1)).confirm(any(), any(), any());
+      assertLedger();
     }
   }
 
@@ -555,6 +573,7 @@ class ConfirmPaymentIntegrationTest {
       assertThat(untouched.getStatus()).isEqualTo(OrderStatus.PENDING);
 
       assertThat(paymentRepository.findAll()).isEmpty();
+      assertLedger();
     }
   }
 
@@ -594,6 +613,7 @@ class ConfirmPaymentIntegrationTest {
       ProductStock stock = productStockRepository.findByProductId(product.getId()).orElseThrow();
       assertThat(stock.getOnHandQuantity()).isEqualTo(99);
       assertThat(stock.getReservedQuantity()).isEqualTo(99);
+      assertLedger();
     }
   }
 }

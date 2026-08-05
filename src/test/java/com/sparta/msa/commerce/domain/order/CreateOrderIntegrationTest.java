@@ -8,6 +8,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.sparta.msa.commerce.LedgerAssertions;
 import com.sparta.msa.commerce.domain.auth.token.TokenIssuer;
 import com.sparta.msa.commerce.domain.hotdeal.dto.request.CreateHotDealRequest;
 import com.sparta.msa.commerce.domain.hotdeal.entity.HotDeal;
@@ -16,6 +17,7 @@ import com.sparta.msa.commerce.domain.order.dto.request.CreateOrderRequest;
 import com.sparta.msa.commerce.domain.order.entity.Order;
 import com.sparta.msa.commerce.domain.order.entity.OrderStatus;
 import com.sparta.msa.commerce.domain.order.repository.OrderRepository;
+import com.sparta.msa.commerce.domain.payment.repository.PaymentRepository;
 import com.sparta.msa.commerce.domain.product.entity.Product;
 import com.sparta.msa.commerce.domain.product.repository.ProductRepository;
 import com.sparta.msa.commerce.domain.stock.entity.HotDealStock;
@@ -60,14 +62,22 @@ class CreateOrderIntegrationTest {
   HotDealStockRepository hotDealStockRepository;
   @Autowired
   OrderRepository orderRepository;
+  @Autowired
+  PaymentRepository paymentRepository;
 
   @BeforeEach
   void setUp() {
+    paymentRepository.deleteAll();
     orderRepository.deleteAll();
     hotDealStockRepository.deleteAll();
     hotDealRepository.deleteAll();
     productRepository.deleteAll();
     userRepository.deleteAll();
+  }
+
+  private void assertLedger() {
+    LedgerAssertions.assertLedger(
+        hotDealRepository, hotDealStockRepository, orderRepository, paymentRepository);
   }
 
   @Nested
@@ -108,6 +118,7 @@ class CreateOrderIntegrationTest {
 
       HotDealStock stock = hotDealStockRepository.findByHotDealId(hotDeal.getId()).orElseThrow();
       assertThat(stock.getRemainingQuantity()).isEqualTo(98);
+      assertLedger();
     }
   }
 
@@ -134,6 +145,7 @@ class CreateOrderIntegrationTest {
           .andExpect(jsonPath("$.error.code").value("NO_ACTIVE_DEAL"));
 
       assertThat(orderRepository.count()).isZero();
+      assertLedger();
     }
 
     @Test
@@ -165,6 +177,7 @@ class CreateOrderIntegrationTest {
           .andExpect(jsonPath("$.error.code").value("ALREADY_PURCHASED"));
 
       assertThat(orderRepository.count()).isEqualTo(1);
+      assertLedger();
     }
 
     @Test
@@ -191,6 +204,7 @@ class CreateOrderIntegrationTest {
           .andExpect(jsonPath("$.error.code").value("EXCEEDS_PURCHASE_LIMIT"));
 
       assertThat(orderRepository.count()).isZero();
+      assertLedger();
     }
 
     @Test
@@ -203,7 +217,7 @@ class CreateOrderIntegrationTest {
       LocalDateTime start = LocalDateTime.now().minusHours(1);
       LocalDateTime end = LocalDateTime.now().plusHours(1);
       HotDeal hotDeal = hotDealRepository.save(HotDeal.create(
-          new CreateHotDealRequest(product.getId(), new BigDecimal("9900"), 100, 5, start, end), product));
+          new CreateHotDealRequest(product.getId(), new BigDecimal("9900"), 1, 5, start, end), product));
       hotDealStockRepository.save(HotDealStock.create(hotDeal.getId(), 1));
 
       CreateOrderRequest request = new CreateOrderRequest(product.getId(), 2);
@@ -217,6 +231,7 @@ class CreateOrderIntegrationTest {
           .andExpect(jsonPath("$.error.code").value("SOLD_OUT"));
 
       assertThat(orderRepository.count()).isZero();
+      assertLedger();
     }
 
     @Test
@@ -238,6 +253,7 @@ class CreateOrderIntegrationTest {
           .andExpect(jsonPath("$.error.code").value("VALIDATION_ERROR"));
 
       assertThat(orderRepository.count()).isZero();
+      assertLedger();
     }
 
     @Test
@@ -258,6 +274,7 @@ class CreateOrderIntegrationTest {
           .andExpect(jsonPath("$.error.code").value("USER_NOT_FOUND"));
 
       assertThat(orderRepository.count()).isZero();
+      assertLedger();
     }
 
     @Test
@@ -279,6 +296,7 @@ class CreateOrderIntegrationTest {
           .andExpect(jsonPath("$.error.code").value("PRODUCT_NOT_FOUND"));
 
       assertThat(orderRepository.count()).isZero();
+      assertLedger();
     }
   }
 }
