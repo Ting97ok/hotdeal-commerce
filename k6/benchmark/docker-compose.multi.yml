@@ -18,6 +18,10 @@ x-app: &app
     ORDER_EXPIRY_SCHEDULER_ENABLED: "false"
     PAYMENT_RESOLUTION_SCHEDULER_ENABLED: "false"
     LOGGING_LEVEL_ORG_HIBERNATE_SQL: "WARN"
+    # 계정 토큰을 회차마다 다시 발급하지 않으려고 만료를 늘렸다. 기본 30분이면
+    # 스윕 전량(수십 회차)이 도는 동안 만료돼 측정이 401 로 무너진다.
+    # 토큰 검증 비용은 만료값과 무관하므로 측정에 영향이 없다.
+    JWT_TOKEN_EXP_MINUTE_TIME: "600"
   depends_on:
     mysql:
       condition: service_healthy
@@ -34,8 +38,15 @@ services:
       MYSQL_PASSWORD: commerce
     ports:
       - "13306:3306"
+    # 스토리지 전환 — 데이터 디렉터리를 tmpfs 로 둘지 디스크(named volume)로 둘지.
+    # compose 는 tmpfs 항목을 override 파일로 지울 수 없어(리스트가 병합된다) 마운트
+    # '대상 경로'를 변수로 돌린다. 안 쓰는 쪽은 더미 경로로 가서 아무 영향이 없다.
+    #   tmpfs(기본) : MYSQL_TMPFS_TARGET=/var/lib/mysql
+    #   디스크      : MYSQL_DISK_TARGET=/var/lib/mysql  + MYSQL_TMPFS_TARGET=더미
     tmpfs:
-      - /var/lib/mysql
+      - ${MYSQL_TMPFS_TARGET:-/var/lib/mysql}
+    volumes:
+      - mysql-data:${MYSQL_DISK_TARGET:-/var/lib/mysql-unused}
     healthcheck:
       test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-uroot", "-proot"]
       interval: 3s
@@ -75,3 +86,6 @@ services:
       - ./nginx.conf:/etc/nginx/nginx.conf:ro
     depends_on:
       - app1
+
+volumes:
+  mysql-data:

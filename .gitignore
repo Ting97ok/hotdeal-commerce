@@ -39,3 +39,6 @@ bin/
 # nginx 설정은 인스턴스 수에 맞춰 실행 때 생성되고 끝나면 지워진다
 # (측정 결과 k6/benchmark/results/ 는 문서가 대는 수치의 원본이라 추적한다)
 k6/benchmark/nginx.conf
+# 선행 발급한 액세스 토큰. 일회용 스택의 것이라 재현에 필요 없고, 그대로 두면
+# 유효한 JWT 수천 개를 저장소에 올리게 된다
+k6/benchmark/results/tokens.json

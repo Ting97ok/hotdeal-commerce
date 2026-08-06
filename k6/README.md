@@ -21,16 +21,35 @@
    ./gradlew bootRun --args='--stock.deduct.strategy=conditional'   # 또는 redis
    ```
 
-4. **k6 부하**
+4. **계정 선행 발급** — 부하에 쓸 계정을 미리 만들어 토큰을 파일로 남긴다
    ```bash
-   k6 run -e ACCOUNTS=1000 -e PRODUCT_ID=1 k6/order-flash-sale.js
+   BASE_URL=http://localhost:8080 bash k6/benchmark/provision-accounts.sh 1000
    ```
+   k6 의 `setup()` 안에서 만들면 계정 생성 시간이 k6 총 실행 시간에 들어가고,
+   `iterations/s` 의 분모가 그 총 실행 시간이라 처리율이 주문이 아니라 계정 생성 속도가 된다.
 
-5. **측정 확인**
-   - k6 summary: `order_success` / `order_rejected` / `http_req_duration`(p95·p99)
+5. **k6 부하**
+   ```bash
+   k6 run -e ACCOUNTS=1000 -e PRODUCT_ID=1 -e TOKENS_FILE=k6/benchmark/results/tokens.json k6/order-flash-sale.js
+   ```
+   - 배경 조회를 함께 흘리려면 `-e MIX=1`, 조회만 재려면 `-e MIX_ONLY=1`
+
+6. **측정 확인**
+   - k6 summary: `order_success`(건수와 초당 처리율) / `order_rejected` / `order_duration`(p95)
    - Grafana: `hikaricp_connections_active`·`_pending`(커넥션 풀 포화), 차감 UPDATE 지연
 
-6. **2전략 반복** — 전략만 바꿔 2~5 재실행 → 결과는 [재고 동시성 ADR](../docs/adr/concurrency.md) 에 정리됨
+7. **2전략 반복** — 전략만 바꿔 3·5 재실행 → 결과는 [재고 동시성 ADR](../docs/adr/concurrency.md) 에 정리됨
+
+## 다중 인스턴스 자동 측정
+
+```bash
+bash k6/benchmark/run-multi.sh              # 인원 스윕 (SLA 가 깨지는 지점)
+MODE=disk bash k6/benchmark/run-multi.sh    # MySQL 데이터를 디스크에 두고
+MODE=mix  bash k6/benchmark/run-multi.sh    # 주문 폭주 + 무관한 조회 동시
+```
+
+같은 조건을 `ROUNDS`(기본 3)회 반복한다. 회차별 원값은 `k6/benchmark/results/{모드}/`,
+접힌 요약은 `results/summary-{모드}.md` 에 자동 생성된다.
 
 ## 오버셀 0 검증 (측정 후, DB)
 

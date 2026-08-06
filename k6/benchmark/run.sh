@@ -12,7 +12,8 @@ BASE_URL="http://localhost:18080"
 K6_SCRIPT="../order-flash-sale.js"
 # 문서가 인용하는 수치의 원본이라 저장소에 남긴다. 파일명에 인원·재고를 넣어야
 # 매트릭스 세 구간(저경합·고경합·품절)이 서로 덮지 않는다.
-RESULTS="results"
+RESULTS="results/single"
+TOKENS="$PWD/results/tokens.json"
 RESET_SQL="UPDATE hot_deal_stock SET remaining_quantity=$STOCK WHERE hot_deal_id=1; UPDATE product_stock SET reserved_quantity=$STOCK WHERE product_id=1; DELETE FROM orders;"
 
 mysql_exec() { docker compose exec -T mysql mysql -uroot -proot commerce "$@"; }
@@ -56,17 +57,26 @@ for STRATEGY in conditional redis; do
   STRATEGY=$STRATEGY docker compose up -d --force-recreate app >/dev/null
   wait_app
   echo "  UP"
-  if [ "$SEEDED" = "0" ]; then mysql_exec < seed.sql; SEEDED=1; echo "  시드 완료"; fi
+  if [ "$SEEDED" = "0" ]; then
+    mysql_exec < seed.sql; SEEDED=1; echo "  시드 완료"
+    # 계정 발급을 k6 밖에서 먼저 끝낸다. setup() 안에 두면 계정 생성 시간이 k6 총
+    # 실행 시간에 들어가 iterations/s 가 주문 처리율이 아니게 된다.
+    BASE_URL="$BASE_URL" bash provision-accounts.sh "$ACCOUNTS" "$TOKENS"
+  fi
   mysql_exec -e "$RESET_SQL"
   redis_exec SET hotdeal:stock:1 "$STOCK" >/dev/null
 
   echo "  [$STRATEGY] k6 부하 (동시 $ACCOUNTS · 재고 $STOCK)"
   OUT="$RESULTS/single-$STRATEGY-a${ACCOUNTS}-s${STOCK}.log"
-  k6 run -e ACCOUNTS="$ACCOUNTS" -e PRODUCT_ID=1 -e BASE_URL="$BASE_URL" "$K6_SCRIPT" > "$OUT" 2>&1 || true
+  JSON="$RESULTS/single-$STRATEGY-a${ACCOUNTS}-s${STOCK}.json"
+  k6 run --summary-export="$JSON" -e ACCOUNTS="$ACCOUNTS" -e PRODUCT_ID=1 \
+    -e BASE_URL="$BASE_URL" -e TOKENS_FILE="$TOKENS" "$K6_SCRIPT" > "$OUT" 2>&1 || true
 
-  SUCCESS=$(grep 'order_success' "$OUT" | sed -E 's/.*: +([0-9]+).*/\1/' | head -1 || echo "?")
-  P95=$(grep 'order_duration' "$OUT" | grep -oE 'p\(95\)=[0-9.]+(ms|s)' | head -1 | cut -d= -f2 || echo "?")
-  AVG=$(grep 'order_duration' "$OUT" | grep -oE 'avg=[0-9.]+(ms|s)' | head -1 | cut -d= -f2 || echo "?")
+  jval() { jq -r "$1 // empty" "$JSON" 2>/dev/null | head -1; }
+  fmt() { awk -v v="${1:-}" 'BEGIN{ if (v=="") print "?"; else if (v+0>=1000) printf "%.2f초", v/1000; else printf "%.0fms", v }'; }
+  SUCCESS=$(jval '.metrics.order_success.count // .metrics.order_success.values.count'); SUCCESS=${SUCCESS:-0}
+  P95=$(fmt "$(jval '.metrics.order_duration["p(95)"] // .metrics.order_duration.values["p(95)"]')")
+  AVG=$(fmt "$(jval '.metrics.order_duration.avg // .metrics.order_duration.values.avg')")
   SOLD=$(mysql_exec -N -e "SELECT COALESCE(SUM(quantity),0) FROM orders;" 2>/dev/null | tr -d '[:space:]' || echo 0)
   if [ "$STRATEGY" = "redis" ]; then
     LEFT=$(redis_exec GET hotdeal:stock:1 2>/dev/null | tr -d '[:space:]' || echo 0)

@@ -47,6 +47,8 @@ services:
       ORDER_EXPIRY_SCHEDULER_ENABLED: "false"
       PAYMENT_RESOLUTION_SCHEDULER_ENABLED: "false"
       LOGGING_LEVEL_ORG_HIBERNATE_SQL: "WARN"
+      # 계정 토큰을 선행 발급해 두고 회차마다 재사용한다. 기본 30분이면 측정 도중 만료된다.
+      JWT_TOKEN_EXP_MINUTE_TIME: "600"
     ports:
       - "18080:8080"
     depends_on:
