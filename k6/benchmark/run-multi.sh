@@ -31,7 +31,10 @@ esac
 
 OVERSELL_STOCK="${OVERSELL_STOCK:-10}"
 OVERSELL_VU="${OVERSELL_VU:-1000}"
-CONN_VU="${CONN_VU:-1000}"                    # 커넥션 폴링을 붙일 대표 VU (인스턴스 3 에서만)
+# 커넥션 폴링을 붙일 대표 VU (인스턴스 3 에서만). 스윕의 최대 인원에 붙인다 —
+# 계정 발급을 밖으로 뺀 뒤로 부하 구간이 인원에 비례해 짧아져서, 작은 인원에서는
+# 스냅샷이 두어 개밖에 안 찍혀 포화를 볼 수 없다.
+CONN_VU="${CONN_VU:-3000}"
 MIX_RATE="${MIX_RATE:-50}"
 MIX_DURATION="${MIX_DURATION:-8s}"
 WARMUP_VU="${WARMUP_VU:-200}"                 # 조합마다 한 번 버리는 예열 회차의 인원
@@ -48,7 +51,9 @@ COMPOSE="docker compose -f docker-compose.multi.yml"
 # 없게 된다. 옛 회차는 git 이 갖는다.
 rm -rf "$RESULTS"
 mkdir -p "$RESULTS"
-: > "$RAW"
+# raw.tsv 가 이 측정의 원본이다. 회차별 .log·.json 은 저장소에 남기지 않으므로
+# (재현하면 다시 나온다) 사람이 열었을 때 열이 무엇인지 알 수 있어야 한다.
+printf '#전략\t앱\tVU\t변형\t회차\t성공\t오버셀\t주문p95ms\t주문avgms\t처리율\t락횟수\t락누적ms\t조회p95ms\t전송실패\n' > "$RAW"
 
 mysql_exec() { $COMPOSE exec -T mysql mysql -uroot -proot commerce "$@"; }
 redis_exec() { $COMPOSE exec -T redis redis-cli "$@"; }
@@ -116,8 +121,12 @@ snapshot_conn() {   # $1=N $2=logfile — 인스턴스별 HikariCP active 합산
 # k6 의 JSON 요약에서 값 하나. 지표가 없으면 빈 문자열 (배경 부하 없는 회차의 lookup 등)
 jval() { jq -r "$2 // empty" "$1" 2>/dev/null | head -1; }
 
-parse_summary() {   # $1 = k6 --summary-export JSON -> SUCCESS P95 AVG RATE LOOKUP_P95 LOOKUP_N
+parse_summary() {   # $1 = k6 --summary-export JSON -> SUCCESS P95 AVG RATE FAILED LOOKUP_P95 LOOKUP_N
   SUCCESS=$(jval "$1" '.metrics.order_success.count // .metrics.order_success.values.count'); SUCCESS=${SUCCESS:-0}
+  # 전송 실패 건수. 200·409 는 정상 응답이라 여기 안 잡히고, 연결이 끊기거나 5xx 일
+  # 때만 오른다. 고부하에서 성공 건수가 모자란 것이 경합인지 연결 유실인지 이것으로 갈린다.
+  # http_req_failed 는 Rate 라 passes 가 '조건이 참' = 실패한 요청 수다. fails 가 아니다.
+  FAILED=$(jval "$1" '.metrics.http_req_failed.passes // .metrics.http_req_failed.values.passes'); FAILED=${FAILED:-0}
   P95=$(jval "$1" '.metrics.order_duration["p(95)"] // .metrics.order_duration.values["p(95)"]')
   AVG=$(jval "$1" '.metrics.order_duration.avg // .metrics.order_duration.values.avg')
   RATE=$(jval "$1" '.metrics.order_success.rate // .metrics.order_success.values.rate')
@@ -155,7 +164,7 @@ run_round() {
     k6 run --summary-export="$json" -e ACCOUNTS="$vu" -e PRODUCT_ID=1 -e BASE_URL="$BASE_URL" \
       -e TOKENS_FILE="$TOKENS" "$@" "$K6_SCRIPT" > "$out" 2>&1 &
     kpid=$!
-    while kill -0 "$kpid" 2>/dev/null; do snapshot_conn "$n" "$conn"; sleep 1; done
+    while kill -0 "$kpid" 2>/dev/null; do snapshot_conn "$n" "$conn"; sleep 0.2; done
     wait "$kpid" || true
   else
     k6 run --summary-export="$json" -e ACCOUNTS="$vu" -e PRODUCT_ID=1 -e BASE_URL="$BASE_URL" \
@@ -174,9 +183,9 @@ run_round() {
     return 0
   fi
 
-  printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
-    "$st" "$n" "$vu" "$variant" "$r" "$SUCCESS" "$ov" "${P95:-}" "${AVG:-}" "${RATE:-}" "$lwd" "$ltd" "${LOOKUP_P95:-}" >> "$RAW"
-  echo "  [$tag] 성공=$SUCCESS/$vu 오버셀=$ov p95=$(fmt_ms "${P95:-}") 처리율=${RATE:-?}/s 조회p95=$(fmt_ms "${LOOKUP_P95:-}") 행잠금=${lwd}회/${ltd}ms"
+  printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+    "$st" "$n" "$vu" "$variant" "$r" "$SUCCESS" "$ov" "${P95:-}" "${AVG:-}" "${RATE:-}" "$lwd" "$ltd" "${LOOKUP_P95:-}" "$FAILED" >> "$RAW"
+  echo "  [$tag] 성공=$SUCCESS/$vu 전송실패=$FAILED 오버셀=$ov p95=$(fmt_ms "${P95:-}") 처리율=${RATE:-?}/s 조회p95=$(fmt_ms "${LOOKUP_P95:-}") 행잠금=${lwd}회/${ltd}ms"
   LAST_LOCK_TIME=$ltd
 }
 

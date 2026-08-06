@@ -1,0 +1,5 @@
+t=1785984693 hikari_active_sum=0 db_threads_connected=31 db_threads_running=2 innodb_row_lock_current_waits=0
+t=1785984694 hikari_active_sum=0 db_threads_connected=31 db_threads_running=2 innodb_row_lock_current_waits=0
+t=1785984699 hikari_active_sum=10 db_threads_connected=31 db_threads_running=30 innodb_row_lock_current_waits=24
+t=1785984708 hikari_active_sum=30 db_threads_connected=31 db_threads_running=2 innodb_row_lock_current_waits=0
+t=1785984708 hikari_active_sum=20 db_threads_connected=31 db_threads_running=2 innodb_row_lock_current_waits=0

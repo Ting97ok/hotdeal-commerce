@@ -1,4 +1,0 @@
-thr-conditional-i1-vu1000 success=1000/1000 oversell=0 p95=1.44s avg=943.18ms row_lock_waits=985 row_lock_time_ms=5220
-thr-conditional-i3-vu1000 success=1000/1000 oversell=0 p95=2.52s avg=1.75s row_lock_waits=999 row_lock_time_ms=45776
-thr-redis-i1-vu1000 success=1000/1000 oversell=0 p95=1.1s avg=783.22ms row_lock_waits=0 row_lock_time_ms=0
-thr-redis-i3-vu1000 success=1000/1000 oversell=0 p95=1.99s avg=1.32s row_lock_waits=0 row_lock_time_ms=0

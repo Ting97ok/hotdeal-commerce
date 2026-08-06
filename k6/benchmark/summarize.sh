@@ -26,30 +26,34 @@ function span(src, n) {
   return sprintf("%s (%s~%s)", dur(med(src, n)), dur(lo(src, n)), dur(hi(src, n)))
 }
 function num(src, n,   v) { if (n == 0) return "-"; v = med(src, n); return (v >= 100 ? sprintf("%.0f", v) : sprintf("%.1f", v)) }
+# 회차마다 같으면 값 하나, 갈리면 최소~최대. 중앙값으로 접으면 어느 회차가
+# 몇 건을 흘렸는지가 사라진다 — 건수는 지연과 달리 접으면 안 되는 값이다.
+function rng(src, n,   l, h) { if (n == 0) return "-"; l = lo(src, n); h = hi(src, n); return (l == h ? sprintf("%d", l) : sprintf("%d~%d", l, h)) }
 '
 
 # 조건별로 회차 값을 모아 한 행으로 접는다. 정렬키를 앞에 붙여 내고 sort 로 순서를 잡는다.
 fold_rows() {
   awk -F'\t' "$FOLD"'
+  /^#/ { next }
   {
     key = $1 "|" $2 "|" $3 "|" $4
     if (!(key in seen)) { seen[key] = 1; order[++nk] = key }
     c = ++n[key]
     p95[key, c] = $8; rate[key, c] = $10; lw[key, c] = $11; lt[key, c] = $12; lk[key, c] = $13
-    succ[key] = $6; vu[key] = $3
+    suc[key, c] = $6; fal[key, c] = ($14 == "" ? 0 : $14); vu[key] = $3
     if ($7 != "0" && $7 != "-") bad[key] = bad[key] " " $7
   }
   END {
     for (i = 1; i <= nk; i++) {
       key = order[i]; split(key, f, "|")
       cnt = n[key]
-      for (j = 1; j <= cnt; j++) { P[j] = p95[key, j]; R[j] = rate[key, j]; W[j] = lw[key, j]; T[j] = lt[key, j] }
+      for (j = 1; j <= cnt; j++) { P[j] = p95[key, j]; R[j] = rate[key, j]; W[j] = lw[key, j]; T[j] = lt[key, j]; S[j] = suc[key, j]; F[j] = fal[key, j] }
       lkn = 0
       for (j = 1; j <= cnt; j++) if (lk[key, j] != "") L[++lkn] = lk[key, j]
       ov = (key in bad) ? "위반" bad[key] : "0"
       sk = sprintf("%s-%02d-%06d-%s", f[1], f[2], f[3], f[4])
-      printf "%s\t| %s | %s | %s | %s | %s/s | %s/%s | %s | %s회 / %s |\n", sk,
-        f[1], f[2], f[3], span(P, cnt), num(R, cnt), succ[key], vu[key], ov, num(W, cnt), dur(med(T, cnt))
+      printf "%s\t| %s | %s | %s | %s | %s/s | %s/%s | %s | %s | %s회 / %s |\n", sk,
+        f[1], f[2], f[3], span(P, cnt), num(R, cnt), rng(S, cnt), vu[key], rng(F, cnt), ov, num(W, cnt), dur(med(T, cnt))
       if (lkn > 0) lookup[sk] = sprintf("%s\t| %s | %s | %s | %s | %s |\n", sk, f[1], f[2], f[3], f[4], span(L, lkn))
     }
   }' "$RAW" | sort | cut -f2-
@@ -57,6 +61,7 @@ fold_rows() {
 
 fold_lookup() {
   awk -F'\t' "$FOLD"'
+  /^#/ { next }
   $13 != "" {
     key = $1 "|" $2 "|" $3 "|" $4
     if (!(key in seen)) { seen[key] = 1; order[++nk] = key }
@@ -72,7 +77,7 @@ fold_lookup() {
   }' "$RAW" | sort | cut -f2-
 }
 
-ROUNDS_SEEN=$(cut -f5 "$RAW" | sort -u | wc -l | tr -d '[:space:]')
+ROUNDS_SEEN=$(grep -v '^#' "$RAW" | cut -f5 | sort -u | wc -l | tr -d '[:space:]')
 STORAGE=$([ "$MODE" = "disk" ] && echo "디스크 (named volume)" || echo "tmpfs")
 
 echo "# 벤치마크 요약 — $MODE"
@@ -80,7 +85,8 @@ echo
 echo "\`run-multi.sh\` 가 생성한다. 손으로 고치지 않는다 — 재실행하면 덮인다."
 echo
 echo "- 스토리지 **$STORAGE** · 재고 = VU×2 (전원 차감) · 회차 **${ROUNDS_SEEN}회**"
-echo "- 값은 **중앙값 (최소~최대)**. 회차별 원값은 \`results/$MODE/\` 의 \`.log\`·\`.json\`"
+echo "- 값은 **중앙값 (최소~최대)**. 회차별 원값은 [\`results/$MODE/raw.tsv\`](./$MODE/raw.tsv) 한 줄씩"
+echo "- 회차별 k6 출력 원문은 저장소에 두지 않는다. 수치가 전부 raw.tsv 에 있고, 원문은 재실행하면 다시 나온다"
 echo "- 주문 p95 는 \`order_duration\` — 주문 요청만 잰다. 처리율은 \`order_success\` 의 초당 건수"
 echo
 
@@ -105,9 +111,13 @@ case "$MODE" in
 esac
 
 echo
-echo "| 전략 | 앱 | VU | 주문 p95 | 처리율 | 성공 | 오버셀 | 행잠금 대기 |"
-echo "|---|:--:|--:|---|---|---|---|---|"
+echo "| 전략 | 앱 | VU | 주문 p95 | 처리율 | 성공 | 전송 실패 | 오버셀 | 행잠금 대기 |"
+echo "|---|:--:|--:|---|---|---|---|---|---|"
 fold_rows
+echo
+echo "**전송 실패**는 200·409 가 아닌 응답이다 — 연결이 끊기거나 5xx 일 때만 오른다."
+echo "성공 건수가 인원에 못 미치는 것이 경합 때문인지 요청이 서버에 닿지도 못한 것인지를 가른다."
+echo "성공·실패는 중앙값으로 접지 않고 회차 간 최소~최대로 적는다."
 
 if [ -f "results/$MODE/oversell.tsv" ]; then
   echo
