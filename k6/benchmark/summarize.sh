@@ -40,20 +40,20 @@ fold_rows() {
     if (!(key in seen)) { seen[key] = 1; order[++nk] = key }
     c = ++n[key]
     p95[key, c] = $8; rate[key, c] = $10; lw[key, c] = $11; lt[key, c] = $12; lk[key, c] = $13
-    suc[key, c] = $6; fal[key, c] = ($14 == "" ? 0 : $14); vu[key] = $3
+    suc[key, c] = $6; fal[key, c] = ($14 == "" ? 0 : $14); aq[key, c] = ($15 == "" ? 0 : $15); vu[key] = $3
     if ($7 != "0" && $7 != "-") bad[key] = bad[key] " " $7
   }
   END {
     for (i = 1; i <= nk; i++) {
       key = order[i]; split(key, f, "|")
       cnt = n[key]
-      for (j = 1; j <= cnt; j++) { P[j] = p95[key, j]; R[j] = rate[key, j]; W[j] = lw[key, j]; T[j] = lt[key, j]; S[j] = suc[key, j]; F[j] = fal[key, j] }
+      for (j = 1; j <= cnt; j++) { P[j] = p95[key, j]; R[j] = rate[key, j]; W[j] = lw[key, j]; T[j] = lt[key, j]; S[j] = suc[key, j]; F[j] = fal[key, j]; Q[j] = aq[key, j] }
       lkn = 0
       for (j = 1; j <= cnt; j++) if (lk[key, j] != "") L[++lkn] = lk[key, j]
       ov = (key in bad) ? "위반" bad[key] : "0"
       sk = sprintf("%s-%02d-%06d-%s", f[1], f[2], f[3], f[4])
-      printf "%s\t| %s | %s | %s | %s | %s/s | %s/%s | %s | %s | %s회 / %s |\n", sk,
-        f[1], f[2], f[3], span(P, cnt), num(R, cnt), rng(S, cnt), vu[key], rng(F, cnt), ov, num(W, cnt), dur(med(T, cnt))
+      printf "%s\t| %s | %s | %s | %s | %s/s | %s/%s | %s | %s | %s회 / %s | %s |\n", sk,
+        f[1], f[2], f[3], span(P, cnt), num(R, cnt), rng(S, cnt), vu[key], rng(F, cnt), ov, num(W, cnt), dur(med(T, cnt)), dur(med(Q, cnt))
       if (lkn > 0) lookup[sk] = sprintf("%s\t| %s | %s | %s | %s | %s |\n", sk, f[1], f[2], f[3], f[4], span(L, lkn))
     }
   }' "$RAW" | sort | cut -f2-
@@ -111,13 +111,16 @@ case "$MODE" in
 esac
 
 echo
-echo "| 전략 | 앱 | VU | 주문 p95 | 처리율 | 성공 | 전송 실패 | 오버셀 | 행잠금 대기 |"
-echo "|---|:--:|--:|---|---|---|---|---|---|"
+echo "| 전략 | 앱 | VU | 주문 p95 | 처리율 | 성공 | 전송 실패 | 오버셀 | 행잠금 대기 | 커넥션 획득 대기 |"
+echo "|---|:--:|--:|---|---|---|---|---|---|---|"
 fold_rows
 echo
 echo "**전송 실패**는 200·409 가 아닌 응답이다 — 연결이 끊기거나 5xx 일 때만 오른다."
 echo "성공 건수가 인원에 못 미치는 것이 경합 때문인지 요청이 서버에 닿지도 못한 것인지를 가른다."
 echo "성공·실패는 중앙값으로 접지 않고 회차 간 최소~최대로 적는다."
+echo
+echo "**커넥션 획득 대기**는 \`hikaricp_connections_acquire_seconds\` 의 부하 전후 누적 델타(앱 합산)다."
+echo "풀이 병목이면 여기가 오르고, 자리가 남으면 0 에 가깝다. 순간값(active)은 짧고 잦은 대기를 놓치므로 누적으로 잰다."
 
 if [ -f "results/$MODE/oversell.tsv" ]; then
   echo

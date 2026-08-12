@@ -53,11 +53,24 @@ rm -rf "$RESULTS"
 mkdir -p "$RESULTS"
 # raw.tsv 가 이 측정의 원본이다. 회차별 .log·.json 은 저장소에 남기지 않으므로
 # (재현하면 다시 나온다) 사람이 열었을 때 열이 무엇인지 알 수 있어야 한다.
-printf '#전략\t앱\tVU\t변형\t회차\t성공\t오버셀\t주문p95ms\t주문avgms\t처리율\t락횟수\t락누적ms\t조회p95ms\t전송실패\n' > "$RAW"
+printf '#전략\t앱\tVU\t변형\t회차\t성공\t오버셀\t주문p95ms\t주문avgms\t처리율\t락횟수\t락누적ms\t조회p95ms\t전송실패\t커넥션대기ms\n' > "$RAW"
 
 mysql_exec() { $COMPOSE exec -T mysql mysql -uroot -proot commerce "$@"; }
 redis_exec() { $COMPOSE exec -T redis redis-cli "$@"; }
 lock_stat() { mysql_exec -N -e "SHOW GLOBAL STATUS LIKE '$1';" 2>/dev/null | awk '{print $2}' | tr -d '[:space:]'; }
+
+# 앱 인스턴스들의 프로메테우스 지표를 합산한다. $1=인스턴스 수 $2=지표 이름(접두 일치)
+# 커넥션 풀 대기는 순간값(active)으로는 안 보인다 — 짧고 잦으면 샘플링이 놓친다.
+# 행 락 대기를 누적 델타로 재서 찾아냈듯이, 획득 대기도 누적으로 재야 한다.
+app_metric() {
+  local i v sum=0
+  for i in $(seq 1 "$1"); do
+    v=$(curl -s "http://localhost:1808$i/actuator/prometheus" 2>/dev/null \
+        | awk -v m="$2" 'index($1, m) == 1 {print $2; exit}')
+    sum=$(awk -v a="$sum" -v b="${v:-0}" 'BEGIN{printf "%.6f", a + b}')
+  done
+  echo "$sum"
+}
 
 cleanup() { echo "[정리] 컨테이너·볼륨 삭제"; $COMPOSE down -v --remove-orphans >/dev/null 2>&1 || true; rm -f nginx.conf; }
 trap cleanup EXIT
@@ -158,6 +171,7 @@ run_round() {
 
   reset_stock "$stock"
   lw0=$(lock_stat Innodb_row_lock_waits); lt0=$(lock_stat Innodb_row_lock_time)
+  aq0=$(app_metric "$n" hikaricp_connections_acquire_seconds_sum)
 
   if [ "$MODE" = "sweep" ] && [ "$n" = "3" ] && [ "$vu" = "$CONN_VU" ] && [ "$r" = "1" ]; then
     conn="$RESULTS/conn-${st}-i${n}-vu${vu}.log"; : > "$conn"
@@ -173,6 +187,8 @@ run_round() {
 
   lw1=$(lock_stat Innodb_row_lock_waits); lt1=$(lock_stat Innodb_row_lock_time)
   lwd=$(( ${lw1:-0} - ${lw0:-0} )); ltd=$(( ${lt1:-0} - ${lt0:-0} ))
+  aq1=$(app_metric "$n" hikaricp_connections_acquire_seconds_sum)
+  aqd=$(awk -v a="${aq1:-0}" -v b="${aq0:-0}" 'BEGIN{printf "%.0f", (a - b) * 1000}')   # ms
   parse_summary "$json"
   if [ "$variant" = "base" ]; then ov="-"; else ov=$(check_oversell "$st" "$stock"); fi
 
@@ -183,9 +199,9 @@ run_round() {
     return 0
   fi
 
-  printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
-    "$st" "$n" "$vu" "$variant" "$r" "$SUCCESS" "$ov" "${P95:-}" "${AVG:-}" "${RATE:-}" "$lwd" "$ltd" "${LOOKUP_P95:-}" "$FAILED" >> "$RAW"
-  echo "  [$tag] 성공=$SUCCESS/$vu 전송실패=$FAILED 오버셀=$ov p95=$(fmt_ms "${P95:-}") 처리율=${RATE:-?}/s 조회p95=$(fmt_ms "${LOOKUP_P95:-}") 행잠금=${lwd}회/${ltd}ms"
+  printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+    "$st" "$n" "$vu" "$variant" "$r" "$SUCCESS" "$ov" "${P95:-}" "${AVG:-}" "${RATE:-}" "$lwd" "$ltd" "${LOOKUP_P95:-}" "$FAILED" "$aqd" >> "$RAW"
+  echo "  [$tag] 성공=$SUCCESS/$vu 전송실패=$FAILED 오버셀=$ov p95=$(fmt_ms "${P95:-}") 처리율=${RATE:-?}/s 조회p95=$(fmt_ms "${LOOKUP_P95:-}") 행잠금=${lwd}회/${ltd}ms 커넥션대기=${aqd}ms"
   LAST_LOCK_TIME=$ltd
 }
 
