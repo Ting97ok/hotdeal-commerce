@@ -1,0 +1,758 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>재고 동시성 — 의사결정 기록</title>
+  <style>
+    :root {
+      --bg: #f8fafc;
+      --surface: #ffffff;
+      --text: #1e293b;
+      --text-secondary: #475569;
+      --text-muted: #94a3b8;
+      --heading: #0f172a;
+      --accent: #2563eb;
+      --accent-bg: #eff6ff;
+      --danger: #dc2626;
+      --danger-bg: #fef2f2;
+      --success: #059669;
+      --success-bg: #ecfdf5;
+      --warning: #d97706;
+      --warning-bg: #fffbeb;
+      --border: #e2e8f0;
+      --code-bg: #f1f5f9;
+      --table-header-bg: #f1f5f9;
+      --table-stripe: #f8fafc;
+      --shadow-sm: 0 1px 2px rgba(0,0,0,0.05);
+      --shadow: 0 1px 3px rgba(0,0,0,0.08), 0 1px 2px rgba(0,0,0,0.04);
+      --shadow-lg: 0 4px 12px rgba(0,0,0,0.06);
+      --radius: 8px;
+      --radius-sm: 4px;
+    }
+
+    @media (prefers-color-scheme: dark) {
+      :root:not([data-theme="light"]) {
+        --bg: #0c1222;
+        --surface: #1e293b;
+        --text: #e2e8f0;
+        --text-secondary: #94a3b8;
+        --text-muted: #64748b;
+        --heading: #f1f5f9;
+        --accent: #60a5fa;
+        --accent-bg: #1e3a5f;
+        --danger: #f87171;
+        --danger-bg: #3f1515;
+        --success: #34d399;
+        --success-bg: #0d3320;
+        --warning: #fbbf24;
+        --warning-bg: #3b2e0a;
+        --border: #334155;
+        --code-bg: #0f172a;
+        --table-header-bg: #162032;
+        --table-stripe: #162032;
+        --shadow-sm: 0 1px 2px rgba(0,0,0,0.2);
+        --shadow: 0 1px 3px rgba(0,0,0,0.3);
+        --shadow-lg: 0 4px 12px rgba(0,0,0,0.3);
+      }
+    }
+
+    :root[data-theme="dark"] {
+      --bg: #0c1222;
+      --surface: #1e293b;
+      --text: #e2e8f0;
+      --text-secondary: #94a3b8;
+      --text-muted: #64748b;
+      --heading: #f1f5f9;
+      --accent: #60a5fa;
+      --accent-bg: #1e3a5f;
+      --danger: #f87171;
+      --danger-bg: #3f1515;
+      --success: #34d399;
+      --success-bg: #0d3320;
+      --warning: #fbbf24;
+      --warning-bg: #3b2e0a;
+      --border: #334155;
+      --code-bg: #0f172a;
+      --table-header-bg: #162032;
+      --table-stripe: #162032;
+      --shadow-sm: 0 1px 2px rgba(0,0,0,0.2);
+      --shadow: 0 1px 3px rgba(0,0,0,0.3);
+      --shadow-lg: 0 4px 12px rgba(0,0,0,0.3);
+    }
+
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Noto Sans KR', sans-serif;
+      font-size: 16px;
+      line-height: 1.8;
+      color: var(--text);
+      background: var(--bg);
+    }
+
+    .layout {
+      display: flex;
+      max-width: 1100px;
+      margin: 0 auto;
+      padding: 2rem;
+    }
+
+    .sidebar {
+      width: 240px;
+      flex-shrink: 0;
+      margin-right: 3rem;
+    }
+
+    .sidebar nav {
+      position: sticky;
+      top: 2rem;
+    }
+
+    .toc-title {
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--text-muted);
+      margin-bottom: 12px;
+      font-weight: 600;
+    }
+
+    .toc {
+      list-style: none;
+      padding: 0;
+    }
+
+    .toc li a {
+      display: block;
+      padding: 6px 12px;
+      font-size: 14px;
+      color: var(--text-secondary);
+      border-left: 2px solid var(--border);
+      text-decoration: none;
+      transition: border-color 0.15s, color 0.15s;
+    }
+
+    .toc li a:hover,
+    .toc li a.active {
+      border-left-color: var(--accent);
+      color: var(--accent);
+    }
+
+    .content {
+      max-width: 780px;
+      flex: 1;
+      min-width: 0;
+    }
+
+    /* Header */
+    header {
+      margin-bottom: 2.5rem;
+      padding-bottom: 2rem;
+      border-bottom: 1px solid var(--border);
+    }
+
+    h1 {
+      font-size: 2rem;
+      font-weight: 800;
+      color: var(--heading);
+      line-height: 1.3;
+      margin-bottom: 0.5rem;
+    }
+
+    header .subtitle {
+      font-size: 1.05rem;
+      color: var(--text-secondary);
+      margin-bottom: 1rem;
+    }
+
+    header .related {
+      font-size: 14px;
+      color: var(--text-muted);
+    }
+
+    header .related a {
+      color: var(--accent);
+      text-decoration: none;
+    }
+
+    header .related a:hover {
+      text-decoration: underline;
+    }
+
+    /* Headings */
+    h2 {
+      font-size: 1.5rem;
+      font-weight: 700;
+      color: var(--heading);
+      margin-top: 3rem;
+      margin-bottom: 1rem;
+      line-height: 1.4;
+    }
+
+    h3 {
+      font-size: 1.25rem;
+      font-weight: 600;
+      color: var(--heading);
+      margin-top: 2rem;
+      margin-bottom: 0.75rem;
+    }
+
+    section {
+      margin-bottom: 1rem;
+    }
+
+    p {
+      margin-bottom: 1rem;
+    }
+
+    /* Links */
+    a {
+      color: var(--accent);
+      text-decoration: none;
+    }
+
+    a:hover {
+      text-decoration: underline;
+    }
+
+    /* Lists */
+    ul, ol {
+      padding-left: 1.5rem;
+      margin-bottom: 1rem;
+    }
+
+    li {
+      margin-bottom: 0.35rem;
+    }
+
+    li ul, li ol {
+      margin-top: 0.35rem;
+      margin-bottom: 0.35rem;
+    }
+
+    /* Inline code */
+    code {
+      font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
+      font-size: 14px;
+      background: var(--code-bg);
+      padding: 2px 6px;
+      border-radius: var(--radius-sm);
+    }
+
+    /* Code block */
+    pre {
+      background: var(--code-bg);
+      padding: 1rem 1.25rem;
+      border-radius: var(--radius-sm);
+      overflow-x: auto;
+      font-size: 14px;
+      line-height: 1.6;
+      margin-bottom: 1.5rem;
+    }
+
+    pre code {
+      background: none;
+      padding: 0;
+      border-radius: 0;
+    }
+
+    /* Tables */
+    .table-wrap {
+      overflow-x: auto;
+      margin: 1.5rem 0;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+
+    th {
+      background: var(--table-header-bg);
+      font-weight: 600;
+      text-align: left;
+      padding: 10px 14px;
+      border-bottom: 2px solid var(--border);
+      font-size: 14px;
+    }
+
+    td {
+      padding: 10px 14px;
+      border-bottom: 1px solid var(--border);
+      vertical-align: top;
+    }
+
+    tr:nth-child(even) td {
+      background: var(--table-stripe);
+    }
+
+    /* Callout */
+    .callout {
+      padding: 1rem 1.25rem;
+      border-radius: var(--radius);
+      margin: 1.5rem 0;
+      border-left: 4px solid;
+    }
+
+    .callout.conclusion {
+      border-color: var(--success);
+      background: var(--success-bg);
+    }
+
+    .callout.warning {
+      border-color: var(--danger);
+      background: var(--danger-bg);
+    }
+
+    .callout.info {
+      border-color: var(--accent);
+      background: var(--accent-bg);
+    }
+
+    .callout.note {
+      border-color: var(--border);
+      background: var(--table-stripe);
+    }
+
+    .callout strong:first-child {
+      display: block;
+      margin-bottom: 0.25rem;
+    }
+
+    .callout p {
+      margin-bottom: 0.5rem;
+    }
+
+    .callout p:last-child {
+      margin-bottom: 0;
+    }
+
+    .callout ul {
+      margin-bottom: 0.5rem;
+    }
+
+    .callout ul:last-child {
+      margin-bottom: 0;
+    }
+
+    /* Blockquote */
+    blockquote {
+      border-left: 3px solid var(--border);
+      padding-left: 1rem;
+      color: var(--text-secondary);
+      font-style: normal;
+      margin: 1rem 0;
+    }
+
+    /* Chart container */
+    .chart-container {
+      background: #fff;
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      padding: 1rem;
+      margin: 1.5rem 0;
+      overflow-x: auto;
+    }
+
+    .chart-container svg {
+      width: 100%;
+      height: auto;
+    }
+
+    /* Separator */
+    hr {
+      border: none;
+      border-top: 1px solid var(--border);
+      margin: 2rem 0;
+    }
+
+    /* Conclusion box in header */
+    .header-conclusion {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 1.25rem;
+      box-shadow: var(--shadow-sm);
+      margin-top: 1.5rem;
+    }
+
+    .header-conclusion strong {
+      color: var(--heading);
+    }
+
+    .header-conclusion ul {
+      margin-top: 0.5rem;
+      margin-bottom: 0;
+    }
+
+    /* sub-heading label */
+    .section-label {
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      margin-bottom: 0.25rem;
+    }
+
+    /* Mobile */
+    @media (max-width: 900px) {
+      .sidebar {
+        display: none;
+      }
+
+      .layout {
+        padding: 1.5rem;
+      }
+    }
+
+    /* Print */
+    @media print {
+      .sidebar {
+        display: none;
+      }
+
+      .layout {
+        padding: 0;
+      }
+
+      body {
+        background: #fff;
+        color: #000;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="layout">
+    <aside class="sidebar">
+      <nav>
+        <div class="toc-title">목차</div>
+        <ul class="toc">
+          <li><a href="#s1">1. 재고 테이블 분리</a></li>
+          <li><a href="#s2">2. 핫딜 수량은 상품 재고에서</a></li>
+          <li><a href="#s3">3. 세 방식을 같은 조건에서 측정</a></li>
+          <li><a href="#s4">4. 원자적 조건부 UPDATE</a></li>
+          <li><a href="#s5">5. 앱과 인원을 늘리면</a></li>
+          <li><a href="#s6">6. 락 순서와 실패 처리</a></li>
+        </ul>
+      </nav>
+    </aside>
+
+    <main class="content">
+      <header>
+        <h1>재고 동시성 — 의사결정 기록</h1>
+        <p class="subtitle">선착순 구매가 재고 한 행에 몰릴 때 <strong>재고를 어디에 두고, 무엇으로 차감할지</strong> 정한 기록.</p>
+        <p class="related">관련 문서: <a href="../rfc/concurrency-benchmark.md">동시성 벤치마크</a></p>
+
+        <div class="header-conclusion">
+          <strong>결론</strong>
+          <ul>
+            <li>재고는 상품·핫딜 정보와 다른 테이블에 둔다 (<code>ProductStock</code> 원본 / <code>HotDealStock</code> 핫딜 몫)</li>
+            <li>차감은 원자적 조건부 UPDATE 한 문장. 낙관적 락, Redis + Lua 와 같은 조건에서 측정해 선정했다</li>
+            <li>남는 한계는 앱을 늘려도 처리량이 선형으로 늘지 않는다는 것이다</li>
+          </ul>
+        </div>
+      </header>
+
+      <!-- 1 -->
+      <section id="s1">
+        <h2>1. 재고는 상품·핫딜 정보와 다른 테이블에 둔다</h2>
+        <ul>
+          <li>상품 재고 <code>ProductStock</code>(실물 / 예약), 핫딜 재고 <code>HotDealStock</code>(잔여) 두 테이블 — 전체 관계는 <a href="../design/erd.md">데이터 모델</a></li>
+          <li>재고는 주문마다 수정되고 상품 정보는 등록 후 거의 바뀌지 않는다
+            <ul>
+              <li>한 행에 두면 상품 정보를 고치는 작업이 구매 차감과 같은 행 락을 두고 서로 기다린다</li>
+              <li>지금은 상품 수정 기능이 없지만, 생기면 그 경합이 구매 경로 안으로 들어온다</li>
+            </ul>
+          </li>
+          <li>차감 지점이 한 곳이라, 차감 방식만 교체하여 같은 부하를 다시 측정할 수 있었다</li>
+        </ul>
+
+        <p>트레이드오프</p>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr><th>대가</th><th>대응</th></tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>핫딜 등록이 3단계로 늘었다 (상품 재고 예약 → 핫딜 → 핫딜 재고)</td>
+                <td>한 트랜잭션으로 묶어 중간에 실패하면 전부 되돌린다</td>
+              </tr>
+              <tr>
+                <td>재고를 따로 조회해야 한다</td>
+                <td>구매가 몰리는 경로는 핫딜 재고 한 행만 봐서, 늘어난 조회가 부하 경로 밖이다</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- 2 -->
+      <section id="s2">
+        <h2>2. 핫딜 수량은 상품 재고에서 떼어 온다</h2>
+        <ul>
+          <li><code>ProductStock</code>이 재고 원본이다
+            <ul>
+              <li>창고에 실제 있는 수를 실물, 핫딜에 떼어 둔 수를 예약으로 나눠 갖는다</li>
+              <li>판매 가능 수량은 컬럼으로 저장하지 않고 <code>실물 − 예약</code>으로 그때그때 계산한다</li>
+              <li>저장하면 실물이나 예약이 바뀔 때마다 같이 고쳐야 하고, 어긋나면 그대로 버그가 된다</li>
+            </ul>
+          </li>
+          <li><strong>구매가 몰리는 경로는 핫딜 재고 한 행만 수정한다.</strong> 상품 재고는 핫딜 등록과 결제 확정에서만 건드리므로 경합에서 비켜나 있다</li>
+        </ul>
+
+        <p>트레이드오프</p>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr><th>대가</th><th>대응</th></tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>상품 재고의 예약은 상품당 합계 하나라, 그 값만으로는 핫딜별 몫을 알 수 없다</td>
+                <td>핫딜별 예약량은 <code>hot_deals.total_quantity</code>(등록 후 불변)이고, 판매·대기 수량은 주문이 핫딜을 참조하므로 분해된다. 합계와 개별값이 어긋나지 않는지는 재고 장부 검증식이 확인한다</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- 3 -->
+      <section id="s3">
+        <h2>3. 세 방식을 같은 조건에서 측정한다</h2>
+        <ul>
+          <li>낙관적 락(@Version), 원자적 조건부 UPDATE, Redis + Lua</li>
+          <li>비관적 락과 분산 락(Redisson)은 재지 않았다
+            <ul>
+              <li>결과가 이론으로 예측돼 측정 이득이 낮다</li>
+              <li>비관적 락은 락을 기다리는 동안 DB 커넥션을 쥔다. 처리량이 락 보유 시간에 묶인다</li>
+              <li>분산 락은 락을 얻고 푸는 데 Redis를 두 번 더 왕복한다. Redis 직접 차감보다 느리다</li>
+            </ul>
+          </li>
+          <li>무엇을 재고 무엇을 이론으로 접을지 고르는 것 자체가 판단이다</li>
+        </ul>
+      </section>
+
+      <!-- 4 -->
+      <section id="s4">
+        <h2>4. 차감은 원자적 조건부 UPDATE 한 문장</h2>
+        <pre><code>UPDATE hot_deal_stock SET remaining_quantity = remaining_quantity - :qty
+ WHERE hot_deal_id = :id AND remaining_quantity >= :qty</code></pre>
+        <ul>
+          <li>확인(WHERE)과 차감(SET)이 한 문장이라 그 사이에 다른 요청이 끼어들 틈이 없다
+            <ul>
+              <li>영향 받은 행이 없으면 품절이다</li>
+              <li>충돌도 재시도도 없다</li>
+            </ul>
+          </li>
+          <li>읽어서 판단하고 쓰는 방식은 위험하다
+            <ul>
+              <li>InnoDB의 일반 SELECT는 스냅샷을 읽어(MVCC) 남이 방금 차감하고 커밋한 결과를 못 본다</li>
+              <li>UPDATE의 WHERE는 스냅샷이 아니라 최신 커밋 값으로 평가된다</li>
+            </ul>
+          </li>
+          <li>선정한 이유
+            <ul>
+              <li>쿼리 한 문장이라 단순하다</li>
+              <li>재고를 DB 한 곳에서만 관리한다</li>
+            </ul>
+          </li>
+          <li>낙관적 락은 고경합에서 1,000건 중 163건만 성공해 탈락</li>
+          <li>Redis + Lua는 미채택
+            <ul>
+              <li>재고를 Redis에서 관리하게 된다</li>
+              <li>DB 동기화와 유실 복구가 따라온다</li>
+            </ul>
+          </li>
+        </ul>
+      </section>
+
+      <!-- 5 -->
+      <section id="s5">
+        <h2>5. 앱과 인원을 늘리면 — 무엇이 재현되고 무엇이 안 되는가</h2>
+        <p>앱 1대와 3대를 나란히 두고 인원을 100에서 3,000까지 올리며 각 지점을 6회씩 쳤고, 같은 격자를 세 번 돌렸다.
+        실측값은 <a href="../rfc/concurrency-benchmark.md">벤치마크 RFC 4절</a>에 있고, 여기에는 그 값으로 무엇을 판단했는지만 적는다.</p>
+
+        <div class="chart-container">
+          <svg viewBox="0 0 860 500" xmlns="http://www.w3.org/2000/svg" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif">
+            <rect width="860" height="500" fill="#ffffff"/>
+            <text x="40" y="40" font-size="21" font-weight="700" fill="#0f172a">인원을 늘리면 어디서 목표선을 넘나</text>
+            <text x="40" y="63" font-size="13.5" fill="#64748b">선 = 주문 API 지연 p95 의 중앙값(6회) · 재고는 인원의 두 배로 두어 전원이 살 수 있는 조건 · 양축 로그</text>
+            <rect x="665" y="90" width="75" height="290" fill="#fef2f2"/>
+            <text x="658" y="100" font-size="11.5" font-weight="700" fill="#b91c1c" text-anchor="end">인원 2,000&#x2191; 요청 유실 시작 &#x2192;</text>
+            <line x1="110" y1="342" x2="740" y2="342" stroke="#f1f5f9" stroke-width="1"/>
+            <text x="100" y="346" font-size="11.5" fill="#94a3b8" text-anchor="end">100ms</text>
+            <line x1="110" y1="254" x2="740" y2="254" stroke="#f1f5f9" stroke-width="1"/>
+            <text x="100" y="258" font-size="11.5" fill="#94a3b8" text-anchor="end">500ms</text>
+            <line x1="110" y1="216" x2="740" y2="216" stroke="#f1f5f9" stroke-width="1"/>
+            <text x="100" y="220" font-size="11.5" fill="#94a3b8" text-anchor="end">1&#xCD08;</text>
+            <line x1="110" y1="128" x2="740" y2="128" stroke="#f1f5f9" stroke-width="1"/>
+            <text x="100" y="132" font-size="11.5" fill="#94a3b8" text-anchor="end">5&#xCD08;</text>
+            <line x1="110" y1="90" x2="740" y2="90" stroke="#f1f5f9" stroke-width="1"/>
+            <text x="100" y="94" font-size="11.5" fill="#94a3b8" text-anchor="end">10&#xCD08;</text>
+            <line x1="110" y1="178" x2="740" y2="178" stroke="#0f172a" stroke-width="1.5" stroke-dasharray="6 4"/>
+            <text x="114" y="172" font-size="12.5" font-weight="700" fill="#0f172a">SLA 2&#xCD08;</text>
+            <line x1="110" y1="380" x2="740" y2="380" stroke="#cbd5e1" stroke-width="1"/>
+            <text x="110" y="400" font-size="12" fill="#64748b" text-anchor="middle">100</text>
+            <text x="280" y="400" font-size="12" fill="#64748b" text-anchor="middle">250</text>
+            <text x="408" y="400" font-size="12" fill="#64748b" text-anchor="middle">500</text>
+            <text x="536" y="400" font-size="12" fill="#64748b" text-anchor="middle">1,000</text>
+            <text x="665" y="400" font-size="12" fill="#64748b" text-anchor="middle">2,000</text>
+            <text x="740" y="400" font-size="12" fill="#64748b" text-anchor="middle">3,000</text>
+            <text x="425" y="422" font-size="12.5" fill="#475569" text-anchor="middle">&#xB3D9;&#xC2DC; &#xC778;&#xC6D0;</text>
+            <polyline points="110,330 280,294 408,249 536,198 665,147 740,109" fill="none" stroke="#dc2626" stroke-width="3"/>
+            <circle cx="110" cy="330" r="4.5" fill="#dc2626"/><circle cx="280" cy="294" r="4.5" fill="#dc2626"/>
+            <circle cx="408" cy="249" r="4.5" fill="#dc2626"/><circle cx="536" cy="198" r="4.5" fill="#dc2626"/>
+            <circle cx="665" cy="147" r="4.5" fill="#dc2626"/><circle cx="740" cy="109" r="4.5" fill="#dc2626"/>
+            <text x="736" y="100" font-size="13" font-weight="700" fill="#dc2626" text-anchor="end">7.03&#xCD08;</text>
+            <polyline points="110,362 280,324 408,316 536,263 665,216 740,175" fill="none" stroke="#f87171" stroke-width="2.5" stroke-dasharray="7 4"/>
+            <circle cx="536" cy="263" r="4" fill="#f87171"/><circle cx="740" cy="175" r="4" fill="#f87171"/>
+            <polyline points="110,328 280,294 408,255 536,228 665,184 740,164" fill="none" stroke="#1d4ed8" stroke-width="3"/>
+            <circle cx="110" cy="328" r="4.5" fill="#1d4ed8"/><circle cx="280" cy="294" r="4.5" fill="#1d4ed8"/>
+            <circle cx="408" cy="255" r="4.5" fill="#1d4ed8"/><circle cx="536" cy="228" r="4.5" fill="#1d4ed8"/>
+            <circle cx="665" cy="184" r="4.5" fill="#1d4ed8"/><circle cx="740" cy="164" r="4.5" fill="#1d4ed8"/>
+            <text x="734" y="152" font-size="13" font-weight="700" fill="#1d4ed8" text-anchor="end">2.60&#xCD08;</text>
+            <polyline points="110,345 280,323 408,284 536,255 665,213 740,176" fill="none" stroke="#93c5fd" stroke-width="2.5" stroke-dasharray="7 4"/>
+            <circle cx="536" cy="255" r="4" fill="#93c5fd"/><circle cx="740" cy="176" r="4" fill="#93c5fd"/>
+            <rect x="180" y="440" width="18" height="3" fill="#dc2626"/>
+            <text x="206" y="446" font-size="12.5" fill="#334155">&#xC870;&#xAC74;&#xBD80; &#xB7;&#x20;&#xC571; 3</text>
+            <rect x="300" y="440" width="18" height="3" fill="#f87171"/>
+            <text x="326" y="446" font-size="12.5" fill="#334155">&#xC870;&#xAC74;&#xBD80; &#xB7;&#x20;&#xC571; 1</text>
+            <rect x="420" y="440" width="18" height="3" fill="#1d4ed8"/>
+            <text x="446" y="446" font-size="12.5" fill="#334155">Redis &#xB7;&#x20;&#xC571; 3</text>
+            <rect x="536" y="440" width="18" height="3" fill="#93c5fd"/>
+            <text x="562" y="446" font-size="12.5" fill="#334155">Redis &#xB7;&#x20;&#xC571; 1</text>
+            <text x="40" y="478" font-size="12.5" fill="#475569">&#xC571;&#xC744; &#xB298;&#xB9AC;&#xBA74; &#xC804; &#xAD6C;&#xAC04;&#xC5D0;&#xC11C; &#xB290;&#xB824;&#xC9C4;&#xB2E4;. &#xC778;&#xC6D0; 2,000 &#xBD80;&#xD130;&#xB294; &#xC5F0;&#xACB0;&#xC774; &#xC131;&#xB9BD;&#xD558;&#xC9C0; &#xC54A;&#xB294; &#xC694;&#xCCAD;&#xC774; &#xB098;&#xC624;&#xBBC0;&#xB85C; &#xADF8; &#xC624;&#xB978;&#xCABD; &#xAC12;&#xC740; &#xC644;&#xC8FC;&#xD55C; &#xC694;&#xCCAD;&#xB9CC;&#xC758; &#xAC83;&#xC774;&#xB77C; &#xB099;&#xAD00;&#xC801;&#xC774;&#xB2E4;.</text>
+          </svg>
+        </div>
+
+        <!-- 세 실행에서 일관된 것 -->
+        <div class="callout conclusion">
+          <strong>세 실행에서 일관된 것 — 결정의 근거로 쓴다</strong>
+          <ul>
+            <li><strong>재고 행 락 경합이 실재하고, 앱을 늘리면 커진다.</strong> 조건부 UPDATE의 락 대기 누적이 앱 대수에 따라 열 배 넘게 늘어난다. 대기 횟수는 요청 수와 같으므로 악화의 실체는 건당 대기 시간이다. Redis는 재고 행을 수정하지 않아 정확히 0이다</li>
+            <li><strong>커넥션 풀이 병목이고, Redis는 그 대기를 절반 가까이 줄인다.</strong> 획득 대기 누적이 조건부 481초, Redis 258초다. 차감 UPDATE가 락을 기다리는 동안 커넥션을 놓지 않기 때문이고, 락 대기 누적과 같은 이야기를 커넥션 쪽에서 본 것이다
+              <ul>
+                <li><strong>순간값으로 판정하면 정반대로 읽힌다.</strong> 사용 중 커넥션은 조건부 30(상한)·Redis 10(3분의 1)이라 "Redis는 여유가 있다"로 보이는데, 누적으로 재면 Redis도 258초를 기다린다. 락 경합에서 겪은 함정을 커넥션에서 되풀이할 뻔했다</li>
+              </ul>
+            </li>
+            <li><strong>정확성은 인원에도 앱 대수에도 무관하다.</strong> 전 구간에서 초과 판매 0건, 품절 경합에서 성공은 정확히 재고 수량만큼이다</li>
+            <li><strong>순간을 찍는 관측으로는 락 경합이 보이지 않는다.</strong> <code>Innodb_row_lock_current_waits</code>는 전 스냅샷 0인데 누적 델타(<code>Innodb_row_lock_time</code>)는 수백 초다. 대기가 짧고 잦으면 순간 관측은 놓친다</li>
+          </ul>
+        </div>
+
+        <!-- 결론을 내지 못한 것 -->
+        <div class="callout warning">
+          <strong>결론을 내지 못한 것 — 결정의 근거로 쓰지 않는다</strong>
+          <ul>
+            <li><strong>두 전략의 지연 우열.</strong> 인원 2,000 이상에서 실행마다 뒤집힌다. 회차를 늘려도 좁혀지지 않는데, 부하 도구와 서버가 한 기기에 있어 편차의 원인이 측정 대상 밖에 있기 때문이다</li>
+            <li><strong>고부하 구간의 절대값.</strong> 그 구간부터 연결이 성립하지 않는 요청이 나오고, 유실분은 지연에 잡히지 않아 값이 낙관적으로 편향된다</li>
+          </ul>
+        </div>
+
+        <!-- 앞선 판단 중 철회한 것 -->
+        <div class="callout warning">
+          <strong>앞선 판단 중 철회한 것</strong>
+          <p>이 절은 한동안 "조건부와 Redis의 지연 차이를 락 경합이 만든 몫으로 읽는다"고 적고 있었다. <strong>두 전략의 지연 차이가 실행마다 부호까지 바뀌므로 그 차이를 어떤 원인에도 귀속시킬 수 없다.</strong> 락 경합이 실재한다는 판단은 유지되지만, 근거는 두 전략의 지연 차이가 아니라 락 대기 누적과 커넥션 점유다.</p>
+        </div>
+
+        <!-- 저장장치와 격리 -->
+        <div class="callout info">
+          <strong>저장장치와 격리 — 전환 판단에 직접 걸리는 둘</strong>
+          <ul>
+            <li><strong>디스크가 끼면 양쪽이 함께 나빠진다.</strong> tmpfs에서 도출한 SLA를 실제 저장장치에서는 조건부가 못 맞춘다. 락 대기가 세 배로 늘기 때문인데, Redis도 주문 INSERT 때문에 비슷한 배수로 느려진다</li>
+            <li><strong>Redis는 조회 영향을 45% 줄이지만 격리하지는 못한다.</strong> 재고 부하와 무관한 조회를 같이 흘렸더니 조건부에서 크게 밀렸고 Redis에서 그 절반 가까이로 줄었다. 커넥션 획득 대기가 46% 준 것과 감소율이 맞아떨어져 인과가 분명하다. 그래도 무부하 대비 수십 배는 남는데, 주문 요청이 재고 차감을 Redis로 보내고도 사용자·상품·핫딜 조회와 주문 INSERT로 DB를 계속 치기 때문이다. <strong>격리의 조건은 Redis를 쓰는 것이 아니라 요청 경로에서 DB를 걷어내는 것</strong>이고, 이 구현은 경합하는 한 행만 뺐다</li>
+          </ul>
+        </div>
+
+        <!-- 전환 판단 -->
+        <div class="callout info">
+          <strong>그래서 전환 판단은</strong>
+          <p><strong>얻는 것은 측정됐다.</strong> 커넥션 획득 대기 46% 감소, 그리고 그만큼 무관한 조회가 덜 밀린다(45%). 이것은 순간값이 아니라 누적으로 잰 값이고 회차마다 함께 움직인다.</p>
+          <p><strong>대가도 분명하다.</strong> 현재 구현은 재고를 Redis에서만 차감하므로 <strong>재고의 단일 진실이 Redis로 옮겨간다.</strong> DB의 재고 행은 갱신되지 않고, Redis가 유실되면 재고가 그대로 사라진다. 벤치마크는 초과 판매 검증을 Redis에서 읽어 통과시키지만 운영에서는 그 자체가 위험이다.</p>
+          <p><strong>그런데 같은 이득을 더 싸게 얻을 길이 아직 안 열려 있다.</strong> Redis가 줄인 46%는 락 대기가 커넥션 점유를 늘리던 몫이고, 남은 258초는 풀 30개를 요청 1,000건이 나눠 쓴 몫이다. <strong>풀 크기는 HikariCP 기본값 그대로 두고 쟀다.</strong></p>
+          <ul>
+            <li><strong>지금 전환하지 않는다.</strong> 이득이 없어서가 아니라, <strong>재고 원본을 옮기지 않고 같은 지점을 건드리는 수단을 아직 안 써봤기 때문</strong>이다. 커넥션 풀 튜닝이 먼저고, 그다음이 경합하는 행을 쪼개는 것(<code>SKIP LOCKED</code>)이다. 둘 다 재고의 단일 진실을 DB에 남긴다</li>
+            <li><strong>전환한다면 정합성 작업이 선행이다.</strong> DB 반영·유실 복구·만료 복원을 갖춘 뒤라야 이득과 대가를 같은 저울에 올릴 수 있다</li>
+            <li>전환 수단 자체는 준비돼 있다. <code>stock.deduct.strategy</code> 설정값으로 Redis, 그다음은 재고를 여러 행으로 분산하는 것. 락 대기가 앱 대수에 따라 커진다는 관측은 후자를 가리킨다</li>
+          </ul>
+        </div>
+      </section>
+
+      <!-- 6 -->
+      <section id="s6">
+        <h2>6. 락 순서와 실패 처리</h2>
+        <ul>
+          <li>주문과 재고를 함께 건드리는 모든 경로는 <strong>주문 → 재고</strong> 순서를 지킨다 (교착 방지)</li>
+          <li><strong>코드에 쓴 호출 순서가 그대로 SQL 순서가 된다</strong> — 통합 테스트 SQL 로그로 확인했다
+            <ul>
+              <li>주문은 ID가 IDENTITY라 <code>save()</code> 시점에 INSERT가 나간다. DB가 채번하므로 커밋을 기다릴 수 없다</li>
+              <li>재고 차감은 JPQL 벌크 UPDATE라 호출 시점에 바로 나간다. 영속성 컨텍스트의 쓰기 지연은 엔티티 변경 추적에만 적용되고 벌크 연산은 그 경로를 타지 않는다</li>
+              <li>두 SQL 사이에 다른 문장이 끼지 않았다. 앞서 조회한 엔티티를 아무도 수정하지 않아 함께 내보낼 변경이 없었기 때문이다</li>
+            </ul>
+          </li>
+          <li>그래서 이 순서는 Hibernate가 정리해 주는 것이 아니라 코드가 지켜야 한다. 다른 ID 전략을 쓰면 INSERT가 커밋 시점으로 밀려 순서가 뒤집힌다</li>
+          <li>만료 일괄 처리는 주문 1건 = 트랜잭션 1개</li>
+          <li>경합에 밀린 요청은 "다시 시도해 주세요"로 돌려준다
+            <ul>
+              <li>서버가 몰래 재시도하지 않는다</li>
+              <li>첫 시도가 사실 성공했는데 응답만 늦은 경우 중복 주문이 되기 때문</li>
+            </ul>
+          </li>
+        </ul>
+
+        <p>트레이드오프</p>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr><th>대가</th><th>대응</th></tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>폭주 때 일부 요청이 실패 응답을 받는다</td>
+                <td>재고가 사라진 것이 아니라 다시 주문하면 살 수 있다</td>
+              </tr>
+              <tr>
+                <td>재고가 남았는데 덜 팔릴 수 있다</td>
+                <td>초과 판매만 절대 막고, 덜 팔리는 것은 받아들인다</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <script>
+    // TOC active state on scroll
+    (function() {
+      var sections = document.querySelectorAll('section[id]');
+      var tocLinks = document.querySelectorAll('.toc a');
+      function onScroll() {
+        var scrollPos = window.scrollY + 100;
+        var current = '';
+        sections.forEach(function(section) {
+          if (section.offsetTop <= scrollPos) {
+            current = section.getAttribute('id');
+          }
+        });
+        tocLinks.forEach(function(link) {
+          link.classList.remove('active');
+          if (link.getAttribute('href') === '#' + current) {
+            link.classList.add('active');
+          }
+        });
+      }
+      window.addEventListener('scroll', onScroll, { passive: true });
+      onScroll();
+    })();
+  </script>
+</body>
+</html>
