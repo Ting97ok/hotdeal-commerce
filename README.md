@@ -8,7 +8,7 @@
 - **다음(확정 로드맵)**: 결제 후속 처리 부분 MSA 분리 → 대용량 조회 + Redis 캐싱
 - **만들지 않는 것**: 넓은 커머스 기능(장바구니·리뷰·배송·쿠폰)과 풀 MSA 인프라(게이트웨이·서비스 디스커버리)는 이 저장소의 관심사 밖이다
 
-> 📖 **의사결정 기록** [ADR 7편](docs/adr/README.md) · 측정과 근거 [재고 동시성 벤치마크](docs/rfc/concurrency-benchmark.md) · [결제 결과 분류](docs/rfc/payment-result-classification.md) · 스키마 [데이터 모델](docs/design/erd.md)
+> 📖 **의사결정 기록** [ADR 7편](docs/adr/README.md) · 측정과 근거 [재고 동시성 벤치마크](https://ting97ok.github.io/hotdeal-commerce/rfc/concurrency-benchmark.html) · [결제 결과 분류](docs/rfc/payment-result-classification.md) · 스키마 [데이터 모델](docs/design/erd.md)
 
 ## 증명하는 것 / 증명하지 않는 것
 
@@ -25,7 +25,7 @@
 
 **증명하지 않는다**
 
-- **실트래픽과 실 프로덕션 규모** — 측정은 로컬 한 머신이다. 다중 인스턴스도 같은 머신 위 컨테이너라 물리 분산이 아니다. 부하 도구·앱·DB 를 각각 다른 기기에 두는 측정은 **장비 여건상 하지 못했다**([벤치마크 RFC 6절](docs/rfc/concurrency-benchmark.md))
+- **실트래픽과 실 프로덕션 규모** — 측정은 로컬 한 머신이다. 다중 인스턴스도 같은 머신 위 컨테이너라 물리 분산이 아니다. 부하 도구·앱·DB 를 각각 다른 기기에 두는 측정은 **장비 여건상 하지 못했다**([벤치마크 RFC 6절](https://ting97ok.github.io/hotdeal-commerce/rfc/concurrency-benchmark.html))
 - **장애 대응 운영** — 알람을 붙이지 않았다. 재고 전략은 프로퍼티 한 줄로 되돌리게 만들어 두었지만 실제로 되돌려 본 것은 아니다
 - **실거래** — 토스는 테스트 모드다
 
@@ -51,16 +51,16 @@ nginx 로드밸런서 뒤에 앱을 1대와 3대로 두고, 인원을 100에서 
 - **두 전략의 지연 우열** — 같은 격자를 세 번 돌렸더니 인원 2,000 이상에서 결과가 뒤집혔다. 인원 3,000·앱 3대에서 조건부가 이겼다가, 비슷했다가, Redis 가 이겼다. 회차를 6회로 늘려도 좁혀지지 않는다. 부하 도구와 서버가 한 기기에 있는 한 편차의 원인이 측정 대상 밖에 있다.
 - **인원 2,000 이상의 절대값** — 그 구간부터 연결이 성립하지 않는 요청이 나오고, 유실분은 지연에 안 잡혀 값이 낙관적으로 편향된다.
 
-측정 설계와 회차별 원값은 [동시성 벤치마크 RFC 4절](docs/rfc/concurrency-benchmark.md).
+측정 설계와 회차별 원값은 [동시성 벤치마크 RFC 4절](https://ting97ok.github.io/hotdeal-commerce/rfc/concurrency-benchmark.html).
 
 ### ② 전략 선정 — 같은 워크로드로 3전략 실측
 
-동시 1,000명이 재고 한 행을 다투는 오픈 스파이크를 낙관적 락 · 조건부 UPDATE · Redis+Lua 로 측정해 **원자적 조건부 UPDATE** 를 운영 전략으로 확정했다 — [재고 동시성 ADR](docs/adr/concurrency.md).
+동시 1,000명이 재고 한 행을 다투는 오픈 스파이크를 낙관적 락 · 조건부 UPDATE · Redis+Lua 로 측정해 **원자적 조건부 UPDATE** 를 운영 전략으로 확정했다 — [재고 동시성 ADR](https://ting97ok.github.io/hotdeal-commerce/adr/concurrency.html).
 
 ![고경합 3전략 벤치마크 — 낙관적 락 성공 163 탈락, 조건부·Redis 1000 동률](docs/design/images/benchmark-strategies.svg)
 
 - 낙관적 락은 버전 충돌로 성공 163/1000 (정확하나 비실용, 탈락). 조건부·Redis 는 1,000 동률.
-- 조건부가 p95 최저(1.37s)이고 쿼리 한 문장이라 가장 단순해 채택했다. 여기서 도출한 SLA 는 폭주 p95 ≤ 2s · 평시 ≤ 500ms — [동시성 벤치마크 RFC 3·5절](docs/rfc/concurrency-benchmark.md).
+- 조건부가 p95 최저(1.37s)이고 쿼리 한 문장이라 가장 단순해 채택했다. 여기서 도출한 SLA 는 폭주 p95 ≤ 2s · 평시 ≤ 500ms — [동시성 벤치마크 RFC 3·5절](https://ting97ok.github.io/hotdeal-commerce/rfc/concurrency-benchmark.html).
 
 ### ③ 측정 오염 발견이 결론을 바꿨다
 
@@ -68,7 +68,7 @@ nginx 로드밸런서 뒤에 앱을 1대와 3대로 두고, 인원을 100에서 
 
 ![측정 환경이 결론을 바꾼 사례 — 조건부 2.25s→1.37s 급락](docs/design/images/benchmark-measurement-pollution.svg)
 
-- 조건부는 차감이 DB UPDATE 라 로깅에 민감하고 Redis 는 메모리라 둔감했다 — 오염이 한쪽만 때린 것이다 ([동시성 벤치마크 RFC 3절](docs/rfc/concurrency-benchmark.md))
+- 조건부는 차감이 DB UPDATE 라 로깅에 민감하고 Redis 는 메모리라 둔감했다 — 오염이 한쪽만 때린 것이다 ([동시성 벤치마크 RFC 3절](https://ting97ok.github.io/hotdeal-commerce/rfc/concurrency-benchmark.html))
 - 재현: `bash k6/benchmark/run.sh`(단일) · `bash k6/benchmark/run-multi.sh`(1 vs 3 인스턴스) — 일회용 컨테이너로 전략 순회 + 초과 판매 검증 자동 ([k6 실행 안내](k6/README.md))
 
 ## 설계 하이라이트
@@ -96,7 +96,7 @@ nginx 로드밸런서 뒤에 앱을 1대와 3대로 두고, 인원을 100에서 
 | 매핑 | MapStruct | 엔티티 ↔ DTO |
 | 문서화 | SpringDoc OpenAPI | Swagger UI |
 | 테스트 | JUnit 5 + Testcontainers(MySQL 8.4) | 운영 동일 마이그레이션 검증 |
-| 부하 테스트 | k6 (+ Prometheus·Grafana) | [동시성 벤치마크 RFC 2절](docs/rfc/concurrency-benchmark.md) |
+| 부하 테스트 | k6 (+ Prometheus·Grafana) | [동시성 벤치마크 RFC 2절](https://ting97ok.github.io/hotdeal-commerce/rfc/concurrency-benchmark.html) |
 
 > 표준 스택은 한 줄 근거만. 트레이드오프가 있던 의사결정(인증·아키텍처·PG·동시성 제어)은 [docs/adr](docs/adr/README.md) 에 기록한다.
 
