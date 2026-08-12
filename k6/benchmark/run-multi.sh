@@ -1,34 +1,76 @@
 #!/usr/bin/env bash
 # 다중 인스턴스 동시성 벤치마크 — nginx LB 뒤 app 1 vs 3, conditional·redis 전략.
-# 단일 스택(run.sh)과 격리. 측정 3종: 처리량/역전(VU 스윕) · 오버셀0 · 커넥션 총량.
-# raw 로그는 results/ 에 조합별 전량 보존.
+# 단일 스택(run.sh)과 격리. 같은 조건을 ROUNDS 회 반복해 편차를 남긴다.
+# raw 로그는 results/{모드}/ 에 조합·회차별 전량 보존하고, 요약은 마크다운 표로 낸다.
+#
+# 모드 셋
+#   sweep  인원을 늘려가며 SLA 가 깨지는 지점을 찾는다 (+ 오버셀0 · 커넥션 총량)
+#   disk   MySQL 데이터를 tmpfs 가 아니라 디스크에 두고 커밋 저장 비용을 넣는다
+#   mix    주문 폭주와 무관한 조회를 같은 시간에 흘려 재고 부하가 번지는지 본다
 #
 # 사용:
-#   bash k6/benchmark/run-multi.sh                          (전체)
-#   VUS="1000" bash k6/benchmark/run-multi.sh               (VU 한 점만)
-#   STRATEGIES="conditional" INSTANCES="3" bash ...run-multi.sh
+#   bash k6/benchmark/run-multi.sh                            (스윕 전량)
+#   MODE=disk bash k6/benchmark/run-multi.sh
+#   MODE=mix  bash k6/benchmark/run-multi.sh
+#   VUS="1000" ROUNDS=1 STRATEGIES="conditional" bash k6/benchmark/run-multi.sh   (한 점만)
 set -euo pipefail
 cd "$(dirname "$0")"
 
+MODE="${MODE:-sweep}"
+ROUNDS="${ROUNDS:-3}"
 STRATEGIES="${STRATEGIES:-conditional redis}"
-INSTANCES="${INSTANCES:-1 3}"
-VUS="${VUS:-1000 2000 3000}"
+
+case "$MODE" in
+  sweep) INSTANCES="${INSTANCES:-1 3}"; VUS="${VUS:-100 250 500 1000 2000 3000}" ;;
+  disk)  INSTANCES="${INSTANCES:-3}";   VUS="${VUS:-1000}"
+         # compose 의 마운트 대상을 맞바꿔 데이터 디렉터리를 named volume 으로 돌린다.
+         export MYSQL_TMPFS_TARGET=/var/lib/mysql-unused MYSQL_DISK_TARGET=/var/lib/mysql ;;
+  mix)   INSTANCES="${INSTANCES:-3}";   VUS="${VUS:-1000}" ;;
+  *) echo "MODE 는 sweep|disk|mix"; exit 1 ;;
+esac
+
 OVERSELL_STOCK="${OVERSELL_STOCK:-10}"
 OVERSELL_VU="${OVERSELL_VU:-1000}"
-CONN_VU="${CONN_VU:-2000}"                    # 커넥션 폴링을 붙일 대표 VU (인스턴스 3 에서만)
+# 커넥션 폴링을 붙일 대표 VU (인스턴스 3 에서만). 스윕의 최대 인원에 붙인다 —
+# 계정 발급을 밖으로 뺀 뒤로 부하 구간이 인원에 비례해 짧아져서, 작은 인원에서는
+# 스냅샷이 두어 개밖에 안 찍혀 포화를 볼 수 없다.
+CONN_VU="${CONN_VU:-3000}"
+MIX_RATE="${MIX_RATE:-50}"
+MIX_DURATION="${MIX_DURATION:-8s}"
+WARMUP_VU="${WARMUP_VU:-200}"                 # 조합마다 한 번 버리는 예열 회차의 인원
 BASE_URL="http://localhost:18080"             # nginx LB (부하 진입점)
 K6_SCRIPT="../order-flash-sale.js"
-RESULTS="results"
+RESULTS="results/$MODE"
+TOKENS="$PWD/results/tokens.json"
+RAW="$RESULTS/raw.tsv"
+SUMMARY="results/summary-$MODE.md"
 COMPOSE="docker compose -f docker-compose.multi.yml"
 
+# 이 모드의 옛 결과를 통째로 지우고 시작한다. 회차 로그는 파일명에 조합·회차가 들어가
+# 있어 격자를 바꿔 재실행하면 옛 조합이 그대로 남고, 요약이 어느 실행의 것인지 알 수
+# 없게 된다. 옛 회차는 git 이 갖는다.
+rm -rf "$RESULTS"
 mkdir -p "$RESULTS"
-# 요약은 아래 루프가 한 줄씩 덧붙이므로 여기서 비운다. 안 비우면 옛 회차와 섞여
-# 문서가 인용하는 값이 어느 회차인지 알 수 없게 된다.
-: > "$RESULTS/lock-stats.log"
+# raw.tsv 가 이 측정의 원본이다. 회차별 .log·.json 은 저장소에 남기지 않으므로
+# (재현하면 다시 나온다) 사람이 열었을 때 열이 무엇인지 알 수 있어야 한다.
+printf '#전략\t앱\tVU\t변형\t회차\t성공\t오버셀\t주문p95ms\t주문avgms\t처리율\t락횟수\t락누적ms\t조회p95ms\t전송실패\t커넥션대기ms\n' > "$RAW"
 
 mysql_exec() { $COMPOSE exec -T mysql mysql -uroot -proot commerce "$@"; }
 redis_exec() { $COMPOSE exec -T redis redis-cli "$@"; }
 lock_stat() { mysql_exec -N -e "SHOW GLOBAL STATUS LIKE '$1';" 2>/dev/null | awk '{print $2}' | tr -d '[:space:]'; }
+
+# 앱 인스턴스들의 프로메테우스 지표를 합산한다. $1=인스턴스 수 $2=지표 이름(접두 일치)
+# 커넥션 풀 대기는 순간값(active)으로는 안 보인다 — 짧고 잦으면 샘플링이 놓친다.
+# 행 락 대기를 누적 델타로 재서 찾아냈듯이, 획득 대기도 누적으로 재야 한다.
+app_metric() {
+  local i v sum=0
+  for i in $(seq 1 "$1"); do
+    v=$(curl -s "http://localhost:1808$i/actuator/prometheus" 2>/dev/null \
+        | awk -v m="$2" 'index($1, m) == 1 {print $2; exit}')
+    sum=$(awk -v a="$sum" -v b="${v:-0}" 'BEGIN{printf "%.6f", a + b}')
+  done
+  echo "$sum"
+}
 
 cleanup() { echo "[정리] 컨테이너·볼륨 삭제"; $COMPOSE down -v --remove-orphans >/dev/null 2>&1 || true; rm -f nginx.conf; }
 trap cleanup EXIT
@@ -41,7 +83,7 @@ gen_nginx_conf() {   # $1 = 인스턴스 수 -> nginx.conf (upstream 명시 = �
 
 wait_healthy() {   # $1 = 서비스명
   local cid _
-  for _ in $(seq 1 60); do
+  for _ in $(seq 1 90); do
     cid=$($COMPOSE ps -q "$1" 2>/dev/null || true)
     [ -n "$cid" ] && [ "$(docker inspect -f '{{.State.Health.Status}}' "$cid" 2>/dev/null || true)" = "healthy" ] && return 0
     sleep 1
@@ -89,10 +131,20 @@ snapshot_conn() {   # $1=N $2=logfile — 인스턴스별 HikariCP active 합산
   echo "t=$(date +%s) hikari_active_sum=${h} db_threads_connected=${tc:-?} db_threads_running=${tr:-?} innodb_row_lock_current_waits=${rlw:-?}" >> "$2"
 }
 
-parse_result() {   # $1 = k6 로그 -> SUCCESS P95 AVG
-  SUCCESS=$(grep 'order_success' "$1" | sed -E 's/.*: +([0-9]+).*/\1/' | head -1 || echo "?")
-  P95=$(grep 'order_duration' "$1" | grep -oE 'p\(95\)=[0-9.]+(ms|s)' | head -1 | cut -d= -f2 || echo "?")
-  AVG=$(grep 'order_duration' "$1" | grep -oE 'avg=[0-9.]+(ms|s)' | head -1 | cut -d= -f2 || echo "?")
+# k6 의 JSON 요약에서 값 하나. 지표가 없으면 빈 문자열 (배경 부하 없는 회차의 lookup 등)
+jval() { jq -r "$2 // empty" "$1" 2>/dev/null | head -1; }
+
+parse_summary() {   # $1 = k6 --summary-export JSON -> SUCCESS P95 AVG RATE FAILED LOOKUP_P95 LOOKUP_N
+  SUCCESS=$(jval "$1" '.metrics.order_success.count // .metrics.order_success.values.count'); SUCCESS=${SUCCESS:-0}
+  # 전송 실패 건수. 200·409 는 정상 응답이라 여기 안 잡히고, 연결이 끊기거나 5xx 일
+  # 때만 오른다. 고부하에서 성공 건수가 모자란 것이 경합인지 연결 유실인지 이것으로 갈린다.
+  # http_req_failed 는 Rate 라 passes 가 '조건이 참' = 실패한 요청 수다. fails 가 아니다.
+  FAILED=$(jval "$1" '.metrics.http_req_failed.passes // .metrics.http_req_failed.values.passes'); FAILED=${FAILED:-0}
+  P95=$(jval "$1" '.metrics.order_duration["p(95)"] // .metrics.order_duration.values["p(95)"]')
+  AVG=$(jval "$1" '.metrics.order_duration.avg // .metrics.order_duration.values.avg')
+  RATE=$(jval "$1" '.metrics.order_success.rate // .metrics.order_success.values.rate')
+  LOOKUP_P95=$(jval "$1" '.metrics.lookup_duration["p(95)"] // .metrics.lookup_duration.values["p(95)"]')
+  LOOKUP_N=$(jval "$1" '.metrics.lookup_duration.count // .metrics.lookup_duration.values.count'); LOOKUP_N=${LOOKUP_N:-0}
 }
 
 check_oversell() {   # $1=STRATEGY $2=STOCK -> "0" 또는 "위반(...)"
@@ -107,80 +159,122 @@ check_oversell() {   # $1=STRATEGY $2=STOCK -> "0" 또는 "위반(...)"
   [ "$sum" = "$2" ] && echo "0" || echo "위반(합=$sum≠$2)"
 }
 
-echo "[1/5] 일회용 인프라 기동 (mysql:13306, redis:16379, tmpfs)"
+# 한 회차 — k6 실행 + 오버셀 판정 + 락 델타. raw.tsv 에 한 줄 남긴다.
+# $1=전략 $2=인스턴스 $3=VU $4=회차 $5=변형(base|load|-) $6=추가 k6 -e 인자들
+run_round() {
+  local st=$1 n=$2 vu=$3 r=$4 variant=$5; shift 5
+  local stock=$((vu * 2)) tag out json conn kpid lw0 lt0 lw1 lt1 lwd ltd ov
+  tag="${st}-i${n}-vu${vu}"
+  [ "$variant" != "-" ] && tag="${tag}-${variant}"
+  tag="${tag}-r${r}"
+  out="$RESULTS/$tag.log"; json="$RESULTS/$tag.json"
+
+  reset_stock "$stock"
+  lw0=$(lock_stat Innodb_row_lock_waits); lt0=$(lock_stat Innodb_row_lock_time)
+  aq0=$(app_metric "$n" hikaricp_connections_acquire_seconds_sum)
+
+  if [ "$MODE" = "sweep" ] && [ "$n" = "3" ] && [ "$vu" = "$CONN_VU" ] && [ "$r" = "1" ]; then
+    conn="$RESULTS/conn-${st}-i${n}-vu${vu}.log"; : > "$conn"
+    k6 run --summary-export="$json" -e ACCOUNTS="$vu" -e PRODUCT_ID=1 -e BASE_URL="$BASE_URL" \
+      -e TOKENS_FILE="$TOKENS" "$@" "$K6_SCRIPT" > "$out" 2>&1 &
+    kpid=$!
+    while kill -0 "$kpid" 2>/dev/null; do snapshot_conn "$n" "$conn"; sleep 0.2; done
+    wait "$kpid" || true
+  else
+    k6 run --summary-export="$json" -e ACCOUNTS="$vu" -e PRODUCT_ID=1 -e BASE_URL="$BASE_URL" \
+      -e TOKENS_FILE="$TOKENS" "$@" "$K6_SCRIPT" > "$out" 2>&1 || true
+  fi
+
+  lw1=$(lock_stat Innodb_row_lock_waits); lt1=$(lock_stat Innodb_row_lock_time)
+  lwd=$(( ${lw1:-0} - ${lw0:-0} )); ltd=$(( ${lt1:-0} - ${lt0:-0} ))
+  aq1=$(app_metric "$n" hikaricp_connections_acquire_seconds_sum)
+  aqd=$(awk -v a="${aq1:-0}" -v b="${aq0:-0}" 'BEGIN{printf "%.0f", (a - b) * 1000}')   # ms
+  parse_summary "$json"
+  if [ "$variant" = "base" ]; then ov="-"; else ov=$(check_oversell "$st" "$stock"); fi
+
+  # 예열 회차는 값을 버린다. 앱 재기동 직후 첫 회차는 JIT·버퍼풀이 차갑고 뒤 회차보다
+  # 몇 배 느려서, 그대로 두면 회차 편차가 경합이 아니라 워밍업을 재게 된다.
+  if [ "$variant" = "warmup" ]; then
+    echo "  [예열] $st i$n vu$vu — p95=$(fmt_ms "${P95:-}") (버림)"
+    return 0
+  fi
+
+  printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+    "$st" "$n" "$vu" "$variant" "$r" "$SUCCESS" "$ov" "${P95:-}" "${AVG:-}" "${RATE:-}" "$lwd" "$ltd" "${LOOKUP_P95:-}" "$FAILED" "$aqd" >> "$RAW"
+  echo "  [$tag] 성공=$SUCCESS/$vu 전송실패=$FAILED 오버셀=$ov p95=$(fmt_ms "${P95:-}") 처리율=${RATE:-?}/s 조회p95=$(fmt_ms "${LOOKUP_P95:-}") 행잠금=${lwd}회/${ltd}ms 커넥션대기=${aqd}ms"
+  LAST_LOCK_TIME=$ltd
+}
+
+fmt_ms() {   # 밀리초 -> 사람이 읽는 단위
+  awk -v v="${1:-}" 'BEGIN{ if (v=="") { print "-" } else if (v+0 >= 1000) { printf "%.2f초", v/1000 } else { printf "%.0fms", v } }'
+}
+
+echo "[1/6] 일회용 인프라 기동 (mysql:13306, redis:16379, 스토리지=$([ "$MODE" = disk ] && echo 디스크 || echo tmpfs))"
 $COMPOSE up -d mysql redis >/dev/null
 wait_healthy mysql
 wait_healthy redis
 echo "  인프라 healthy"
 
-echo "[2/5] 앱 이미지 빌드 (캐시)"
+echo "[2/6] 앱 이미지 빌드 (캐시)"
 $COMPOSE build app1 >/dev/null
 
-echo "[3/5] 스키마·시드 (app1 첫 기동으로 Flyway 마이그레이션)"
+echo "[3/6] 스키마·시드 (app1 첫 기동으로 Flyway 마이그레이션)"
 gen_nginx_conf 1
-STRATEGY=conditional $COMPOSE up -d app1 >/dev/null
+# nginx 도 함께 띄운다 — 다음 단계의 계정 발급이 LB(18080)를 거치므로 없으면 전부 실패한다.
+STRATEGY=conditional $COMPOSE up -d app1 nginx >/dev/null
 wait_app 18081
 mysql_exec < seed.sql
 echo "  시드 완료"
 
-echo "[4/5] 측정 A — 처리량/역전 (VU 스윕, 재고=VU×2 전원차감)"
-declare -a THR
+MAX_VU=$(printf '%s\n' $VUS $OVERSELL_VU $WARMUP_VU | sort -n | tail -1)
+echo "[4/6] 계정 선행 발급 ($MAX_VU 개) — k6 측정 구간에서 빼낸다"
+BASE_URL="$BASE_URL" bash provision-accounts.sh "$MAX_VU" "$TOKENS"
+
+echo "[5/6] 측정 — 모드 $MODE · 전략[$STRATEGIES] · 인스턴스[$INSTANCES] · VU[$VUS] · $ROUNDS 회"
 for STRATEGY in $STRATEGIES; do
   for N in $INSTANCES; do
     start_apps "$STRATEGY" "$N"
-    for VU in $VUS; do
-      STOCK=$((VU * 2))
-      reset_stock "$STOCK"
-      TAG="thr-${STRATEGY}-i${N}-vu${VU}"
-      OUT="$RESULTS/$TAG.log"
-      LW0=$(lock_stat Innodb_row_lock_waits); LT0=$(lock_stat Innodb_row_lock_time)
-      if [ "$N" = "3" ] && [ "$VU" = "$CONN_VU" ]; then
-        CONN="$RESULTS/conn-${STRATEGY}-i${N}-vu${VU}.log"; : > "$CONN"
-        k6 run -e ACCOUNTS="$VU" -e PRODUCT_ID=1 -e BASE_URL="$BASE_URL" "$K6_SCRIPT" > "$OUT" 2>&1 &
-        KPID=$!
-        while kill -0 "$KPID" 2>/dev/null; do snapshot_conn "$N" "$CONN"; sleep 2; done
-        wait "$KPID" || true
-      else
-        k6 run -e ACCOUNTS="$VU" -e PRODUCT_ID=1 -e BASE_URL="$BASE_URL" "$K6_SCRIPT" > "$OUT" 2>&1 || true
-      fi
-      LW1=$(lock_stat Innodb_row_lock_waits); LT1=$(lock_stat Innodb_row_lock_time)
-      LWD=$(( ${LW1:-0} - ${LW0:-0} )); LTD=$(( ${LT1:-0} - ${LT0:-0} ))
-      parse_result "$OUT"
-      OV=$(check_oversell "$STRATEGY" "$STOCK")
-      THR+=("$STRATEGY|$N|$VU|$SUCCESS|$OV|$P95|$AVG|$LWD|$LTD")
-      echo "  [$TAG] 성공=$SUCCESS/$VU 오버셀=$OV p95=$P95 avg=$AVG 행잠금대기=${LWD}회/${LTD}ms"
-      echo "$TAG success=$SUCCESS/$VU oversell=$OV p95=$P95 avg=$AVG row_lock_waits=$LWD row_lock_time_ms=$LTD" >> "$RESULTS/lock-stats.log"
+    run_round "$STRATEGY" "$N" "$WARMUP_VU" 0 warmup
+    # 회차를 VU 루프 바깥에 둔다. 같은 조건을 연달아 세 번 치면 캐시가 더워져
+    # 편차가 실제보다 작게 나온다. 사이에 다른 VU 회차가 끼게 한다.
+    for R in $(seq 1 "$ROUNDS"); do
+      for VU in $VUS; do
+        if [ "$MODE" = "mix" ]; then
+          run_round "$STRATEGY" "$N" "$VU" "$R" base \
+            -e MIX_ONLY=1 -e MIX_RATE="$MIX_RATE" -e MIX_DURATION="$MIX_DURATION"
+          run_round "$STRATEGY" "$N" "$VU" "$R" load \
+            -e MIX=1 -e MIX_RATE="$MIX_RATE" -e MIX_DURATION="$MIX_DURATION"
+        else
+          run_round "$STRATEGY" "$N" "$VU" "$R" -
+        fi
+      done
     done
   done
 done
 
-echo "[5/5] 측정 B — 오버셀0 (재고 $OVERSELL_STOCK < 인원 $OVERSELL_VU, 인스턴스 3)"
-declare -a OVR
-for STRATEGY in $STRATEGIES; do
-  start_apps "$STRATEGY" 3
-  reset_stock "$OVERSELL_STOCK"
-  OUT="$RESULTS/oversell-${STRATEGY}-i3-vu${OVERSELL_VU}.log"
-  k6 run -e ACCOUNTS="$OVERSELL_VU" -e PRODUCT_ID=1 -e BASE_URL="$BASE_URL" "$K6_SCRIPT" > "$OUT" 2>&1 || true
-  parse_result "$OUT"
-  OV=$(check_oversell "$STRATEGY" "$OVERSELL_STOCK")
-  OVR+=("$STRATEGY|3|$OVERSELL_VU|$SUCCESS|$OV|$P95")
-  echo "  [oversell-$STRATEGY] 성공=$SUCCESS (재고 $OVERSELL_STOCK) 오버셀=$OV p95=$P95"
-done
+if [ "$MODE" = "sweep" ]; then
+  echo "[6/6] 오버셀0 (재고 $OVERSELL_STOCK < 인원 $OVERSELL_VU, 인스턴스 3)"
+  : > "$RESULTS/oversell.tsv"
+  for STRATEGY in $STRATEGIES; do
+    start_apps "$STRATEGY" 3
+    run_round "$STRATEGY" 3 "$WARMUP_VU" 0 warmup
+    for R in $(seq 1 "$ROUNDS"); do
+      reset_stock "$OVERSELL_STOCK"
+      OUT="$RESULTS/oversell-${STRATEGY}-i3-vu${OVERSELL_VU}-r${R}.log"
+      JSON="$RESULTS/oversell-${STRATEGY}-i3-vu${OVERSELL_VU}-r${R}.json"
+      k6 run --summary-export="$JSON" -e ACCOUNTS="$OVERSELL_VU" -e PRODUCT_ID=1 \
+        -e BASE_URL="$BASE_URL" -e TOKENS_FILE="$TOKENS" "$K6_SCRIPT" > "$OUT" 2>&1 || true
+      parse_summary "$JSON"
+      OV=$(check_oversell "$STRATEGY" "$OVERSELL_STOCK")
+      printf '%s\t%s\t%s\t%s\t%s\n' "$STRATEGY" "$R" "$SUCCESS" "$OV" "${P95:-}" >> "$RESULTS/oversell.tsv"
+      echo "  [oversell-$STRATEGY-r$R] 성공=$SUCCESS (재고 $OVERSELL_STOCK) 오버셀=$OV p95=$(fmt_ms "${P95:-}")"
+    done
+  done
+else
+  echo "[6/6] 오버셀0 측정은 sweep 모드에서만 돈다 — 건너뜀"
+fi
 
 echo ""
-echo "======== 측정 A: 처리량/역전 (재고=VU×2 전원차감) ========"
-printf "%-12s %-5s %-6s %-8s %-8s %-9s %-9s %-16s\n" 전략 인스 VU 성공 오버셀 p95 avg 행잠금대기
-for r in "${THR[@]}"; do IFS='|' read -r s n vu su ov p a lwd ltd <<<"$r"; printf "%-12s %-5s %-6s %-8s %-8s %-9s %-9s %-16s\n" "$s" "$n" "$vu" "$su" "$ov" "$p" "$a" "${lwd}회/${ltd}ms"; done
-
-echo ""
-echo "======== 측정 B: 오버셀0 (재고 $OVERSELL_STOCK, 품절 경합) ========"
-printf "%-12s %-5s %-6s %-10s %-14s %-9s\n" 전략 인스 VU 성공 오버셀 p95
-for r in "${OVR[@]}"; do IFS='|' read -r s n vu su ov p <<<"$r"; printf "%-12s %-5s %-6s %-10s %-14s %-9s\n" "$s" "$n" "$vu" "$su" "$ov" "$p"; done
-
-echo ""
-echo "======== 측정 C: 커넥션 총량 (인스턴스 3 · VU $CONN_VU 부하 중 스냅샷) ========"
-for f in "$RESULTS"/conn-*.log; do
-  [ -f "$f" ] || continue
-  echo "-- $f (peak) --"
-  sort -t= -k3 -n "$f" | tail -1
-done
+echo "[요약] $SUMMARY 생성"
+bash summarize.sh "$MODE" > "$SUMMARY"
+cat "$SUMMARY"
