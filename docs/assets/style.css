@@ -212,6 +212,11 @@ table {
 th, td { padding: 0.6em 0.9em; text-align: left; vertical-align: top; }
 thead th { background: var(--bg-subtle); font-weight: 600; border-bottom: 1.5px solid var(--border-strong); }
 tbody td { border-bottom: 1px solid var(--border); }
+/* 셀 안 목록 — 문장마다 항목 하나. 셀 여백은 td 가 이미 주므로 목록 여백은 없앤다 */
+td ul { margin: 0; padding-left: 1.1em; }
+td li { margin: 0.25em 0; }
+td li:first-child { margin-top: 0; }
+td li:last-child { margin-bottom: 0; }
 .n { text-align: right; }              /* 숫자 비교는 일의 자리부터 — 우측 정렬 */
 .c { text-align: center; }
 

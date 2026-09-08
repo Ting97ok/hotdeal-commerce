@@ -8,7 +8,7 @@
 - **다음(확정 로드맵)**: 결제 후속 처리 부분 MSA 분리 → 대용량 조회 + Redis 캐싱
 - **만들지 않는 것**: 넓은 커머스 기능(장바구니·리뷰·배송·쿠폰)과 풀 MSA 인프라(게이트웨이·서비스 디스커버리)는 이 저장소의 관심사 밖이다
 
-> 📖 **의사결정 기록** [ADR 7편](docs/adr/README.md) · 측정과 근거 [재고 동시성 벤치마크](docs/rfc/concurrency-benchmark.md) · [결제 결과 분류](docs/rfc/payment-result-classification.md) · 스키마 [데이터 모델](docs/design/erd.md)
+> 📖 **의사결정 기록** [ADR 7편](https://ting97ok.github.io/hotdeal-commerce/) · 측정과 근거 [재고 동시성 벤치마크](docs/rfc/concurrency-benchmark.md) · [결제 결과 분류](docs/rfc/payment-result-classification.md) · 스키마 [데이터 모델](docs/design/erd.md)
 
 ## 증명하는 것 / 증명하지 않는 것
 
@@ -98,7 +98,7 @@ nginx 로드밸런서 뒤에 앱을 1대와 3대로 두고, 인원을 100에서 
 | 테스트 | JUnit 5 + Testcontainers(MySQL 8.4) | 운영 동일 마이그레이션 검증 |
 | 부하 테스트 | k6 (+ Prometheus·Grafana) | [동시성 벤치마크 RFC 2절](docs/rfc/concurrency-benchmark.md) |
 
-> 표준 스택은 한 줄 근거만. 트레이드오프가 있던 의사결정(인증·아키텍처·PG·동시성 제어)은 [docs/adr](docs/adr/README.md) 에 기록한다.
+> 표준 스택은 한 줄 근거만. 트레이드오프가 있던 의사결정(인증·아키텍처·PG·동시성 제어)은 [문서 색인](https://ting97ok.github.io/hotdeal-commerce/) 에 기록한다.
 
 ## 로컬 실행
 

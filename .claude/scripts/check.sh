@@ -106,13 +106,43 @@ check_docs() {
     [ -n "$abs" ] && printf '%s\n' "$abs" >> "$seen"
   done < "$list"
 
+  # HTML 판(GitHub Pages)도 같은 검사를 받는다 — href 의 상대 경로가 실재하는지,
+  # #앵커가 대상 문서에 id 로 있는지. 절 번호가 바뀌면 여기서 잡힌다.
+  local frag
+  while IFS= read -r doc; do
+    dir=$(dirname "$doc")
+    grep -oE 'href="[^"]+"' "$doc" 2>/dev/null | sed 's/^href="//; s/"$//' \
+      | while IFS= read -r raw; do
+          case "$raw" in http://*|https://*|mailto:*|data:*|'#'*) continue ;; esac
+          target=${raw%%#*}; frag=${raw#*#}; [ "$frag" = "$raw" ] && frag=''
+          if [ ! -e "$dir/$target" ]; then
+            printf 'DEAD\t%s\t%s\n' "$doc" "$target"; continue
+          fi
+          if [ -n "$frag" ] && ! grep -q "id=\"$frag\"" "$dir/$target" 2>/dev/null; then
+            printf 'ANCHOR\t%s\t%s#%s\n' "$doc" "$target" "$frag"; continue
+          fi
+          abs=$(cd "$dir/$(dirname "$target")" 2>/dev/null && printf '%s/%s' "$(pwd -P)" "$(basename "$target")")
+          [ -n "$abs" ] && printf 'OK\t%s\n' "$abs"
+        done
+  done < <(git ls-files 'docs/*.html' 'docs/**/*.html') > "$list"
+  # report 는 violations 를 올리므로 파이프 서브셸이 아니라 이 셸에서 돌린다
+  while IFS="$TAB" read -r kind a b; do
+    case "$kind" in
+      DEAD)   report "$a — 죽은 링크" "$b 을 가리키는데 그런 파일이 없다" ;;
+      ANCHOR) report "$a — 죽은 앵커" "$b 을 가리키는데 대상에 그 id 가 없다. 절 번호가 바뀌었으면 인용을 같이 고친다" ;;
+      OK)     printf '%s\n' "$a" >> "$seen" ;;
+    esac
+  done < "$list"
+
   # 폴더 README 는 GitHub 이 폴더 진입 시 자동으로 펼치므로 링크가 없어도 도달된다.
+  # docs/index.html 은 Pages 의 진입점이라 들어오는 링크 없이 도달된다.
   while IFS= read -r doc; do
     base=$(basename "$doc")
     [ "$base" = "README.md" ] && continue
+    [ "$doc" = "docs/index.html" ] && continue
     grep -qxF "$repo_p/$doc" "$seen" || \
       report "$doc — 고아 문서" "들어오는 링크가 0건이다. 어디서도 도달할 수 없으니 인용을 걸거나 문서를 지운다"
-  done < <(git ls-files 'docs/' | grep '\.md$')
+  done < <(git ls-files 'docs/' | grep -E '\.(md|html)$')
 
   rm -f "$list" "$seen"
 }
