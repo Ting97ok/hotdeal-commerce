@@ -108,7 +108,7 @@ Controller → Facade → Service → Repository
 
 `code-reviewer` 서브에이전트는 **사용자가 리뷰를 요청했을 때만** 부른다. 자발적으로 부르지 않는다. 존재 이유는 컨텍스트 절약이 아니라 **구현 과정을 보지 않은 독립된 눈**이다.
 
-기계적 위반(계층·래핑·탭·마이그레이션 수정)은 `.claude/scripts/check.sh` 가 검출한다.
+기계적 위반은 `.claude/scripts/check.sh` 가 검출한다. 목록은 스크립트 머리에 있고, 편집 훅(`--file`)·`--all`·git `pre-push` 에서 돈다. 판단이 필요한 것은 `--all` 의 [참고] 목록으로만 낸다.
 
 ## 도구
 
@@ -136,3 +136,5 @@ Java 소스의 심볼 단위 분석·편집은 Serena MCP 우선 — `find_symbo
 - **적용**: 도메인 개발·수정, 설계 문서, 마이그레이션 SQL
 - **메타 설정**(`.claude/**`, `CLAUDE.md`): 작은 변경은 끝낸 뒤 1회 커밋. **여러 파일을 지우거나 구조를 바꾸는 작업이면 되돌릴 수 있도록 단계별로 쪼갠다**
 - `.claude/` 도 git 추적 대상이라 커밋한다
+- git 훅(`commit-msg` 접두사·서명, `pre-push` 컴파일·check.sh)은 `.githooks/` 에 있다. 클론마다 한 번 `git config core.hooksPath .githooks`
+- PR 본문은 `.github/PULL_REQUEST_TEMPLATE.md` 의 세 항목을 채운다. 드래프트를 풀거나 합칠 때 전역 훅이 확인한다

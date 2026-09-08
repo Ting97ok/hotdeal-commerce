@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+# git pre-push 훅 — 푸시 전에 컴파일과 계약 검사를 돈다. 테스트 전수는 CI 가 PR 에서 돈다.
+# 활성화: git config core.hooksPath .githooks
+set -u
+cd "$(git rev-parse --show-toplevel)" || exit 1
+echo "[pre-push] compileJava" >&2
+./gradlew -q compileJava compileTestJava || { echo "[pre-push] 컴파일 실패" >&2; exit 1; }
+echo "[pre-push] check.sh --all" >&2
+.claude/scripts/check.sh --all || exit 1
+exit 0
