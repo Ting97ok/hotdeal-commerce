@@ -116,13 +116,18 @@ Java 소스의 심볼 단위 분석·편집은 Serena MCP 우선 — `find_symbo
 
 ## 문서
 
-결정은 `docs/adr/`(주제별 ADR — 색인은 [adr/README.md](docs/adr/README.md)), 그 근거와 실측은 `docs/rfc/`, 설계 문서는 `docs/design/`. 새 도메인·API 작업은 설계 문서를 먼저 쓴다(`api-design` 스킬).
+결정은 `docs/adr/`(주제별 ADR), 그 근거와 실측은 `docs/rfc/`, 설계 문서는 `docs/design/`. 새 도메인·API 작업은 설계 문서를 먼저 쓴다(`api-design` 스킬).
+
+**문서는 HTML 이고 GitHub Pages 로 읽는다.** 주소는 `https://ting97ok.github.io/hotdeal-commerce/`(소스 `main` · `/docs`). 색인은 `docs/index.html`. 마크다운은 루트 `README.md` 하나뿐이다. 공통 CSS·스크립트는 `docs/assets/` 에 있고 페이지마다 복제하지 않는다. 산문 규칙은 전역 `~/.claude/CLAUDE.md` 「문서 작성」이 정본이다.
 
 **작성 규약** — 이 절이 정본이다. 다른 곳에 사본을 두지 않는다.
 
-- 타 문서의 특정 절을 가리킬 때는 **절 번호를 텍스트에 적고 링크는 파일 레벨**로 건다 — `[핫딜 ADR 4절](docs/adr/hotdeal.md)`. `#앵커` 를 쓰지 않는다. IntelliJ 가 자동 슬러그 앵커를 지원하지 않아 파일 레벨만 IntelliJ·GitHub 양쪽에서 작동한다
+- 페이지 사이는 상대 경로(`../adr/concurrency.html`), 코드·테스트·로그는 GitHub 절대 URL, 루트 README 는 Pages 절대 URL
+- 타 문서의 특정 절을 가리킬 때는 **절 번호를 텍스트에 적고** 앵커는 `#sec-N` 으로 건다 — `<a href="../adr/hotdeal.html#sec-4">핫딜 ADR 4절</a>`. 절 번호가 바뀌면 그 절을 가리키는 인용을 같은 커밋에서 전수 수정한다
 - **영어 파일명을 본문에 노출하지 않는다.** 링크 텍스트는 한국어 문서 이름으로
-- **다른 문서의 수치를 복제하지 않는다.** 모으고 싶으면 링크만 건다 — 원본이 바뀌면 사본은 아무도 안 고친다
+- **다른 문서의 수치를 복제하지 않는다.** 모으고 싶으면 링크만 건다 — 원본이 바뀌면 사본은 아무도 안 고친다. **예외는 루트 README 하나다.** 진입 요약이라 수치를 옮길 수 있고, 옮긴 수치에는 반드시 RFC 절 링크를 단다
+- 트레이드오프 표의 머리는 「그 대신 잃는 것 | 대응」
+- 렌더 확인은 FHD(1920×1080)로 매 문서. 모바일 폭은 깨지지 않는지만 본다
 
 ## 커밋 체크포인트
 

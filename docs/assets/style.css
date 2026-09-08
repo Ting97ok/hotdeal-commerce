@@ -1,0 +1,292 @@
+/* ─────────────────────────────────────────────────────────────
+   읽기 위한 값들 — 각 값의 근거 한 줄씩
+   · 활자: CSS px 의 물리 크기가 해상도마다 달라(FHD 24″ 17px ≈ 4.7mm,
+     QHD 27″ 17px ≈ 4.0mm) 고정 px 는 QHD·4K 에서 작아 보인다. 루트를
+     뷰포트 연동 clamp(17px, 8px + 0.47vw, 26px)으로 — 1920→17 · 2560→20
+     (FHD 와 물리 크기 동일) · 3840→26 상한
+   · 판형·본문 폭은 전부 rem — 루트가 커지면 같은 비율로 따라 커진다
+   · 글줄 폭을 인위적으로 좁히지 않는다. 줄당 글자 수를 맞춰도 한 항목에
+     사실이 넷 들어 있으면 읽기 어렵다 — 가독성은 폭이 아니라 구조로 푼다
+     (한 항목 = 한 사실, 부연은 중첩 리스트 한 겹). 저장소 문서 작성 기준과 같다
+   · 판형 90rem: FHD 여백 쪽당 ~195px, QHD ~380px — 남는 바깥 여백은
+     캔버스 톤(--canvas)으로 분리해 빈 공간이 아니라 틀로 읽히게 한다
+   · 행간 1.7 — WCAG 1.4.8 최소 1.5, 한글 권장 1.75(네모틀 글자라 라틴보다
+     빽빽해 보임) 사이. 표는 1.55(셀 안 짧은 텍스트는 행간 이득이 작다)
+   · 본문 대비 — 라이트 #1f2328/#fff ≈ 15:1(AAA), 다크는 순흑·순백을 피한다:
+     난시(인구 ~47%)에서 순흑 배경 흰 글자가 번져 보인다(halation)
+   · 표 — 숫자는 우측 정렬(자릿수 비교는 일의 자리부터) + 고정폭 숫자.
+     격자·줄무늬 대신 가는 가로선만(이 문서의 표는 전부 10행 이하라 소음이 된다)
+   · word-break: keep-all — 한글 어절 중간에서 줄을 자르지 않는다
+   ───────────────────────────────────────────────────────────── */
+:root {
+  --canvas: #eef1f4;           /* 판형 밖 배경 — 본문 면과 톤을 갈라 여백이 틀로 읽히게 */
+  --bg: #ffffff;
+  --bg-subtle: #f6f8fa;        /* 코드·표 머리행 — 본문과 1단계 차이만 */
+  --text: #1f2328;             /* 순흑 대신 근흑 — 대비 15:1로 AAA 충족 */
+  --muted: #59636e;            /* 보조 텍스트 — 5.8:1로 AA 충족 */
+  --link: #0b6bcb;             /* 5.1:1 AA — 밑줄과 병행해 색만으로 구분하지 않는다 */
+  --border: #d9dee3;
+  --border-strong: #b8c0c8;    /* 표 머리행 아래 — 본문 행 구분선보다 한 단계 진하게 */
+  --accent: #0b6bcb;
+  --quote-bg: #f3f7fb;
+  --wide: 66rem;               /* 본문·표·차트가 함께 쓰는 컬럼 폭 — rem 이라 해상도별 활자와 함께 스케일 */
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --canvas: #0d1015;         /* 판형 밖 배경 — 본문 면보다 한 단계 어둡게 */
+    --bg: #14181f;             /* 순흑(#000) 대신 어두운 회색 — halation 완화 */
+    --bg-subtle: #1c222b;
+    --text: #d7dee6;           /* 순백 대신 — 12.6:1로 AAA는 유지 */
+    --muted: #9aa4b0;
+    --link: #58a6ff;
+    --border: #2f3742;
+    --border-strong: #46515e;
+    --accent: #58a6ff;
+    --quote-bg: #1a2029;
+  }
+}
+
+* { box-sizing: border-box; }
+html {
+  scroll-behavior: smooth;
+  /* 해상도 연동 루트 — 1920→17px · 2560→20px(FHD 와 물리 크기 동일) · 3840→26px 상한.
+     아래 크기가 전부 rem/em 이라 이 한 줄이 FHD·QHD·4K 반응형의 전부다 */
+  font-size: clamp(17px, 8px + 0.47vw, 26px);
+}
+body {
+  margin: 0;
+  background: var(--canvas);
+  color: var(--text);
+  font-family: "Pretendard Variable", Pretendard, -apple-system, BlinkMacSystemFont,
+    system-ui, "Apple SD Gothic Neo", "Segoe UI", "Malgun Gothic", "Noto Sans KR",
+    "Helvetica Neue", Arial, sans-serif;   /* 웹폰트 없이 OS별 한글 본문체 */
+  font-size: 1rem;             /* 루트 clamp 를 그대로 — 종속 크기는 전부 em/rem 이라 한 곳에서 스케일된다 */
+  line-height: 1.7;
+  word-break: keep-all;        /* 어절 단위 줄바꿈 */
+  overflow-wrap: break-word;   /* 긴 URL·식별자만 예외적으로 자른다 */
+  text-rendering: optimizeLegibility;
+}
+@media (max-width: 640px) { html { font-size: 16px; } }
+
+a { color: var(--link); text-decoration: underline; text-underline-offset: 3px; text-decoration-thickness: 1px; }
+a:hover { text-decoration-thickness: 2px; }
+strong { font-weight: 700; }
+
+/* 외부 링크는 ↗ 자동 표기 — 페이지를 떠나는 클릭을 미리 알 수 있게. 헤더 브랜드만 예외 */
+a[href^="http"]::after { content: "↗"; font-size: 0.72em; margin-left: 2px; display: inline-block; }
+.brand[href^="http"]::after { content: none; }
+
+/* 키보드 사용자용 스킵 링크 — 포커스될 때만 나타난다 */
+.skip { position: absolute; left: -9999px; z-index: 100; background: var(--bg); color: var(--link); padding: 10px 16px; border: 1px solid var(--border); border-radius: 8px; }
+.skip:focus { left: 12px; top: 12px; }
+
+/* 헤딩 호버 앵커(¶) — 절 단위 공유용. 스크립트가 단다 */
+.h-anchor { margin-left: 10px; font-weight: 400; font-size: 0.8em; text-decoration: none; opacity: 0; }
+h2:hover .h-anchor, h3:hover .h-anchor, .h-anchor:focus { opacity: 1; }
+
+code, pre {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+}
+code {
+  background: var(--bg-subtle);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  padding: 1px 6px;
+  font-size: 0.86em;
+}
+pre {
+  background: var(--bg-subtle);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 0.85rem 1.06rem;
+  overflow-x: auto;
+  max-width: var(--wide);
+  font-size: 0.82em;
+  line-height: 1.6;
+}
+pre code { background: none; border: none; padding: 0; font-size: 1em; }
+
+/* ── 상단 고정 헤더: GitHub Pages 는 저장소 밖 — 돌아갈 길을 항상 보이게 ── */
+.top {
+  position: sticky; top: 0; z-index: 10;
+  background: color-mix(in srgb, var(--bg) 88%, transparent);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border-bottom: 1px solid var(--border);
+}
+.top-in {
+  max-width: 90rem; margin: 0 auto;
+  padding: 0 1.9rem;
+  height: 3rem;
+  display: flex; align-items: center; justify-content: space-between; gap: 1rem;
+}
+.brand { font-weight: 700; text-decoration: none; color: var(--text); font-size: 0.88rem; white-space: nowrap; }
+.top-nav { display: flex; align-items: center; gap: 1.2rem; font-size: 0.82rem; white-space: nowrap; }
+.top-nav a { text-decoration: none; color: var(--muted); }
+.top-nav a:hover { color: var(--link); text-decoration: underline; }
+.top-nav .gh {
+  color: var(--text); font-weight: 600;
+  border: 1px solid var(--border); border-radius: 7px; padding: 0.3rem 0.7rem;
+}
+.top-nav .gh:hover { border-color: var(--link); color: var(--link); text-decoration: none; }
+
+/* ── 레이아웃: 좌 목차(스캔 보조) + 본문. 와이드 화면의 남는 폭을 여기서 쓴다.
+   상한 90rem — 루트와 함께 스케일: FHD 1530px(여백 ~195px/쪽) · QHD 1800px(~380px/쪽).
+   판형 면(--bg)과 캔버스(--canvas)의 톤 차가 남는 여백을 틀로 읽히게 한다 ── */
+.wrap {
+  max-width: 90rem; margin: 0 auto;
+  padding: 0 1.9rem 3.75rem;
+  display: grid;
+  grid-template-columns: 15.3rem minmax(0, 1fr);
+  gap: 3.75rem;
+  background: var(--bg);
+}
+.side { position: sticky; top: 4.25rem; align-self: start; max-height: calc(100vh - 5.5rem); overflow: auto; padding-top: 2.35rem; }
+.toc summary { display: none; }        /* 데스크톱: 항상 펼침 — 접이 UI 불필요 */
+.toc ol { margin: 0; padding-left: 1.3rem; font-size: 0.82rem; line-height: 1.5; color: var(--muted); }
+.toc li { margin: 0.53rem 0; }
+.toc a { color: var(--muted); text-decoration: none; }
+.toc a:hover { color: var(--link); text-decoration: underline; }
+.toc-title { font-size: 0.7rem; font-weight: 700; letter-spacing: 0.06em; color: var(--muted); margin: 0 0 0.6rem; }
+/* 현재 위치(scroll-spy) — 활성 절만 파란색, 그 절의 h3 하위 목록만 펼친다.
+   하위 목록·활성 표시는 스크립트가 만든다 — 스크립트가 죽으면 h2 목차(무해)로 남는다 */
+.toc a.active { color: var(--link); font-weight: 600; }
+.toc li > ol { display: none; margin: 0.3rem 0 0.12rem; padding-left: 0.82rem; font-size: 0.76rem; }
+.toc li.active > ol { display: block; }
+.toc li > ol li { list-style: none; margin: 0.24rem 0; }
+.toc li > ol a { display: block; max-width: 12.4rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+.doc { max-width: var(--wide); padding-top: 2.35rem; }
+
+.eyebrow { font-size: 0.76rem; font-weight: 700; letter-spacing: 0.08em; color: var(--muted); margin: 0 0 0.5em; }
+h1 { font-size: 1.6em; line-height: 1.35; margin: 0 0 14px; letter-spacing: -0.01em; }
+.lede { margin: 0 0 8px; }             /* 문서 핵심 문장 — 보조색으로 눌러 두지 않는다 */
+
+/* 30초 독자용 결론 상자 — ADR 은 결론 먼저(저장소 문서 규약) */
+.conclusion {
+  border: 1px solid var(--border); border-radius: 12px;
+  background: var(--bg-subtle);
+  padding: 0.9rem 1.3rem; margin: 1.3rem 0 0;
+  max-width: var(--wide);
+}
+.conclusion > p:first-child { margin-top: 0; }
+.conclusion > ul { margin-bottom: 0.2em; }
+
+/* 절 사이 > 절 내부 — 여백의 위계가 章 경계를 만든다 (훑는 독자의 단위는 절).
+   장 구분선은 광폭까지 — 절 경계가 컬럼 전체를 한 면으로 묶는다 */
+h2 {
+  font-size: 1.28em; line-height: 1.4; letter-spacing: -0.01em;
+  margin: 3.6em 0 0.9em; padding-top: 1.9em;
+  border-top: 1px solid var(--border);
+  max-width: var(--wide);
+}
+/* h3 는 본문 볼드와 2.5px 이상 격차 — 층위가 눌리지 않게 */
+h3 { font-size: 1.13em; line-height: 1.45; margin: 2.3em 0 0.65em; }
+h2[id], h3[id] { scroll-margin-top: 4.5rem; }  /* 고정 헤더 아래로 앵커가 숨지 않게 */
+
+p { margin: 0.8em 0; }
+ul, ol { margin: 0.8em 0; padding-left: 1.3em; }
+li { margin: 0.4em 0; }
+li > ul, li > ol { margin: 0.4em 0; }
+li::marker { color: var(--muted); }
+
+blockquote {
+  margin: 1.2em 0;
+  padding: 0.7em 1em;
+  border-left: 3px solid var(--accent);
+  border-radius: 0 8px 8px 0;
+  background: var(--quote-bg);
+}
+blockquote p { margin: 6px 0; }
+
+hr { border: none; border-top: 1px solid var(--border); margin: 40px 0; }
+
+/* ── 표: 가는 가로선만, 머리행 구분은 배경+진한 선. 숫자열은 .n(우측 정렬) ── */
+.tw { overflow-x: auto; margin: 1.2rem 0; max-width: var(--wide); }
+table {
+  border-collapse: collapse;
+  font-size: 0.92em;
+  line-height: 1.55;
+  font-variant-numeric: tabular-nums;  /* 고정폭 숫자 — 열 안에서 자릿수가 맞물린다 */
+}
+th, td { padding: 0.6em 0.9em; text-align: left; vertical-align: top; }
+thead th { background: var(--bg-subtle); font-weight: 600; border-bottom: 1.5px solid var(--border-strong); }
+tbody td { border-bottom: 1px solid var(--border); }
+.n { text-align: right; }              /* 숫자 비교는 일의 자리부터 — 우측 정렬 */
+.c { text-align: center; }
+
+/* ── 차트: 원본 SVG 를 그대로 인라인. 다크에서는 명도만 뒤집고 색상은 유지 ── */
+figure {
+  margin: 1.5rem 0; padding: 1.06rem 0.94rem 0.7rem;
+  border: 1px solid var(--border); border-radius: 12px;
+  max-width: var(--wide);
+}
+figure svg { display: block; width: 100%; height: auto; border-radius: 6px; }
+figcaption { font-size: 0.86em; color: var(--muted); margin-top: 0.6em; line-height: 1.55; }
+@media (prefers-color-scheme: dark) {
+  /* SVG 내부가 흰 배경 전제 — invert 로 명도 반전, hue-rotate 180°로 색상 복원.
+     0.92: 순백→#141414 로 페이지 배경과 잇고, 반전 후에도 순백 글자를 피한다.
+     figure 배경도 #141414 로 맞춰 반전된 SVG 와 이중 톤이 생기지 않게 */
+  figure { background: #141414; }
+  figure svg { filter: invert(0.92) hue-rotate(180deg); }
+}
+
+/* ── 접이식: 긴 목록은 제목만 먼저 — 훑는 독자는 제목 층위만 읽는다(layer-cake) ── */
+.acc { border: 1px solid var(--border); border-radius: 10px; margin: 0.7rem 0; max-width: var(--wide); }
+.acc summary {
+  cursor: pointer; padding: 0.76rem 0.94rem 0.76rem 2.35rem;
+  font-weight: 650; line-height: 1.5;
+  list-style: none; position: relative;
+  border-radius: 10px;
+}
+.acc summary::-webkit-details-marker { display: none; }
+.acc summary::before {
+  content: ""; position: absolute; left: 1rem; top: 50%; margin-top: -6px;
+  width: 8px; height: 8px;
+  border-right: 2px solid var(--muted); border-bottom: 2px solid var(--muted);
+  transform: rotate(-45deg); transform-origin: center; transition: transform 0.15s;
+}
+.acc[open] summary::before { transform: rotate(45deg); }
+.acc summary:hover { background: var(--bg-subtle); }
+.acc[open] summary { border-bottom: 1px solid var(--border); border-radius: 10px 10px 0 0; }
+.acc-body { padding: 0.24rem 1.06rem 0.82rem 2.35rem; }
+.acc-body > p:first-child { margin-top: 10px; }
+.hint { font-size: 0.86em; color: var(--muted); }
+
+footer.doc-foot {
+  margin-top: 4.25rem; padding-top: 1.2rem;
+  border-top: 1px solid var(--border);
+  font-size: 0.88em; color: var(--muted);
+  max-width: var(--wide);
+}
+
+/* ── 좁은 화면: 목차는 접이식으로 본문 위에, 표는 자체 가로 스크롤 ── */
+@media (max-width: 979px) {
+  /* minmax(0,·): 1fr 의 자동 최소 크기가 표의 최소 내용 폭까지 벌어지는 것을 차단 */
+  .wrap { grid-template-columns: minmax(0, 1fr); gap: 0; padding: 0 18px 48px; }
+  .side { position: static; max-height: none; padding-top: 24px; overflow: visible; }
+  .toc-title { display: none; }
+  .toc { border: 1px solid var(--border); border-radius: 10px; }
+  .toc summary { display: block; cursor: pointer; padding: 11px 16px; font-weight: 650; font-size: 15px; }
+  .toc summary::after { content: "▸"; float: right; color: var(--muted); }
+  .toc[open] summary::after { content: "▾"; }
+  .toc ol { padding: 0 22px 12px 38px; }
+  .doc { padding-top: 28px; }
+  .top-in { padding: 0 18px; }
+  .top-nav { gap: 12px; }
+}
+@media (max-width: 480px) {
+  /* 375px 에서 브랜드+링크 2개가 넘친다 — 문서 링크는 머리말·푸터에도 있어 헤더에서만 숨긴다 */
+  .top-nav .doc-link { display: none; }
+}
+
+/* ── 인쇄: 화면 전용 요소 제거, 접힌 항목은 스크립트가 펼친다 ── */
+@media print {
+  .top, .side { display: none; }
+  .wrap { display: block; max-width: none; padding: 0; }
+  .doc { max-width: none; }
+  body { font-size: 11pt; }
+  figure, .tw, blockquote, .acc { break-inside: avoid; }
+  figure svg { filter: none; }
+  a { color: inherit; }
+}
