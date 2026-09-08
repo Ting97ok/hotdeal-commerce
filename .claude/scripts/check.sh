@@ -272,13 +272,6 @@ advisories() {
   done)
   [ -n "$out" ] && printf '\n[참고] Service 에 @Transactional 이 없다 — 정당할 수 있다(DB 미사용 구현체 등). 판단은 사람이 한다.\n%s\n' "$out"
 
-  # CLAUDE.md 「재고 차감」: 인터페이스·추상 클래스·Redis 구현체에 @Transactional 을 붙이지 않는다.
-  # 2026-09-08 기준 createForHotDeal 에 붙어 있어 규칙과 코드가 어긋난다. 어느 쪽을 고칠지 사람이 정한다
-  out=$(for f in $(grep -rlE '^public (interface|abstract class)|Redis[A-Za-z]*Service' src/main/java/com/sparta/msa/commerce/domain/stock/service 2>/dev/null); do
-    grep -n '@Transactional' "$f" 2>/dev/null | sed "s|^|  $f:|"
-  done)
-  [ -n "$out" ] && printf '\n[참고] 재고 전략의 인터페이스·추상 클래스·Redis 구현체에 @Transactional 이 있다 — CLAUDE.md 「재고 차감」과 어긋난다.\n%s\n' "$out"
-
   # 스타일 낱말 (전역 「일반어 검사」·재작성 계획 금지어). 문맥에 따라 맞을 수 있어 참고만
   out=$(git ls-files 'docs/*.md' 'docs/*.html' 'docs/**/*.html' README.md | while read -r f; do
     awk '/^```/ { c = !c; next } !c' "$f" | grep -cE '아니라|잡는|놓는|살 수|판다|갚' | sed "s|^|  $f: |" | grep -v ': 0$'

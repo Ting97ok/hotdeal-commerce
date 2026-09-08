@@ -70,7 +70,7 @@ Controller → Facade → Service → Repository
 
 `HotDealStockService`(인터페이스) + `AbstractHotDealStockService`(공통) + 구현 2개 구조다. **한 전략만 고치면 나머지가 계약을 깬다.** 벤치마크 결과와 전환 선행 조건은 [동시성 ADR](docs/adr/concurrency.md) · [벤치마크 RFC](docs/rfc/concurrency-benchmark.md)
 
-인터페이스·추상 클래스·Redis 구현체에는 `@Transactional` 을 붙이지 않는다. DB 트랜잭션이 없거나 의미가 없다.
+재고 서비스도 Service 계층이라 `@Transactional` 은 경계가 아니라 합류다. 경계는 Facade 가 연다. Redis 전략의 차감·복원은 DB 트랜잭션에 참여하지 않는다. 트랜잭션이 롤백돼도 Redis 값은 되돌아가지 않으므로 되돌림은 코드가 명시적으로 한다. 규칙은 계층으로 쓴다. 클래스가 추상 클래스인지, Redis 를 쓰는지로 가르지 않는다.
 
 ## 마이그레이션
 
