@@ -49,7 +49,7 @@ public class Payment extends BaseEntity {
   @Column(name = "approved_at")
   LocalDateTime approvedAt;
 
-  @Comment("주문 ID (FK 값, 객체 탐색 불필요)")
+  @Comment("주문 (논리 참조, 1:N)")
   @Column(name = "order_id", nullable = false)
   Long orderId;
 
