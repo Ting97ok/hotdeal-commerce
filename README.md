@@ -88,7 +88,7 @@ nginx 로드밸런서 뒤에 앱을 1대와 3대로 두고, 인원을 100에서 
 |---|---|---|
 | 언어 | Java 21 | 최신 LTS |
 | 프레임워크 | Spring Boot 3.5.13 | 안정·레퍼런스 우선 (4.0 호환 리스크 회피) |
-| 웹 서버 | Undertow | 경량 |
+| 웹 서버 | Tomcat | Spring Boot 기본값 |
 | 영속성 | Spring Data JPA + QueryDSL 5.0 | 동적 쿼리·프로젝션 |
 | DB | MySQL 8.4 LTS | 8.0 EOL(2026.4) → 8.4 LTS |
 | 마이그레이션 | Flyway | 스키마 버전 관리 |

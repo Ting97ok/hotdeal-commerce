@@ -8,7 +8,7 @@ Spring Boot 3.5.13 + Java 21 모놀리식 커머스(핫딜). 고트래픽 동시
 
 ## 스택
 
-MySQL 8.4 + Flyway, Redis(Session/Cache), JPA + QueryDSL, MapStruct, Undertow, SpringDoc, JaCoCo. 인증은 무상태 JWT(RTR) — [build.gradle](build.gradle) · [application.yaml](src/main/resources/application.yaml)
+MySQL 8.4 + Flyway, Redis(Session/Cache), JPA + QueryDSL, MapStruct, Tomcat, SpringDoc, JaCoCo. 인증은 무상태 JWT(RTR) — [build.gradle](build.gradle) · [application.yaml](src/main/resources/application.yaml)
 
 PostgreSQL 이 아니다. 마이그레이션 SQL 은 MySQL 방언으로 쓴다.
 
