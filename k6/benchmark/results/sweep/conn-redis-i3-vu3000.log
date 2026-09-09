@@ -1,4 +1,5 @@
-t=1785985065 hikari_active_sum=0 db_threads_connected=31 db_threads_running=2 innodb_row_lock_current_waits=0
-t=1785985067 hikari_active_sum=0 db_threads_connected=31 db_threads_running=2 innodb_row_lock_current_waits=0
-t=1785985071 hikari_active_sum=0 db_threads_connected=31 db_threads_running=4 innodb_row_lock_current_waits=0
-t=1785985078 hikari_active_sum=10 db_threads_connected=31 db_threads_running=2 innodb_row_lock_current_waits=0
+t=1788874901 hikari_active_sum=0 db_threads_connected=31 db_threads_running=2 innodb_row_lock_current_waits=0
+t=1788874902 hikari_active_sum=0 db_threads_connected=31 db_threads_running=2 innodb_row_lock_current_waits=0
+t=1788874903 hikari_active_sum=0 db_threads_connected=31 db_threads_running=2 innodb_row_lock_current_waits=0
+t=1788874910 hikari_active_sum=28 db_threads_connected=31 db_threads_running=6 innodb_row_lock_current_waits=0
+t=1788874911 hikari_active_sum=9 db_threads_connected=31 db_threads_running=2 innodb_row_lock_current_waits=0
