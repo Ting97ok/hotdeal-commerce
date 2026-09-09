@@ -1,11 +1,11 @@
 <svg viewBox="0 0 860 500" xmlns="http://www.w3.org/2000/svg" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif">
   <rect width="860" height="500" fill="#ffffff"/>
   <text x="40" y="40" font-size="21" font-weight="700" fill="#0f172a">인원을 늘리면 어디서 목표선을 넘나</text>
-  <text x="40" y="63" font-size="13.5" fill="#64748b">선 = 주문 API 지연 p95 의 중앙값(6회) · 재고는 인원의 두 배로 두어 전원이 살 수 있는 조건 · 양축 로그</text>
+  <text x="40" y="63" font-size="13.5" fill="#64748b">선 = 주문 API 지연 p95 의 중앙값(6회, Tomcat) · 재고는 인원의 두 배로 두어 전원이 구매할 수 있는 조건 · 양축 로그</text>
 
   <!-- 요청 유실 구간 음영 -->
-  <rect x="665" y="90" width="75" height="290" fill="#fef2f2"/>
-  <text x="658" y="100" font-size="11.5" font-weight="700" fill="#b91c1c" text-anchor="end">인원 2,000↑ 요청 유실 시작 →</text>
+  <rect x="702" y="90" width="38" height="290" fill="#fef2f2"/>
+  <text x="695" y="100" font-size="11.5" font-weight="700" fill="#b91c1c" text-anchor="end">인원 3,000 요청 유실 시작 →</text>
 
   <!-- y 눈금 -->
   <line x1="110" y1="342" x2="740" y2="342" stroke="#f1f5f9" stroke-width="1"/>
@@ -34,26 +34,22 @@
   <text x="425" y="422" font-size="12.5" fill="#475569" text-anchor="middle">동시 인원</text>
 
   <!-- 조건부 앱 3 -->
-  <polyline points="110,330 280,294 408,249 536,198 665,147 740,109" fill="none" stroke="#dc2626" stroke-width="3"/>
-  <circle cx="110" cy="330" r="4.5" fill="#dc2626"/><circle cx="280" cy="294" r="4.5" fill="#dc2626"/>
-  <circle cx="408" cy="249" r="4.5" fill="#dc2626"/><circle cx="536" cy="198" r="4.5" fill="#dc2626"/>
-  <circle cx="665" cy="147" r="4.5" fill="#dc2626"/><circle cx="740" cy="109" r="4.5" fill="#dc2626"/>
-  <text x="736" y="100" font-size="13" font-weight="700" fill="#dc2626" text-anchor="end">7.03초</text>
+  <polyline points="110,338 280,313 408,274 536,223 665,167 740,135" fill="none" stroke="#dc2626" stroke-width="3"/>
+  <circle cx="110" cy="338" r="4.5" fill="#dc2626"/><circle cx="280" cy="313" r="4.5" fill="#dc2626"/><circle cx="408" cy="274" r="4.5" fill="#dc2626"/><circle cx="536" cy="223" r="4.5" fill="#dc2626"/><circle cx="665" cy="167" r="4.5" fill="#dc2626"/><circle cx="740" cy="135" r="4.5" fill="#dc2626"/>
+  <text x="736" y="108" font-size="13" font-weight="700" fill="#dc2626" text-anchor="end">4.39초</text>
 
   <!-- 조건부 앱 1 -->
-  <polyline points="110,362 280,324 408,316 536,263 665,216 740,175" fill="none" stroke="#f87171" stroke-width="2.5" stroke-dasharray="7 4"/>
-  <circle cx="536" cy="263" r="4" fill="#f87171"/><circle cx="740" cy="175" r="4" fill="#f87171"/>
+  <polyline points="110,374 280,336 408,301 536,266 665,201 740,175" fill="none" stroke="#f87171" stroke-width="2.5" stroke-dasharray="7 4"/>
+  <circle cx="536" cy="266" r="4" fill="#f87171"/><circle cx="740" cy="175" r="4" fill="#f87171"/>
 
   <!-- Redis 앱 3 -->
-  <polyline points="110,328 280,294 408,255 536,228 665,184 740,164" fill="none" stroke="#1d4ed8" stroke-width="3"/>
-  <circle cx="110" cy="328" r="4.5" fill="#1d4ed8"/><circle cx="280" cy="294" r="4.5" fill="#1d4ed8"/>
-  <circle cx="408" cy="255" r="4.5" fill="#1d4ed8"/><circle cx="536" cy="228" r="4.5" fill="#1d4ed8"/>
-  <circle cx="665" cy="184" r="4.5" fill="#1d4ed8"/><circle cx="740" cy="164" r="4.5" fill="#1d4ed8"/>
-  <text x="734" y="152" font-size="13" font-weight="700" fill="#1d4ed8" text-anchor="end">2.60초</text>
+  <polyline points="110,311 280,298 408,265 536,212 665,177 740,131" fill="none" stroke="#1d4ed8" stroke-width="3"/>
+  <circle cx="110" cy="311" r="4.5" fill="#1d4ed8"/><circle cx="280" cy="298" r="4.5" fill="#1d4ed8"/><circle cx="408" cy="265" r="4.5" fill="#1d4ed8"/><circle cx="536" cy="212" r="4.5" fill="#1d4ed8"/><circle cx="665" cy="177" r="4.5" fill="#1d4ed8"/><circle cx="740" cy="131" r="4.5" fill="#1d4ed8"/>
+  <text x="734" y="122" font-size="13" font-weight="700" fill="#1d4ed8" text-anchor="end">4.71초</text>
 
   <!-- Redis 앱 1 -->
-  <polyline points="110,345 280,323 408,284 536,255 665,213 740,176" fill="none" stroke="#93c5fd" stroke-width="2.5" stroke-dasharray="7 4"/>
-  <circle cx="536" cy="255" r="4" fill="#93c5fd"/><circle cx="740" cy="176" r="4" fill="#93c5fd"/>
+  <polyline points="110,378 280,335 408,310 536,272 665,211 740,166" fill="none" stroke="#93c5fd" stroke-width="2.5" stroke-dasharray="7 4"/>
+  <circle cx="536" cy="272" r="4" fill="#93c5fd"/><circle cx="740" cy="166" r="4" fill="#93c5fd"/>
 
   <!-- 범례 -->
   <rect x="180" y="440" width="18" height="3" fill="#dc2626"/>
@@ -65,5 +61,5 @@
   <rect x="536" y="440" width="18" height="3" fill="#93c5fd"/>
   <text x="562" y="446" font-size="12.5" fill="#334155">Redis · 앱 1</text>
 
-  <text x="40" y="478" font-size="12.5" fill="#475569">앱을 늘리면 전 구간에서 느려진다. 인원 2,000 부터는 연결이 성립하지 않는 요청이 나오므로 그 오른쪽 값은 완주한 요청만의 것이라 낙관적이다.</text>
+  <text x="40" y="478" font-size="12.5" fill="#475569">앱을 늘리면 전 구간에서 느려진다. 인원 3,000 에서는 연결이 성립하지 않는 요청이 나오므로 그 값은 완주한 요청만의 것이라 낙관적이다.</text>
 </svg>

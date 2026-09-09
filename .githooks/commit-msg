@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+# git commit-msg 훅 — 사용자가 직접 치는 커밋도 같은 규칙을 탄다 (~/.claude/CLAUDE.md 「커밋 체크포인트」).
+# 활성화: git config core.hooksPath .githooks (클론마다 한 번)
+msg="$1"
+first=$(grep -vE '^\s*#' "$msg" | sed -n '1p')
+if ! printf '%s' "$first" | grep -qE '^\[(Feat|Fix|HotFix|Docs|Test|Refactor)\]'; then
+  echo "[commit-msg] 제목은 [Feat] [Fix] [HotFix] [Docs] [Test] [Refactor] 중 하나로 시작한다: $first" >&2
+  exit 1
+fi
+if grep -qiE 'Co-Authored-By:\s*Claude|Generated with \[?Claude Code|🤖' "$msg"; then
+  echo "[commit-msg] 커밋 메시지에 도구 서명을 넣지 않는다" >&2
+  exit 1
+fi
+exit 0

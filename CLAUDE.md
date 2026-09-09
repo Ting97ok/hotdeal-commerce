@@ -8,7 +8,7 @@ Spring Boot 3.5.13 + Java 21 모놀리식 커머스(핫딜). 고트래픽 동시
 
 ## 스택
 
-MySQL 8.4 + Flyway, Redis(Session/Cache), JPA + QueryDSL, MapStruct, Undertow, SpringDoc, JaCoCo. 인증은 무상태 JWT(RTR) — [build.gradle](build.gradle) · [application.yaml](src/main/resources/application.yaml)
+MySQL 8.4 + Flyway, Redis(Session/Cache), JPA + QueryDSL, MapStruct, Tomcat, SpringDoc, JaCoCo. 인증은 무상태 JWT(RTR) — [build.gradle](build.gradle) · [application.yaml](src/main/resources/application.yaml)
 
 PostgreSQL 이 아니다. 마이그레이션 SQL 은 MySQL 방언으로 쓴다.
 
@@ -70,7 +70,7 @@ Controller → Facade → Service → Repository
 
 `HotDealStockService`(인터페이스) + `AbstractHotDealStockService`(공통) + 구현 2개 구조다. **한 전략만 고치면 나머지가 계약을 깬다.** 벤치마크 결과와 전환 선행 조건은 [동시성 ADR](docs/adr/concurrency.md) · [벤치마크 RFC](docs/rfc/concurrency-benchmark.md)
 
-인터페이스·추상 클래스·Redis 구현체에는 `@Transactional` 을 붙이지 않는다. DB 트랜잭션이 없거나 의미가 없다.
+재고 서비스도 Service 계층이라 `@Transactional` 은 경계가 아니라 합류다. 경계는 Facade 가 연다. Redis 전략의 차감·복원은 DB 트랜잭션에 참여하지 않는다. 트랜잭션이 롤백돼도 Redis 값은 되돌아가지 않으므로 되돌림은 코드가 명시적으로 한다. 규칙은 계층으로 쓴다. 클래스가 추상 클래스인지, Redis 를 쓰는지로 가르지 않는다.
 
 ## 마이그레이션
 
@@ -108,7 +108,7 @@ Controller → Facade → Service → Repository
 
 `code-reviewer` 서브에이전트는 **사용자가 리뷰를 요청했을 때만** 부른다. 자발적으로 부르지 않는다. 존재 이유는 컨텍스트 절약이 아니라 **구현 과정을 보지 않은 독립된 눈**이다.
 
-기계적 위반(계층·래핑·탭·마이그레이션 수정)은 `.claude/scripts/check.sh` 가 검출한다.
+기계적 위반은 `.claude/scripts/check.sh` 가 검출한다. 목록은 스크립트 머리에 있고, 편집 훅(`--file`)·`--all`·git `pre-push` 에서 돈다. 판단이 필요한 것은 `--all` 의 [참고] 목록으로만 낸다.
 
 ## 도구
 
@@ -116,13 +116,18 @@ Java 소스의 심볼 단위 분석·편집은 Serena MCP 우선 — `find_symbo
 
 ## 문서
 
-결정은 `docs/adr/`(주제별 ADR — 색인은 [adr/README.md](docs/adr/README.md)), 그 근거와 실측은 `docs/rfc/`, 설계 문서는 `docs/design/`. 새 도메인·API 작업은 설계 문서를 먼저 쓴다(`api-design` 스킬).
+결정은 `docs/adr/`(주제별 ADR), 그 근거와 실측은 `docs/rfc/`, 설계 문서는 `docs/design/`. 새 도메인·API 작업은 설계 문서를 먼저 쓴다(`api-design` 스킬).
+
+**문서는 HTML 이고 GitHub Pages 로 읽는다.** 주소는 `https://ting97ok.github.io/hotdeal-commerce/`(소스 `main` · `/docs`). 색인은 `docs/index.html`. 마크다운은 루트 `README.md` 하나뿐이다. 공통 CSS·스크립트는 `docs/assets/` 에 있고 페이지마다 복제하지 않는다. 산문 규칙은 전역 `~/.claude/CLAUDE.md` 「문서 작성」이 정본이다.
 
 **작성 규약** — 이 절이 정본이다. 다른 곳에 사본을 두지 않는다.
 
-- 타 문서의 특정 절을 가리킬 때는 **절 번호를 텍스트에 적고 링크는 파일 레벨**로 건다 — `[핫딜 ADR 4절](docs/adr/hotdeal.md)`. `#앵커` 를 쓰지 않는다. IntelliJ 가 자동 슬러그 앵커를 지원하지 않아 파일 레벨만 IntelliJ·GitHub 양쪽에서 작동한다
+- 페이지 사이는 상대 경로(`../adr/concurrency.html`), 코드·테스트·로그는 GitHub 절대 URL, 루트 README 는 Pages 절대 URL
+- 타 문서의 특정 절을 가리킬 때는 **절 번호를 텍스트에 적고** 앵커는 `#sec-N` 으로 건다 — `<a href="../adr/hotdeal.html#sec-4">핫딜 ADR 4절</a>`. 절 번호가 바뀌면 그 절을 가리키는 인용을 같은 커밋에서 전수 수정한다
 - **영어 파일명을 본문에 노출하지 않는다.** 링크 텍스트는 한국어 문서 이름으로
-- **다른 문서의 수치를 복제하지 않는다.** 모으고 싶으면 링크만 건다 — 원본이 바뀌면 사본은 아무도 안 고친다
+- **다른 문서의 수치를 복제하지 않는다.** 모으고 싶으면 링크만 건다 — 원본이 바뀌면 사본은 아무도 안 고친다. **예외는 루트 README 하나다.** 진입 요약이라 수치를 옮길 수 있고, 옮긴 수치에는 반드시 RFC 절 링크를 단다
+- 트레이드오프 표의 머리는 「그 대신 잃는 것 | 대응」
+- 렌더 확인은 FHD(1920×1080)로 매 문서. 모바일 폭은 깨지지 않는지만 본다
 
 ## 커밋 체크포인트
 
@@ -131,3 +136,5 @@ Java 소스의 심볼 단위 분석·편집은 Serena MCP 우선 — `find_symbo
 - **적용**: 도메인 개발·수정, 설계 문서, 마이그레이션 SQL
 - **메타 설정**(`.claude/**`, `CLAUDE.md`): 작은 변경은 끝낸 뒤 1회 커밋. **여러 파일을 지우거나 구조를 바꾸는 작업이면 되돌릴 수 있도록 단계별로 쪼갠다**
 - `.claude/` 도 git 추적 대상이라 커밋한다
+- git 훅(`commit-msg` 접두사·서명, `pre-push` 컴파일·check.sh)은 `.githooks/` 에 있다. 클론마다 한 번 `git config core.hooksPath .githooks`
+- PR 본문은 `.github/PULL_REQUEST_TEMPLATE.md` 의 세 항목을 채운다. 드래프트를 풀거나 합칠 때 전역 훅이 확인한다

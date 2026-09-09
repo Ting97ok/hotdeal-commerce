@@ -78,7 +78,9 @@ trap cleanup EXIT
 gen_nginx_conf() {   # $1 = 인스턴스 수 -> nginx.conf (upstream 명시 = 라운드로빈 균등)
   local n=$1 servers="" i
   for i in $(seq 1 "$n"); do servers="${servers}    server app${i}:8080;\n"; done
-  printf 'worker_processes auto;\nevents { worker_connections 8192; }\nhttp {\n  access_log off;\n  upstream app_pool {\n%b    keepalive 64;\n  }\n  server {\n    listen 80;\n    location / {\n      proxy_pass http://app_pool;\n      proxy_http_version 1.1;\n      proxy_set_header Connection "";\n    }\n  }\n}\n' "$servers" > nginx.conf
+  # Host 는 클라이언트 것을 그대로 넘긴다. 기본값은 upstream 이름(app_pool)인데 Tomcat 은
+  # 도메인에 밑줄이 든 Host 헤더를 400 으로 거절한다. Undertow 는 검사하지 않아 드러나지 않았다.
+  printf 'worker_processes auto;\nevents { worker_connections 8192; }\nhttp {\n  access_log off;\n  upstream app_pool {\n%b    keepalive 64;\n  }\n  server {\n    listen 80;\n    location / {\n      proxy_pass http://app_pool;\n      proxy_http_version 1.1;\n      proxy_set_header Host $host;\n      proxy_set_header Connection "";\n    }\n  }\n}\n' "$servers" > nginx.conf
 }
 
 wait_healthy() {   # $1 = 서비스명

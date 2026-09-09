@@ -1,0 +1,271 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<meta name="description" content="hotdeal-commerce 문서 목록. 의사결정 기록, 근거 문서, 설계 문서">
+<title>문서 · hotdeal-commerce</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' rx='3' fill='%230b6bcb'/%3E%3Cpath d='M4 12V7M8 12V4M12 12V9' stroke='white' stroke-width='2' stroke-linecap='round'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="assets/style.css">
+<script src="assets/doc.js" defer></script>
+</head>
+<body>
+
+<a class="skip" href="#content">본문으로 건너뛰기</a>
+
+<header class="top">
+  <div class="top-in">
+    <a class="brand" href="https://github.com/Ting97ok/hotdeal-commerce">hotdeal-commerce</a>
+    <nav class="top-nav">
+      <a class="doc-link" href="https://github.com/Ting97ok/hotdeal-commerce#readme">프로젝트 소개</a>
+      <a class="gh" href="https://github.com/Ting97ok/hotdeal-commerce">GitHub 저장소</a>
+    </nav>
+  </div>
+</header>
+
+<div class="wrap">
+
+<aside class="side">
+  <nav aria-label="목차">
+    <p class="toc-title">목차</p>
+    <details class="toc" open>
+      <summary>목차</summary>
+      <ol>
+        <li><a href="#sec-1">문서 종류</a></li>
+        <li><a href="#sec-2">의사결정 기록</a></li>
+        <li><a href="#sec-3">근거 문서</a></li>
+        <li><a href="#sec-4">설계 문서</a></li>
+        <li><a href="#sec-5">파일을 따로 두지 않은 결정</a></li>
+      </ol>
+    </details>
+  </nav>
+</aside>
+
+<main class="doc" id="content">
+
+<h1>hotdeal-commerce 문서</h1>
+
+<p class="lede">이 저장소는 선착순 한정 재고를 초과 판매 0건으로 판매하는 커머스 백엔드다.
+무엇을 결정했고 그 근거를 어떻게 측정했는지 적은 문서 목록이다.
+프로젝트 소개와 결과 요약은 <a href="https://github.com/Ting97ok/hotdeal-commerce#readme">저장소 README</a>에 있다.</p>
+
+<div class="conclusion">
+<p><strong>먼저 읽을 것</strong></p>
+<ul>
+  <li>시간이 30초면 <a href="adr/concurrency.html">재고 동시성 ADR</a> 맨 위의 요약만 읽는다. 이 저장소가 푼 문제의 핵심이다</li>
+  <li>시간이 5분이면 2절 표의 「결정」 열을 위에서 아래로 읽는다</li>
+  <li>측정을 확인하고 싶으면 <a href="rfc/concurrency-benchmark.html">재고 동시성 벤치마크</a>를 읽는다. 결론을 뒤집은 측정 오염과 재현되지 않은 값을 그대로 적었다</li>
+</ul>
+</div>
+
+<h2 id="sec-1">1. 문서 종류</h2>
+
+<p>결정, 근거, 데이터 모양을 다른 문서에 둔다. 한 문서에 셋을 다 넣으면 결정이 바뀔 때 어디를 고쳐야 하는지 알 수 없기 때문이다.</p>
+
+<table>
+<thead><tr><th>종류</th><th>내용</th><th>제외</th><th>예</th></tr></thead>
+<tbody>
+<tr><td>ADR</td><td>설계 갈림길에서 무엇을 택했고 왜 택했는지</td><td>측정값과 조사 원문</td><td><a href="adr/concurrency.html">재고 동시성</a></td></tr>
+<tr><td>RFC</td><td>결정의 근거가 된 측정과 조사</td><td>결정 자체</td><td><a href="rfc/concurrency-benchmark.html">재고 동시성 벤치마크</a></td></tr>
+<tr><td>설계 문서</td><td>데이터 모양과 외부 사례</td><td>결정의 이유</td><td><a href="https://github.com/Ting97ok/hotdeal-commerce/blob/main/docs/design/erd.md">데이터 모델</a></td></tr>
+</tbody>
+</table>
+
+<p>ADR 은 Architecture Decision Record 의 약자다. 주제 하나가 파일 하나이고 번호도 등급도 없다.
+결정이 바뀌면 새 문서를 만들지 않고 그 문서를 고친다. 변경 이력은 git 에 있다.
+수록 기준은 6개월 뒤 새 멤버가 "이건 왜 이렇게 했어요?"라고 물을 결정이다.</p>
+
+<p>RFC 는 원래 의견을 구하는 제안서를 뜻하는 이름이지만 이 저장소에서는 근거 기록이다.
+ADR 의 근거가 파일을 따로 열 만큼 길 때만 RFC 로 뗀다. 링크는 ADR 에서 RFC 로 한 방향이다.</p>
+
+<h2 id="sec-2">2. 의사결정 기록</h2>
+
+<p>읽는 순서대로 놓았다. 「결정」 열은 각 문서의 요약을 옮긴 것이라, 본문과 어긋나면 본문이 맞다.</p>
+
+<table>
+<thead><tr><th>주제</th><th>다루는 것</th><th>결정</th></tr></thead>
+<tbody>
+<tr>
+  <td><a href="https://github.com/Ting97ok/hotdeal-commerce/blob/main/docs/adr/auth.md">인증</a></td>
+  <td>매 요청의 인증 검증</td>
+  <td><ul>
+    <li>매 요청의 검증은 서버 안에서 서명만 확인하고 Redis 를 거치지 않는다.</li>
+    <li>그 대신 만료 전에 토큰을 무효화할 수 없어, Access 30분, 재발급마다 Refresh 교체, <code>tokenVersion</code> 으로 보완한다.</li>
+    <li>같은 Refresh 로 동시에 두 번 재발급을 요청해도 Redis <code>GETDEL</code> 한 명령이 한쪽만 통과시킨다</li>
+  </ul></td>
+</tr>
+<tr>
+  <td><a href="https://github.com/Ting97ok/hotdeal-commerce/blob/main/docs/adr/architecture.md">애플리케이션 구조</a></td>
+  <td>계층과 트랜잭션 경계</td>
+  <td><ul>
+    <li>도메인이 최상위이고 계층은 넷이며 예외를 두지 않는다.</li>
+    <li>트랜잭션은 Facade 에서만 연다.</li>
+    <li>인터페이스는 외부 시스템 경계에만 두고 벤더 지식은 도메인 밖에 둔다.</li>
+    <li>규칙이 틀리면 바꾸되 바꾸는 범위는 일정이 정한다</li>
+  </ul></td>
+</tr>
+<tr>
+  <td><a href="https://github.com/Ting97ok/hotdeal-commerce/blob/main/docs/adr/integrity.md">참조 무결성</a></td>
+  <td>참조를 지키는 방법</td>
+  <td><ul>
+    <li>DB 에 FK 제약을 걸지 않는다.</li>
+    <li>조회 성능은 인덱스에서 나오고 FK 는 읽지 않는 인덱스까지 만든다.</li>
+    <li>FK 가 막아 주던 실수는 코드에서는 서비스 가드가, 사람이 DB 를 직접 다루는 경로에서는 권한이 막는다</li>
+  </ul></td>
+</tr>
+<tr>
+  <td><a href="https://github.com/Ting97ok/hotdeal-commerce/blob/main/docs/adr/order.md">주문</a></td>
+  <td>재고 선점과 해제 시점</td>
+  <td><ul>
+    <li>재고는 주문을 생성할 때 선점한다. 결제 성공 뒤에 차감하면 선착순의 뜻이 사라지기 때문이다.</li>
+    <li>해제는 주문 상태 전이가 성공한 한 번에만 붙인다.</li>
+    <li>계정당 살아 있는 주문 1건은 DB 유니크가 막는다.</li>
+    <li>초과 판매 0건과 거짓 성공 0건은 협상하지 않는다</li>
+  </ul></td>
+</tr>
+<tr>
+  <td><a href="https://github.com/Ting97ok/hotdeal-commerce/blob/main/docs/adr/hotdeal.md">핫딜</a></td>
+  <td>구매 가능 여부 판단</td>
+  <td><ul>
+    <li>진행·매진을 상태값으로 저장하지 않고 판매 기간과 재고를 그때 읽어 판단한다. 그래서 핫딜 상태를 바꾸는 스케줄러가 없다.</li>
+    <li>한 핫딜은 상품 하나를 판매한다.</li>
+    <li>등록한 핫딜은 수정하지 않는다. 내용을 바꾸려면 취소하고 다시 등록하고, 물량을 더하려면 새 회차를 연다</li>
+  </ul></td>
+</tr>
+<tr>
+  <td><a href="https://github.com/Ting97ok/hotdeal-commerce/blob/main/docs/adr/payment.md">결제</a></td>
+  <td>외부 승인과 우리 데이터의 연결</td>
+  <td><ul>
+    <li>PG 는 토스페이먼츠 테스트 모드다.</li>
+    <li>결제 시도 한 번이 한 행이고, 토스가 발급한 <code>paymentKey</code> 가 그 행의 키다.</li>
+    <li>토스 호출은 DB 트랜잭션 밖에 두고 승인·거절·통신오류·미확정 네 갈래마다 후처리를 따로 정했다.</li>
+    <li>결과를 모르는 결제는 되돌리지 않고 남겨 두었다가, 스케줄러가 토스 결제 조회 API 로 상태를 확인해 확정한다. 분류 기준은 <a href="https://github.com/Ting97ok/hotdeal-commerce/blob/main/docs/rfc/payment-result-classification.md">결제 결과 분류</a>에 있다</li>
+  </ul></td>
+</tr>
+<tr>
+  <td><a href="adr/concurrency.html">재고 동시성</a></td>
+  <td>재고의 위치와 차감 방식</td>
+  <td><ul>
+    <li>재고는 전용 테이블에 둔다. <code>ProductStock</code> 이 원본이고 <code>HotDealStock</code> 이 핫딜 몫이다.</li>
+    <li>차감은 원자적 조건부 UPDATE 한 문장이다. 낙관적 락, Redis 와 같은 조건에서 측정해 선정했다. 측정은 <a href="rfc/concurrency-benchmark.html">재고 동시성 벤치마크</a>에 있다</li>
+  </ul></td>
+</tr>
+</tbody>
+</table>
+
+<h2 id="sec-3">3. 근거 문서</h2>
+
+<table>
+<thead><tr><th>문서</th><th>근거가 되는 결정</th><th>내용</th></tr></thead>
+<tbody>
+<tr>
+  <td><a href="rfc/concurrency-benchmark.html">재고 동시성 벤치마크</a></td>
+  <td>재고 동시성 ADR</td>
+  <td><ul>
+    <li>낙관적 락, 조건부 UPDATE, Redis 를 같은 부하로 측정한 설계와 결과.</li>
+    <li>결론을 바꾼 측정 오염, 앱 1대와 3대에서 인원을 늘려 가며 측정한 결과, 재현되지 않은 값</li>
+  </ul></td>
+</tr>
+<tr>
+  <td><a href="https://github.com/Ting97ok/hotdeal-commerce/blob/main/docs/rfc/payment-result-classification.md">결제 결과 분류</a></td>
+  <td>결제 ADR 5절</td>
+  <td><ul>
+    <li>토스 승인 응답을 승인·거절·통신오류·미확정 네 갈래로 나누는 기준과 경계.</li>
+    <li>거절 목록 전문과 샌드박스에서 받은 응답 원본</li>
+  </ul></td>
+</tr>
+</tbody>
+</table>
+
+<h2 id="sec-4">4. 설계 문서</h2>
+
+<table>
+<thead><tr><th>문서</th><th>내용</th></tr></thead>
+<tbody>
+<tr>
+  <td><a href="https://github.com/Ting97ok/hotdeal-commerce/blob/main/docs/design/erd.md">데이터 모델</a></td>
+  <td>엔티티 관계와 물리 DDL 정책. 결정의 이유는 ADR 을 가리킨다</td>
+</tr>
+<tr>
+  <td><a href="https://github.com/Ting97ok/hotdeal-commerce/blob/main/docs/design/research-flash-sale.md">선착순 플래시세일 실무 사례</a></td>
+  <td><ul>
+    <li>ADR 이 절 번호로 인용하는 1차 출처 모음.</li>
+    <li>정확성 요구, 선점 후 확정, 정시 오픈과 회차, 재입고</li>
+  </ul></td>
+</tr>
+</tbody>
+</table>
+
+<h2 id="sec-5">5. 파일을 따로 두지 않은 결정</h2>
+
+<p>파일을 열 만큼 길지 않은 결정은 여기서 끝낸다.</p>
+
+<table>
+<thead><tr><th>결정</th><th>내용</th></tr></thead>
+<tbody>
+<tr>
+  <td>상품 재고와 구매 흐름</td>
+  <td><ul>
+    <li><code>ProductStock</code> 이 재고 원본이다. 실물 수량과 예약 수량을 저장하고, 판매 가능 수량(실물에서 예약을 뺀 값)은 저장하지 않고 계산한다.</li>
+    <li>핫딜을 등록하면 이 재고에서 판매할 수량을 예약한다.</li>
+    <li>구매 API 는 상품 기준이다. <code>POST /api/orders {productId}</code> 를 받아 서버가 그 상품의 판매 중인 핫딜을 찾는다.</li>
+    <li>주문은 상품을 참조하고 적용된 핫딜을 함께 기록한다.</li>
+    <li>자세한 것은 <a href="adr/concurrency.html#sec-2">재고 동시성 ADR 2절</a>에 있다</li>
+  </ul></td>
+</tr>
+<tr>
+  <td>주문 식별자</td>
+  <td><ul>
+    <li>공개 카탈로그(상품·핫딜)는 순서대로 증가하는 숫자 id 를 노출한다.</li>
+    <li>주문은 추측할 수 없는 <code>order_no</code>(UUID, UNIQUE)를 쓴다. 권한 검증 실수의 안전망이 되고, 주문량을 숨기며, 토스 주문번호를 겸한다.</li>
+    <li>PK 는 숫자 id 를 유지한다. UUID 를 PK 로 쓰면 InnoDB 삽입 성능이 떨어진다.</li>
+    <li>공통 UUID 컬럼은 두지 않았다. 5개 테이블에 낭비다</li>
+  </ul></td>
+</tr>
+<tr>
+  <td>금액 타입</td>
+  <td><ul>
+    <li>금액 컬럼은 전부 <code>DECIMAL(12,0)</code>, JPA 는 <code>BigDecimal</code> 이다.</li>
+    <li>금액은 정확한 십진수로 다루고 부동소수점을 쓰지 않는다.</li>
+    <li>BIGINT 와 비교하면 할인율·수수료 같은 소수 확장이 자릿수 변경으로 끝나고 스키마에 돈이라는 뜻이 드러난다.</li>
+    <li>KRW 전용이면 BIGINT 도 정당하지만 뜻과 확장성으로 DECIMAL 을 선정했다</li>
+  </ul></td>
+</tr>
+<tr>
+  <td>배포 전제</td>
+  <td><ul>
+    <li>서버 여러 대가 LB 뒤에서 MySQL·Redis 를 공유한다.</li>
+    <li>JVM 락은 자기 프로세스 안에서만 직렬화하므로 쓰지 않는다.</li>
+    <li>DB 커넥션 총량은 인스턴스 수 × 풀 크기다. 앱 3대 × HikariCP 기본 10 을 실측하니 <code>Threads_connected</code> 가 31 이었다(<code>max_connections</code> 151).</li>
+    <li>인스턴스를 크게 늘리면 앱보다 DB 커넥션이 먼저 고갈된다</li>
+  </ul></td>
+</tr>
+<tr>
+  <td>범위 밖</td>
+  <td><ul>
+    <li>대기열과 어뷰징 방어, 승인 후 환불, 주문 내역 조회와 이어서 결제(만료 후 재구매로 대신한다), 다중 PG 일반화, 여러 상품을 담는 핫딜.</li>
+    <li>여러 상품 핫딜의 확장 경로는 <a href="https://github.com/Ting97ok/hotdeal-commerce/blob/main/docs/adr/hotdeal.md">핫딜 ADR 2절</a>에 있다</li>
+  </ul></td>
+</tr>
+<tr>
+  <td>구현 순서</td>
+  <td><ul>
+    <li>등록, 구매, 만료 복원, 결제 승인 순서로 만들었다.</li>
+    <li>어느 시점에 멈춰도 시스템이 자기 완결이다</li>
+  </ul></td>
+</tr>
+</tbody>
+</table>
+
+<footer class="doc-foot">
+  <p>문서는 GitHub Pages 에서 읽는다.
+  <a href="https://github.com/Ting97ok/hotdeal-commerce#readme">프로젝트 소개</a> ·
+  <a href="https://github.com/Ting97ok/hotdeal-commerce">GitHub 저장소</a></p>
+</footer>
+
+</main>
+</div>
+
+</body>
+</html>
